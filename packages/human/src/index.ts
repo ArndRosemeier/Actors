@@ -7,4 +7,5 @@ export * from "./expressions";
 export * from "./skins";
 export * from "./races";
 export * from "./raceshape";
+export * from "./muscle";
 export * from "./parts";

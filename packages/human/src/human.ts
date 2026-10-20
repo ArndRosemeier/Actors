@@ -2,6 +2,7 @@ import { type ActorShape, ActorRuntime, type Fetcher, type MeshData, type Messag
 import { type UnitWeights, expressionTargetWeights } from "./expressions";
 import { type MacroTargetDef, macroTargetWeights } from "./macro";
 import { type ModifierDef, modifierTargetWeights } from "./modifiers";
+import { muscleTargetWeights } from "./muscle";
 import { DEFAULT_PARAMS, type HumanParams, sanitizeParams } from "./params";
 import { type SkinTextureDef, skinTextureWeights } from "./skins";
 import { DEFAULT_RACE, EAR_MASKS, type RaceSettings, raceHeadScale, raceScale, raceShapeOptions, raceTargetWeights, sanitizeRace, targetResolver } from "./raceshape";
@@ -84,6 +85,7 @@ export class Human {
     const params = sanitizeParams(this.params);
     const weights = macroTargetWeights(this.extra.macroTargets, params);
     modifierTargetWeights(this.extra.modifiers, this.modifierValues, weights);
+    muscleTargetWeights(params.muscle, params.gender, this.resolveTarget, weights);
     return raceTargetWeights(sanitizeRace(this.race), this.resolveTarget, params.gender, weights);
   }
 
