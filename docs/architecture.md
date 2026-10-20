@@ -11,6 +11,9 @@ MPFB2 data (CC0) --[tools/import-makehuman]--> actor pack --[@actors/core]--> sh
 
 * `manifest.json`: meshes, proxies (garments), skeleton, skin, target index and species data (`extra.human`).
 * `base.bin`: base positions, render meshes (split at UV seams, with a map back to shape vertices), skin weights, garment bindings.
+* `clips/*.bin`: retargetable motion clips (per bone: world-space rotation change against a reference pose + the reference direction; root motion in hip heights).
+* `textures/`: small data textures (skin region masks, iris).
+* Meshes can be derived at load time (`subdivide: { source }`), so the subdivided body costs no download.
 * `targets/*.bin`: one file per morph target, int16-quantized, sparse or dense, loaded on demand. Only the targets with a non-zero weight are fetched, so the first load is a few MB instead of ~38 MB.
 
 ## Runtime (`ActorRuntime`)
@@ -20,12 +23,17 @@ MPFB2 data (CC0) --[tools/import-makehuman]--> actor pack --[@actors/core]--> sh
 3. `computeNormals` on shape vertices (so UV seams don't show).
 4. `fitSkeleton`: each joint = mean of marker vertices, bone frames from head/tail/roll (Blender convention, so Blender-authored animation stays compatible).
 5. `fitProxy`: garments are bound to body triangles (MakeHuman `.mhclo` scheme) and follow every morph.
+6. Subdivided meshes follow via their stencil (each new vertex is a fixed weighted sum of base vertices).
+7. `surfaceDelta`: position/normal deltas for extra targets on top of a shape, used for GPU face morphs.
+8. `Retargeter`: plays a clip on any fitted skeleton (shortest-arc to the reference pose, then the recorded deltas).
 
-All of it is synchronous after targets load and has no DOM dependency, so it can move into a Web Worker or WebAssembly without API changes.
+All of it is synchronous after targets load and has no DOM dependency. `serveRuntime` / `RemoteRuntime` (`packages/core/src/worker.ts`) run it in a Web Worker; the viewer does this by default (`?noworker` turns it off).
 
 ## Renderer adapter (`@actors/three`)
 
 One `SkinnedMesh` per pack mesh, sharing one `Skeleton`. When the shape changes, vertex buffers are rewritten and the skeleton is re-bound in place; running animations are re-baked against the new bind pose.
+
+Materials (`materials.ts`) patch three's built-in shaders: skin (mask tints, brows, pores, wrapped diffuse, procedural vulva detail), eyes (iris recolouring), lashes, cloth (weave normal maps, per-pixel hem cut from the `clip` attribute) and dual-quaternion skinning on all of them, including the shadow pass. Two morph channels per face mesh ("expression", "blink") are filled from `surfaceDelta` and blended every frame.
 
 ## Adding another species
 

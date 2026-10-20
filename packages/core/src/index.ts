@@ -6,3 +6,6 @@ export * from "./proxy";
 export * from "./normals";
 export * from "./runtime";
 export * from "./animation";
+export * from "./retarget";
+export * from "./worker";
+export * from "./subdivide";

@@ -1,26 +1,42 @@
 /**
- * Converts MakeHuman/MPFB2 CC0 assets into an actor pack.
+ * Converts MakeHuman/MPFB2 CC0 assets (plus CMU motion capture) into an actor pack.
  *
  *   npm run import:human [-- --mpfb <path to mpfb2 checkout>] [--out <dir>]
  *
  * Without --mpfb, the MPFB2 repository is shallow-cloned into .cache/mpfb2.
- * Only CC0 data (base mesh, targets, rig, weights, a CC0 test garment) is used;
- * no MakeHuman/MPFB code is copied.
+ * A few extra CC0 files (eyes) come from the MakeHuman repository and motion
+ * clips from a GitHub mirror of the CMU BVH conversion; all are cached in .cache/.
+ * Only data is used; no MakeHuman/MPFB code is copied.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type ActorPackManifest, type BoneDef, type MeshDef, type ProxyDef, type TargetRef, encodeTarget } from "@actors/core";
+import {
+  type ActorPackManifest,
+  type BoneDef,
+  type ClipDef,
+  type MeshDef,
+  type ProxyDef,
+  type TargetRef,
+  encodeTarget,
+} from "@actors/core";
 import { BlobWriter } from "./blob";
+import { fetchCached, fetchText } from "./fetch";
+import { GARMENTS, garmentCut, insideFaces, selectGarmentFaces } from "./garments";
+import { type Gray, blankGray, blurGray, loadGray, maxGray, rasterizeUV, resizeGray, writeRgbaPng } from "./image";
 import { parseMhclo } from "./mhclo";
-import { type ObjFace, buildRenderMesh, parseObj } from "./obj";
+import { type ObjData, type ObjFace, buildRenderMesh, parseObj } from "./obj";
+import { CLIP_SPECS, importClip } from "./clips";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const CACHE = join(ROOT, ".cache");
 const SCALE = 0.1; // MakeHuman units are decimeters
 const RIG = "game_engine";
 const ADULT_MIN_AGE = 18;
+const MASK_SIZE = 2048;
+const MH_RAW = "https://raw.githubusercontent.com/makehumancommunity/makehuman/master/makehuman/data";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -30,10 +46,10 @@ function arg(name: string): string | undefined {
 function mpfbDir(): string {
   const given = arg("mpfb");
   if (given) return resolve(given);
-  const dir = join(ROOT, ".cache/mpfb2");
+  const dir = join(CACHE, "mpfb2");
   if (!existsSync(join(dir, "src/mpfb/data"))) {
     console.log("Cloning makehumancommunity/mpfb2 (shallow) into .cache/mpfb2 ...");
-    mkdirSync(dirname(dir), { recursive: true });
+    mkdirSync(CACHE, { recursive: true });
     execFileSync("git", ["clone", "--depth", "1", "https://github.com/makehumancommunity/mpfb2", dir], {
       stdio: "inherit",
       env: { ...process.env, GIT_LFS_SKIP_SMUDGE: "1" },
@@ -41,6 +57,8 @@ function mpfbDir(): string {
   }
   return dir;
 }
+
+const BROW_LIFT = Number(process.env.BROW_LIFT ?? 1.05);
 
 function readTarget(file: string): { indices: number[]; deltas: number[] } {
   const text = gunzipSync(readFileSync(file)).toString("utf8");
@@ -55,19 +73,32 @@ function readTarget(file: string): { indices: number[]; deltas: number[] } {
   return { indices, deltas };
 }
 
+/** Normalizes a mesh's UVs to its own 0..1 bounding box (helpers live in a tiny atlas corner). */
+function normalizeUV(uv: number[]): number[] {
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (let i = 0; i < uv.length; i += 2) {
+    u0 = Math.min(u0, uv[i]); u1 = Math.max(u1, uv[i]);
+    v0 = Math.min(v0, uv[i + 1]); v1 = Math.max(v1, uv[i + 1]);
+  }
+  return uv.map((x, i) => (i % 2 ? (x - v0) / (v1 - v0 || 1) : (x - u0) / (u1 - u0 || 1)));
+}
+
 function main() {
   const src = mpfbDir();
   const data = join(src, "src/mpfb/data");
   const out = resolve(arg("out") ?? join(ROOT, "apps/viewer/public/packs/human"));
-  // Clear old targets but keep the folder itself (a running dev server keeps watching it).
-  rmSync(join(out, "targets"), { recursive: true, force: true });
-  mkdirSync(join(out, "targets"), { recursive: true });
+  // Clear generated subfolders but keep the folder itself (a running dev server keeps watching it).
+  for (const d of ["targets", "textures", "clips"]) {
+    rmSync(join(out, d), { recursive: true, force: true });
+    mkdirSync(join(out, d), { recursive: true });
+  }
 
   // --- Base mesh ---------------------------------------------------------
   const obj = parseObj(readFileSync(join(data, "3dobjs/base.obj"), "utf8"));
   const vertexCount = obj.positions.length / 3;
+  const P = obj.positions.map((v) => v * SCALE);
   const blob = new BlobWriter();
-  const basePositions = blob.add("f32", obj.positions.map((v) => v * SCALE));
+  const basePositions = blob.add("f32", P);
 
   const groupVerts = new Map<string, number[]>();
   const groupFaces = new Map<string, ObjFace[]>();
@@ -78,93 +109,11 @@ function main() {
     for (const v of f.v) if (!set.includes(v)) set.push(v);
     groupVerts.set(f.group, set);
   }
-
-  const meshes: MeshDef[] = [];
-  const addBaseMesh = (name: string, groups: string[], role: MeshDef["role"], material: MeshDef["material"], optional = false) => {
-    const faces = groups.flatMap((g) => groupFaces.get(g) ?? []);
-    if (!faces.length) throw new Error(`No faces for ${groups}`);
-    const m = buildRenderMesh(obj, faces);
-    meshes.push({
-      name,
-      source: { kind: "base" },
-      role,
-      baseIndex: blob.add("u32", m.map),
-      uv: blob.add("f32", m.uv),
-      indices: blob.add("u32", m.indices),
-      material,
-      optional: optional || undefined,
-    });
-  };
-  addBaseMesh("body", ["body"], "body", { kind: "skin", color: [0.8, 0.62, 0.52], roughness: 0.55 });
-  addBaseMesh("eyes", ["helper-l-eye", "helper-r-eye"], "eyes", { kind: "eye", color: [0.95, 0.95, 0.95], roughness: 0.1 });
-  // MakeHuman's helper geometry doubles as simple garments: it is part of the base mesh, so it follows every morph for free.
-  addBaseMesh("tights", ["helper-tights"], "garment", { kind: "cloth", color: [0.08, 0.08, 0.1], roughness: 0.7 }, true);
-  addBaseMesh("skirt", ["helper-skirt"], "garment", { kind: "cloth", color: [0.35, 0.12, 0.15], roughness: 0.8 }, true);
-
-  // --- Proxy garment (fitted via .mhclo binding) ---------------------------
-  const proxies: ProxyDef[] = [];
-  const testdata = join(src, "test/testdata");
-  const clo = parseMhclo(readFileSync(join(testdata, "better_socks_low.mhclo"), "utf8"));
-  const cloObj = parseObj(readFileSync(join(testdata, clo.objFile), "utf8"));
-  const proxyVerts = cloObj.positions.length / 3;
-  if (clo.refs.length / 3 !== proxyVerts) throw new Error("mhclo/obj vertex count mismatch");
-  if (clo.scale.length !== 3) throw new Error("mhclo needs x/y/z scale references");
-  proxies.push({
-    name: "socks",
-    vertexCount: proxyVerts,
-    refs: blob.add("u32", clo.refs),
-    weights: blob.add("f32", clo.weights),
-    offsets: blob.add("f32", clo.offsets.map((v) => v * SCALE)),
-    scaleRefs: clo.scale.map(([a, b, l]) => [a, b, l * SCALE]) as ProxyDef["scaleRefs"],
-  });
-  const socks = buildRenderMesh(cloObj, cloObj.faces);
-  meshes.push({
-    name: "socks",
-    source: { kind: "proxy", proxy: "socks" },
-    role: "garment",
-    baseIndex: blob.add("u32", socks.map),
-    uv: blob.add("f32", socks.uv),
-    indices: blob.add("u32", socks.indices),
-    material: { kind: "cloth", color: [0.85, 0.85, 0.82], roughness: 0.9 },
-    optional: true,
-    // This CC0 test garment ships a placeholder delete list (11500-13000, mostly the face), so we
-    // derive our own: body skin within 3 cm of the garment is hidden while it is worn.
-    hidesBaseVertices: blob.add("u32", coveredBodyVertices(cloObj.positions.map((v) => v * SCALE), 0.03)),
-  });
-
-  function coveredBodyVertices(garment: number[], radius: number): number[] {
-    const cell = radius;
-    const grid = new Map<string, number[]>();
-    const keyOf = (x: number, y: number, z: number) => `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
-    for (let i = 0; i < garment.length; i += 3) {
-      const k = keyOf(garment[i], garment[i + 1], garment[i + 2]);
-      if (!grid.has(k)) grid.set(k, []);
-      grid.get(k)!.push(i);
-    }
-    const out: number[] = [];
-    for (const v of groupVerts.get("body")!) {
-      const x = obj.positions[v * 3] * SCALE, y = obj.positions[v * 3 + 1] * SCALE, z = obj.positions[v * 3 + 2] * SCALE;
-      const cx = Math.floor(x / cell), cy = Math.floor(y / cell), cz = Math.floor(z / cell);
-      search: for (let dx = -1; dx <= 1; dx++)
-        for (let dy = -1; dy <= 1; dy++)
-          for (let dz = -1; dz <= 1; dz++)
-            for (const i of grid.get(`${cx + dx},${cy + dy},${cz + dz}`) ?? []) {
-              if (Math.hypot(garment[i] - x, garment[i + 1] - y, garment[i + 2] - z) < radius) {
-                out.push(v);
-                break search;
-              }
-            }
-    }
-    return out;
-  }
+  const facesOf = (...groups: string[]) => groups.flatMap((g) => groupFaces.get(g) ?? []);
 
   // --- Skeleton -------------------------------------------------------------
-  type RigBone = {
-    parent: string;
-    roll: number;
-    head: { strategy: string; cube_name?: string; vertex_indices?: number[]; default_position: number[] };
-    tail: RigBone["head"];
-  };
+  type RigJoint = { strategy: string; cube_name?: string; vertex_indices?: number[]; default_position: number[] };
+  type RigBone = { parent: string; roll: number; head: RigJoint; tail: RigJoint };
   const rig = JSON.parse(readFileSync(join(data, `rigs/standard/rig.${RIG}.json`), "utf8")) as Record<string, RigBone>;
   const order: string[] = [];
   const visit = (name: string) => {
@@ -173,7 +122,7 @@ function main() {
     order.push(name);
   };
   Object.keys(rig).forEach(visit);
-  const jointVerts = (j: RigBone["head"]): number[] => {
+  const jointVerts = (j: RigJoint): number[] => {
     if (j.strategy === "CUBE") {
       const v = groupVerts.get(j.cube_name!);
       if (!v) throw new Error(`Missing joint cube ${j.cube_name}`);
@@ -182,6 +131,10 @@ function main() {
     if (j.strategy === "MEAN" || j.strategy === "VERTEX") return j.vertex_indices!;
     throw new Error(`Unsupported joint strategy ${j.strategy}`);
   };
+  const jointPos = (j: RigJoint): [number, number, number] => {
+    const vs = jointVerts(j);
+    return [0, 1, 2].map((c) => vs.reduce((s, v) => s + P[v * 3 + c], 0) / vs.length) as [number, number, number];
+  };
   const bones: BoneDef[] = order.map((name) => ({
     name,
     parent: rig[name].parent ? order.indexOf(rig[name].parent) : -1,
@@ -189,16 +142,6 @@ function main() {
     tail: { vertices: jointVerts(rig[name].tail) },
     roll: rig[name].roll ?? 0,
   }));
-  // Sanity check against MPFB's own default joint positions (Blender coords: x, -z, y).
-  let maxErr = 0;
-  for (const name of order) {
-    if (name === "Root") continue; // MPFB stores the root at the origin; we keep it on the ground joint
-    const verts = jointVerts(rig[name].head);
-    const p = [0, 1, 2].map((c) => verts.reduce((s, v) => s + obj.positions[v * 3 + c], 0) / verts.length * SCALE);
-    const d = rig[name].head.default_position;
-    maxErr = Math.max(maxErr, Math.hypot(p[0] - d[0], -p[2] - d[1], p[1] - d[2]));
-  }
-  console.log(`Skeleton: ${bones.length} bones, max joint deviation from MPFB's stored defaults ${(maxErr * 1000).toFixed(2)} mm`);
 
   const weightsJson = JSON.parse(readFileSync(join(data, `rigs/standard/weights.${RIG}.json`), "utf8")).weights as Record<string, [number, number][]>;
   const perVertex: [number, number][][] = Array.from({ length: vertexCount }, () => []);
@@ -224,6 +167,256 @@ function main() {
     });
   });
   const skin = { joints: blob.add("u16", skinJ), weights: blob.add("f32", skinW) };
+  const dominantBone = (v: number) => order[skinJ[v * 4]];
+  console.log(`Skeleton: ${bones.length} bones (${RIG})`);
+
+  // --- Mesh helpers -------------------------------------------------------------
+  const meshes: MeshDef[] = [];
+  const addBaseMesh = (
+    name: string,
+    faces: ObjFace[],
+    def: Omit<MeshDef, "name" | "source" | "baseIndex" | "uv" | "indices">,
+    uvTransform?: (uv: number[]) => number[],
+    clipOf?: (baseVertex: number) => number,
+  ) => {
+    if (!faces.length) throw new Error(`No faces for ${name}`);
+    const m = buildRenderMesh(obj, faces);
+    meshes.push({
+      name,
+      source: { kind: "base" },
+      baseIndex: blob.add("u32", m.map),
+      uv: blob.add("f32", uvTransform ? uvTransform(m.uv) : m.uv),
+      indices: blob.add("u32", m.indices),
+      ...(clipOf ? { clip: blob.add("f32", m.map.map(clipOf)) } : {}),
+      ...def,
+    });
+  };
+
+  /** Catmull-Clark subdivided version of an earlier (quad) mesh; the runtime builds it at load time. */
+  const addSubdividedMesh = (name: string, source: string, def: Omit<MeshDef, "name" | "source" | "baseIndex" | "uv" | "indices" | "stencil" | "subdivide">) => {
+    meshes.push({ name, source: { kind: "base" }, subdivide: { source }, ...def });
+  };
+
+  /**
+   * Body vertices hidden while a garment is worn: close to the garment, and
+   * not near its edges (so no holes show at hems).
+   */
+  const coveredBody = (gPos: number[], gFaces: number[][], radius = 0.015, margin = 0.035): number[] => {
+    const edges = new Map<string, number>();
+    for (const f of gFaces)
+      f.forEach((a, i) => {
+        const b = f[(i + 1) % f.length];
+        const k = a < b ? `${a}_${b}` : `${b}_${a}`;
+        edges.set(k, (edges.get(k) ?? 0) + 1);
+      });
+    const boundary = new Set<number>();
+    for (const [k, n] of edges) if (n === 1) k.split("_").forEach((x) => boundary.add(+x));
+    const used = new Set(gFaces.flat());
+    const cell = Math.max(radius, margin);
+    const grid = new Map<string, number[]>();
+    const keyOf = (x: number, y: number, z: number) => `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
+    for (const i of used) {
+      const k = keyOf(gPos[i * 3], gPos[i * 3 + 1], gPos[i * 3 + 2]);
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k)!.push(i);
+    }
+    const out: number[] = [];
+    for (const v of groupVerts.get("body")!) {
+      const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
+      const cx = Math.floor(x / cell), cy = Math.floor(y / cell), cz = Math.floor(z / cell);
+      let near = Infinity, nearEdge = Infinity;
+      for (let dx = -1; dx <= 1; dx++)
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dz = -1; dz <= 1; dz++)
+            for (const i of grid.get(`${cx + dx},${cy + dy},${cz + dz}`) ?? []) {
+              const d = Math.hypot(gPos[i * 3] - x, gPos[i * 3 + 1] - y, gPos[i * 3 + 2] - z);
+              near = Math.min(near, d);
+              if (boundary.has(i)) nearEdge = Math.min(nearEdge, d);
+            }
+      if (near < radius && nearEdge > margin) out.push(v);
+    }
+    return out;
+  };
+
+  // --- Body, face parts, anatomy ----------------------------------------------
+  const skinMaterial: MeshDef["material"] = { kind: "skin", color: [0.8, 0.62, 0.52], roughness: 0.5 };
+  addBaseMesh("body-low", facesOf("body"), {
+    role: "body",
+    slot: "body",
+    optional: true,
+    material: skinMaterial,
+    textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png" },
+  });
+  addSubdividedMesh("body", "body-low", {
+    role: "body",
+    slot: "body",
+    material: skinMaterial,
+    textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png" },
+  });
+  addBaseMesh("genitals-male-low", facesOf("helper-genital"), { role: "bodypart", internal: true, material: skinMaterial });
+  addSubdividedMesh("genitals-male", "genitals-male-low", {
+    role: "bodypart",
+    material: skinMaterial,
+    tags: ["anatomy", "male"],
+    textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png" },
+  });
+  addBaseMesh("teeth", facesOf("helper-upper-teeth", "helper-lower-teeth"), { role: "bodypart", material: { kind: "teeth", color: [0.92, 0.9, 0.84], roughness: 0.25 } });
+  addBaseMesh("tongue", facesOf("helper-tongue"), { role: "bodypart", material: { kind: "mouth", color: [0.62, 0.3, 0.3], roughness: 0.35 } });
+  addBaseMesh(
+    "eyelashes",
+    facesOf("helper-l-eyelashes-1", "helper-l-eyelashes-2", "helper-r-eyelashes-1", "helper-r-eyelashes-2"),
+    { role: "hair", material: { kind: "hair", color: [0.05, 0.04, 0.035], roughness: 0.6 }, tags: ["lashes"] },
+    normalizeUV,
+  );
+
+  // Eyes: MakeHuman's CC0 high-poly eye proxy with its brown iris texture.
+  const eyeClo = parseMhclo(fetchText(CACHE, `${MH_RAW}/eyes/high-poly/high-poly.mhclo`));
+  const eyeObj = parseObj(fetchText(CACHE, `${MH_RAW}/eyes/high-poly/high-poly.obj`));
+  copyFileSync(fetchCached(CACHE, `${MH_RAW}/eyes/materials/brown_eye.png`), join(out, "textures/eye_brown.png"));
+  const proxies: ProxyDef[] = [];
+  const addProxy = (name: string, clo: ReturnType<typeof parseMhclo>, cloObj: ObjData, faces = cloObj.faces) => {
+    const n = cloObj.positions.length / 3;
+    if (clo.refs.length / 3 !== n) throw new Error(`${name}: mhclo/obj vertex count mismatch`);
+    if (clo.scale.filter(Boolean).length !== 3) throw new Error(`${name}: needs x/y/z scale references`);
+    proxies.push({
+      name,
+      vertexCount: n,
+      refs: blob.add("u32", clo.refs),
+      weights: blob.add("f32", clo.weights),
+      offsets: blob.add("f32", clo.offsets.map((v) => v * SCALE)),
+      scaleRefs: clo.scale.map(([a, b, l]) => [a, b, l * SCALE]) as ProxyDef["scaleRefs"],
+    });
+    return buildRenderMesh(cloObj, faces);
+  };
+  // The eye model has an outer cornea shell mapped to the blue disc in the texture's corner. Drop it:
+  // the eyeball material's clear coat gives the wet cornea look without hiding the iris.
+  const isCornea = (f: ObjData["faces"][number]) => f.vt.every((t) => eyeObj.uvs[t * 2] > 0.85 && eyeObj.uvs[t * 2 + 1] < 0.15);
+  const eyes = addProxy("eyes", eyeClo, eyeObj, eyeObj.faces.filter((f) => !isCornea(f)));
+  meshes.push({
+    name: "eyes",
+    source: { kind: "proxy", proxy: "eyes" },
+    role: "eyes",
+    baseIndex: blob.add("u32", eyes.map),
+    uv: blob.add("f32", eyes.uv),
+    indices: blob.add("u32", eyes.indices),
+    material: { kind: "eye", color: [1, 1, 1], roughness: 0.05 },
+    textures: { color: "textures/eye_brown.png" },
+  });
+
+  // --- Garments -------------------------------------------------------------------
+  const tightsFaces = facesOf("helper-tights");
+  const genitalVerts = [...new Set(facesOf("helper-genital").flatMap((f) => f.v))];
+  const genitalCenter = [0, 1, 2].map((c) => genitalVerts.reduce((s, v) => s + P[v * 3 + c], 0) / genitalVerts.length);
+  const garmentCtx = {
+    positions: P,
+    dominantBone,
+    joint: (bone: string, end: "head" | "tail" = "head") => jointPos(rig[bone][end]),
+  };
+  const garmentLabels: Record<string, string> = {};
+  for (const spec of GARMENTS) {
+    const cut = garmentCut(tightsFaces, spec, garmentCtx);
+    const faces = selectGarmentFaces(tightsFaces, cut);
+    // Does it cover the genitals? Then adapters hide genital geometry while it is worn.
+    const coversGenitals = insideFaces(faces, cut).some((f) => f.v.some((v) => Math.hypot(P[v * 3] - genitalCenter[0], P[v * 3 + 1] - genitalCenter[1], P[v * 3 + 2] - genitalCenter[2]) < 0.06));
+    addBaseMesh(
+      spec.name,
+      faces,
+      {
+        role: "garment",
+        optional: true,
+        inflate: spec.inflate,
+        material: { kind: "cloth", color: spec.color, roughness: spec.roughness },
+        tags: [`fabric:${spec.fabric}`, ...(coversGenitals ? ["covers:anatomy"] : [])],
+        hidesBaseVertices: blob.add("u32", coveredBody(P, insideFaces(faces, cut).map((f) => f.v))),
+      },
+      normalizeUV,
+      (v) => cut.get(v)!,
+    );
+    garmentLabels[spec.name] = spec.label;
+    console.log(`Garment ${spec.name}: ${faces.length} faces`);
+  }
+  addBaseMesh("tights", tightsFaces, { role: "garment", optional: true, inflate: 0.001, material: { kind: "cloth", color: [0.08, 0.08, 0.1], roughness: 0.6 }, tags: ["fabric:knit", "covers:anatomy"] }, normalizeUV);
+  addBaseMesh("skirt", facesOf("helper-skirt"), { role: "garment", optional: true, inflate: 0.009, material: { kind: "cloth", color: [0.35, 0.12, 0.15], roughness: 0.8 }, tags: ["fabric:smooth"] }, normalizeUV);
+  garmentLabels.tights = "Tights";
+  garmentLabels.skirt = "Skirt";
+
+  // A real .mhclo garment, fitted by triangle binding (CC0 MPFB test asset).
+  const testdata = join(src, "test/testdata");
+  const sockClo = parseMhclo(readFileSync(join(testdata, "better_socks_low.mhclo"), "utf8"));
+  const sockObj = parseObj(readFileSync(join(testdata, sockClo.objFile), "utf8"));
+  const socks = addProxy("socks", sockClo, sockObj);
+  meshes.push({
+    name: "socks",
+    source: { kind: "proxy", proxy: "socks" },
+    role: "garment",
+    baseIndex: blob.add("u32", socks.map),
+    uv: blob.add("f32", socks.uv),
+    indices: blob.add("u32", socks.indices),
+    material: { kind: "cloth", color: [0.85, 0.85, 0.82], roughness: 0.9 },
+    optional: true,
+    inflate: 0.002,
+    tags: ["fabric:knit"],
+    // The asset's own delete list is a placeholder (mostly face vertices), so derive one.
+    hidesBaseVertices: blob.add("u32", coveredBody(sockObj.positions.map((v) => v * SCALE), sockObj.faces.map((f) => f.v), 0.03, 0.03)),
+  });
+  garmentLabels.socks = "Socks";
+
+  // --- Skin region masks -------------------------------------------------------------
+  const tex = join(data, "textures");
+  const mask = (n: string) => resizeGray(loadGray(join(tex, `mpfb_${n}.jpg`)), MASK_SIZE);
+  // Eyebrows: an arch above each eye, drawn per texel from the 3D position the texel maps to.
+  // Eye centre and width come from the eyelash helper geometry.
+  const bodyTris = (value: (v: number) => number) =>
+    facesOf("body").flatMap((f) => {
+      const uv = f.vt.map((t) => [obj.uvs[t * 2], obj.uvs[t * 2 + 1]] as [number, number]);
+      const out: { uv: [number, number][]; value: number[] }[] = [];
+      for (let i = 1; i + 1 < f.v.length; i++) out.push({ uv: [uv[0], uv[i], uv[i + 1]], value: [value(f.v[0]), value(f.v[i]), value(f.v[i + 1])] });
+      return out;
+    });
+  // rasterizeUV keeps the max per texel, so shift coordinates positive.
+  const posImg = [0, 1, 2].map((c) => rasterizeUV(MASK_SIZE, bodyTris((v) => P[v * 3 + c] + 10)));
+  const eyeSpots = ["l", "r"].map((side) => {
+    const verts = new Set(facesOf(`helper-${side}-eyelashes-1`, `helper-${side}-eyelashes-2`).flatMap((f) => f.v));
+    const c = [0, 0, 0];
+    let minX = Infinity, maxX = -Infinity;
+    for (const v of verts) {
+      for (let k = 0; k < 3; k++) c[k] += P[v * 3 + k] / verts.size;
+      minX = Math.min(minX, P[v * 3]);
+      maxX = Math.max(maxX, P[v * 3]);
+    }
+    return { c, w: (maxX - minX) / 2 };
+  });
+  const smooth = (a: number, b: number, x: number) => {
+    const u = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return u * u * (3 - 2 * u);
+  };
+  const browRaw = blankGray(MASK_SIZE);
+  for (let i = 0; i < browRaw.data.length; i++) {
+    if (posImg[0].data[i] < 5) continue;
+    const [x, y, z] = posImg.map((img) => img.data[i] - 10);
+    for (const { c, w } of eyeSpots) {
+      const side = Math.sign(c[0]);
+      const t = ((x - c[0]) * side) / w; // -1 inner corner .. +1 outer corner
+      if (t < -1.6 || t > 1.7 || z < c[2] - 0.012 || Math.abs(y - c[1]) > 3 * w) continue;
+      const arch = 1 - ((t - 0.2) / 1.5) ** 2;
+      const yc = c[1] + w * (BROW_LIFT + 0.28 * arch);
+      const half = w * (0.3 - 0.13 * smooth(-1.3, 1.5, t));
+      const v = smooth(half, half * 0.45, Math.abs(y - yc)) * smooth(-1.45, -1.05, t) * smooth(1.6, 1.15, t);
+      browRaw.data[i] = Math.max(browRaw.data[i], v);
+    }
+  }
+  const brows: Gray = blurGray(browRaw, 1);
+  writeRgbaPng(join(out, "textures/skin_mask_a.png"), [mask("lips"), mask("aureolae"), maxGray(mask("fingernails"), mask("toenails")), mask("eyelids")]);
+  const genitalsMask = mask("genitals");
+  writeRgbaPng(join(out, "textures/skin_mask_b.png"), [genitalsMask, mask("crotch"), mask("ears"), brows]);
+  // UV box of the genital region (for procedural detail in the skin shader).
+  let gb = [1, 1, 0, 0];
+  for (let y = 0; y < MASK_SIZE; y++)
+    for (let x = 0; x < MASK_SIZE; x++)
+      if (genitalsMask.data[y * MASK_SIZE + x] > 0.5) {
+        const u = (x + 0.5) / MASK_SIZE, v = 1 - (y + 0.5) / MASK_SIZE;
+        gb = [Math.min(gb[0], u), Math.min(gb[1], v), Math.max(gb[2], u), Math.max(gb[3], v)];
+      }
 
   // --- Targets ----------------------------------------------------------------
   const targets: TargetRef[] = [];
@@ -241,13 +434,12 @@ function main() {
 
   // Macro targets: names encode the variable values they represent.
   const macroTargets: { name: string; tokens: string[] }[] = [];
-  const macroDirs = ["macrodetails", "macrodetails/height", "macrodetails/proportions", "breast"];
-  for (const dir of macroDirs) {
+  for (const dir of ["macrodetails", "macrodetails/height", "macrodetails/proportions", "breast"]) {
     for (const f of readdirSync(join(data, "targets", dir)).sort()) {
       if (!f.endsWith(".target.gz")) continue;
       const base = f.replace(".target.gz", "");
-      const tokens = base.split("-").filter((t) => t !== "universal");
       if (!/^(female|male|african|asian|caucasian|universal)/.test(base)) continue; // detail breast targets handled below
+      const tokens = base.split("-").filter((t) => t !== "universal");
       if (tokens.includes("baby")) continue; // never used: adult-only
       const name = `macro/${base}`;
       if (writeTarget(name, "macro", join(data, "targets", dir, f))) macroTargets.push({ name, tokens });
@@ -255,9 +447,9 @@ function main() {
   }
 
   // Detail modifiers from MPFB's target index.
-  type Category = { name: string; label: string; targets: string[]; opposites: Record<string, string> };
+  type Category = { name: string; targets: string[]; opposites: Record<string, string> };
   const index = JSON.parse(readFileSync(join(data, "targets/target.json"), "utf8")) as Record<string, { categories: Category[] }>;
-  const SKIP_GROUPS = new Set(["expression", "genitals", "measure"]);
+  const SKIP_GROUPS = new Set(["expression", "measure"]);
   const modifiers: { id: string; group: string; label: string; negative: string[]; positive: string[] }[] = [];
   for (const [group, { categories }] of Object.entries(index)) {
     if (SKIP_GROUPS.has(group)) continue;
@@ -273,9 +465,31 @@ function main() {
       negative = negative.filter(ok).map((t) => `${group}/${t}`);
       positive = positive.filter(ok).map((t) => `${group}/${t}`);
       if (!negative.length && !positive.length) continue;
-      const label = cat.name.replace(/-(decr-incr|down-up|in-out|backward-forward|forward-backward|less-more|compress-uncompress|out-in|up-down|min-max|left-right|concave-convex|moveup-movedown|movedown-moveup)$/, "").replace(/-/g, " ");
+      const label = cat.name
+        .replace(/-(decr-incr|down-up|in-out|backward-forward|forward-backward|less-more|compress-uncompress|out-in|up-down|min-max|left-right|concave-convex|moveup-movedown|movedown-moveup)$/, "")
+        .replace(/-/g, " ");
       modifiers.push({ id: `${group}/${cat.name}`, group, label, negative, positive });
     }
+  }
+
+  // Facial expression units (per ethnicity; blended by the ethnicity mix at runtime).
+  const units = new Set<string>();
+  for (const eth of ["african", "asian", "caucasian"]) {
+    const dir = join(data, "targets/expression/units", eth);
+    for (const f of readdirSync(dir).sort()) {
+      const unit = f.replace(".target.gz", "");
+      if (writeTarget(`expression/${eth}/${unit}`, "expression", join(dir, f))) units.add(unit);
+    }
+  }
+
+  // --- Motion clips (CMU) ---------------------------------------------------------
+  const clips: ClipDef[] = [];
+  for (const spec of CLIP_SPECS) {
+    const bvhText = fetchText(CACHE, spec.url);
+    const { def, data: clipData } = importClip(spec, bvhText);
+    writeFileSync(join(out, def.file), new Uint8Array(clipData.buffer));
+    clips.push(def);
+    console.log(`Clip ${def.name}: ${def.frameCount} frames @ ${def.fps} fps`);
   }
 
   // --- Manifest ---------------------------------------------------------------
@@ -285,7 +499,11 @@ function main() {
     id: "human-makehuman-hm08",
     species: "human",
     units: "meters",
-    source: { name: "MakeHuman / MPFB2 (hm08 base mesh, targets, game_engine rig)", license: "CC0-1.0", url: "https://github.com/makehumancommunity/mpfb2" },
+    source: {
+      name: "MakeHuman / MPFB2 (hm08 base mesh, targets, game_engine rig, eyes); CMU Graphics Lab motion capture",
+      license: "CC0-1.0 (MakeHuman assets); CMU mocap free for research and commercial use",
+      url: "https://github.com/makehumancommunity/mpfb2",
+    },
     blob: "base.bin",
     vertexCount,
     basePositions,
@@ -294,15 +512,25 @@ function main() {
     skeleton: { name: RIG, bones },
     skin,
     targets,
-    extra: { human: { macroTargets, modifiers, adultMinAge: ADULT_MIN_AGE } },
+    clips,
+    extra: {
+      human: {
+        macroTargets,
+        modifiers,
+        adultMinAge: ADULT_MIN_AGE,
+        expressionUnits: [...units],
+        garmentLabels,
+        anatomy: { genitalsUV: gb },
+      },
+    },
   };
   const bin = blob.toBuffer();
   writeFileSync(join(out, "base.bin"), bin);
   writeFileSync(join(out, "manifest.json"), JSON.stringify(manifest));
   console.log(
     `Wrote ${out}: ${vertexCount} vertices, ${meshes.length} meshes, ${targets.length} targets ` +
-      `(${macroTargets.length} macro, ${modifiers.length} sliders), base ${(bin.byteLength / 1e6).toFixed(1)} MB, ` +
-      `targets ${(targetBytes / 1e6).toFixed(1)} MB`,
+      `(${macroTargets.length} macro, ${modifiers.length} sliders, ${units.size} expression units), ${clips.length} clips, ` +
+      `base ${(bin.byteLength / 1e6).toFixed(1)} MB, targets ${(targetBytes / 1e6).toFixed(1)} MB`,
   );
 }
 

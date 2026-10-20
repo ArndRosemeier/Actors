@@ -2,9 +2,10 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
-import type { ActorShape } from "@actors/core";
-import { ADULT_MIN_AGE, CLIPS, DEFAULT_PARAMS, Human, type HumanParams, MAX_AGE } from "@actors/human";
-import { ThreeActor } from "@actors/three";
+import type { ActorShape, Clip } from "@actors/core";
+import { ADULT_MIN_AGE, BLINK, DEFAULT_PARAMS, EXPRESSIONS, Human, type HumanParams, MAX_AGE } from "@actors/human";
+import HumanWorker from "@actors/human/worker?worker";
+import { IRIS_PRESETS, ThreeActor } from "@actors/three";
 
 const statusEl = document.getElementById("status")!;
 const view = document.getElementById("view")!;
@@ -61,6 +62,27 @@ const human = await Human.load(`${import.meta.env.BASE_URL}packs/human/manifest.
 const actor = new ThreeActor(human.runtime);
 scene.add(actor.object);
 let shape: ActorShape | undefined;
+// Shape evaluation runs in a Web Worker so slider drags never stall rendering.
+const useWorker = !new URLSearchParams(location.search).has("noworker");
+if (useWorker) await human.useWorker(new HumanWorker());
+
+// Face: one expression channel and one blink channel, blended on the GPU.
+const face = { expression: "neutral", intensity: 0.8, blink: true };
+async function rebuildFace() {
+  if (!shape) return;
+  const units = EXPRESSIONS[face.expression] ?? {};
+  actor.setMorph("expression", Object.keys(units).length ? await human.faceDelta(shape, units) : null);
+  actor.setMorph("blink", await human.faceDelta(shape, BLINK));
+  actor.setMorphWeight("expression", face.intensity);
+}
+
+// Anatomy: male genital mesh or female detail in the skin shader, adults only (age is clamped in the data path).
+const anatomy = { on: true };
+function updateAnatomy() {
+  const male = human.params.gender >= 0.5;
+  actor.setVisible("genitals-male", anatomy.on && male);
+  actor.skin.uFemale.value = anatomy.on && !male ? 1 : 0;
+}
 
 let busy = false;
 let dirty = false;
@@ -75,7 +97,9 @@ async function refresh() {
     shape = await human.evaluate(shape);
     actor.applyShape(shape);
     actor.object.position.y = actor.groundOffset();
-    statusEl.textContent = `${(performance.now() - t0).toFixed(0)} ms · ${human.runtime.targets.size} shapes loaded`;
+    updateAnatomy();
+    await rebuildFace();
+    statusEl.textContent = `${(performance.now() - t0).toFixed(0)} ms${useWorker ? " · worker" : ""}`;
   } catch (e) {
     statusEl.textContent = `Error: ${(e as Error).message}`;
     console.error(e);
@@ -132,29 +156,52 @@ for (const s of MACRO) {
   });
 }
 
-const skinRow = document.createElement("div");
-skinRow.className = "row";
-skinRow.innerHTML = `<label>Skin tone</label><input type="range" min="0" max="1" step="0.01" value="0.3"><output></output>`;
-macroEl.appendChild(skinRow);
+// --- Look -------------------------------------------------------------------
+const lookEl = document.getElementById("look")!;
 const skinTones = [new THREE.Color(0.93, 0.76, 0.66), new THREE.Color(0.78, 0.57, 0.43), new THREE.Color(0.5, 0.33, 0.22), new THREE.Color(0.25, 0.15, 0.1)];
 function setSkin(t: number) {
   const f = t * (skinTones.length - 1);
   const i = Math.min(skinTones.length - 2, Math.floor(f));
-  const c = skinTones[i].clone().lerp(skinTones[i + 1], f - i);
-  ((actor.meshes.get("body")!.material) as THREE.MeshPhysicalMaterial).color.copy(c);
+  actor.setSkinTone(skinTones[i].clone().lerp(skinTones[i + 1], f - i));
 }
-skinRow.querySelector("input")!.addEventListener("input", (e) => setSkin(+(e.target as HTMLInputElement).value));
+row(lookEl, "skinTone", "Skin tone", 0, 1, 0.01, 0.3, pct, setSkin);
 setSkin(0.3);
+row(lookEl, "brows", "Eyebrows", 0, 1, 0.01, actor.skin.uBrowDensity.value, pct, (v) => (actor.skin.uBrowDensity.value = v));
+row(lookEl, "sss", "Subsurface", 0, 2, 0.01, 1, (v) => v.toFixed(2), (v) => (actor.skin.uSSS.value = v));
 
+function selectRow(parent: HTMLElement, label: string, options: [string, string][], value: string, onChange: (v: string) => void) {
+  const div = document.createElement("div");
+  div.className = "row";
+  div.innerHTML = `<label>${label}</label><select></select>`;
+  const sel = div.querySelector("select")!;
+  for (const [v, text] of options) sel.add(new Option(text, v, false, v === value));
+  sel.addEventListener("change", () => onChange(sel.value));
+  parent.appendChild(div);
+  return sel;
+}
+const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
+selectRow(lookEl, "Eyes", Object.keys(IRIS_PRESETS).map((k) => [k, cap(k)]), "brown", (v) => actor.setIris(v));
+actor.setIris("brown");
+selectRow(lookEl, "Detail", [["body", "High (subdivided)"], ["body-low", "Low"]], "body", (v) => actor.setVisible(v, true));
+const anatomyBox = document.createElement("label");
+anatomyBox.className = "check";
+anatomyBox.innerHTML = `<input type="checkbox" checked> Anatomical detail`;
+anatomyBox.querySelector("input")!.addEventListener("change", (e) => {
+  anatomy.on = (e.target as HTMLInputElement).checked;
+  updateAnatomy();
+});
+lookEl.appendChild(anatomyBox);
+
+// --- Outfit -----------------------------------------------------------------
 const outfitEl = document.getElementById("outfit")!;
-const DEFAULT_OUTFIT = new Set<string>();
-for (const m of human.runtime.meshes.filter((m) => m.def.optional)) {
+const labels = human.extra.garmentLabels ?? {};
+for (const m of human.runtime.meshes.filter((m) => m.def.role === "garment")) {
   const label = document.createElement("label");
   label.className = "check";
-  label.innerHTML = `<input type="checkbox"> ${m.def.name}`;
+  label.innerHTML = `<input type="checkbox"> ${labels[m.def.name] ?? m.def.name}`;
   const box = label.querySelector("input")!;
-  box.checked = DEFAULT_OUTFIT.has(m.def.name);
-  actor.setVisible(m.def.name, box.checked);
+  box.dataset.garment = m.def.name;
+  box.checked = actor.isVisible(m.def.name);
   box.addEventListener("change", () => actor.setVisible(m.def.name, box.checked));
   outfitEl.appendChild(label);
 }
@@ -175,8 +222,35 @@ for (const m of human.modifiers) {
   });
 }
 
+// --- Animation and face -------------------------------------------------------
 const anim = document.getElementById("anim") as HTMLSelectElement;
-anim.addEventListener("change", () => actor.play(CLIPS.find((c) => c.name === anim.value) ?? null));
+const clipCache = new Map<string, Promise<Clip>>();
+function loadClip(name: string) {
+  if (!clipCache.has(name)) clipCache.set(name, human.runtime.loadClip(name));
+  return clipCache.get(name)!;
+}
+for (const c of human.runtime.manifest.clips ?? []) anim.add(new Option(cap(c.name), c.name, false, c.name === "idle"));
+async function playSelected() {
+  actor.play(anim.value ? await loadClip(anim.value) : null);
+}
+anim.addEventListener("change", playSelected);
+
+const exprSel = document.getElementById("expression") as HTMLSelectElement;
+for (const k of Object.keys(EXPRESSIONS)) exprSel.add(new Option(`Face: ${cap(k)}`, k, false, k === face.expression));
+exprSel.addEventListener("change", async () => {
+  face.expression = exprSel.value;
+  await rebuildFace();
+});
+const motionEl = document.getElementById("motion")!;
+row(motionEl, "exprIntensity", "Intensity", 0, 1, 0.01, face.intensity, pct, (v) => {
+  face.intensity = v;
+  actor.setMorphWeight("expression", v);
+});
+const blinkBox = document.createElement("label");
+blinkBox.className = "check";
+blinkBox.innerHTML = `<input type="checkbox" checked> Blink`;
+blinkBox.querySelector("input")!.addEventListener("change", (e) => (face.blink = (e.target as HTMLInputElement).checked));
+motionEl.appendChild(blinkBox);
 
 function syncInputs() {
   for (const s of MACRO) {
@@ -222,7 +296,8 @@ document.getElementById("randomize")!.addEventListener("click", () => {
 });
 
 document.getElementById("export")!.addEventListener("click", async () => {
-  const clips = shape?.skeleton ? CLIPS.map((c) => actor.toThreeClip(c)) : [];
+  const names = (human.runtime.manifest.clips ?? []).map((c) => c.name);
+  const clips = shape?.skeleton ? await Promise.all(names.map(async (n) => actor.toThreeClip(await loadClip(n)))) : [];
   const exporter = new GLTFExporter();
   const glb = (await exporter.parseAsync(actor.object, { binary: true, animations: clips, onlyVisible: true })) as ArrayBuffer;
   const a = document.createElement("a");
@@ -234,13 +309,20 @@ document.getElementById("export")!.addEventListener("click", async () => {
 
 // --- Loop -------------------------------------------------------------------
 await refresh();
-actor.play(CLIPS.find((c) => c.name === anim.value) ?? null);
+await playSelected();
 const clock = new THREE.Clock();
+let nextBlink = 2;
 renderer.setAnimationLoop(() => {
-  actor.update(clock.getDelta());
+  const dt = clock.getDelta();
+  actor.update(dt);
+  // Blink: ~150 ms close/open every 2-6 s.
+  const t = clock.elapsedTime;
+  if (t > nextBlink + 0.15) nextBlink = t + 2 + Math.random() * 4;
+  const b = face.blink && t > nextBlink ? Math.sin(((t - nextBlink) / 0.15) * Math.PI) : 0;
+  actor.setMorphWeight("blink", Math.max(0, b));
   controls.update();
   renderer.render(scene, camera);
 });
 
 // Test hook (used by the headless smoke test).
-Object.assign(window, { __actors: { human, actor, refresh, ready: true } });
+Object.assign(window, { __actors: { human, actor, refresh, view: (p: number[], t: number[]) => { camera.position.fromArray(p); controls.target.fromArray(t); controls.update(); }, face, rebuildFace, loadClip, ready: true } });

@@ -3,3 +3,4 @@ export * from "./macro";
 export * from "./modifiers";
 export * from "./clips";
 export * from "./human";
+export * from "./expressions";

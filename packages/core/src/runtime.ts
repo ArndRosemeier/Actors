@@ -1,5 +1,7 @@
 import { type ActorPackManifest, type MeshDef, readBuffer } from "./format";
+import type { Clip } from "./retarget";
 import { computeNormals } from "./normals";
+import { subdivideQuadMesh } from "./subdivide";
 import { type ProxyBinding, fitProxy, proxySkin } from "./proxy";
 import { type FittedSkeleton, fitSkeleton } from "./skeleton";
 import { type MorphTarget, applyTarget, decodeTarget } from "./target";
@@ -23,6 +25,31 @@ export interface MeshData {
   joints?: Uint16Array;
   weights?: Float32Array;
   hidesBaseVertices?: Uint32Array;
+  /** Per render vertex cut value (see MeshDef.clip). */
+  clip?: Float32Array;
+  /** For meshes with their own vertex space (e.g. subdivided): CSR map from base vertices. */
+  stencil?: { rows: number; rowPtr: Uint32Array; cols: Uint32Array; weights: Float32Array };
+  /** Per source vertex: the base vertex with the largest stencil weight (for hiding skin under garments). */
+  dominant?: Uint32Array;
+}
+
+/** Positions of a stencil mesh: out[r] = sum_k w_k * base[col_k]. */
+export function applyStencil(stencil: NonNullable<MeshData["stencil"]>, base: Float32Array, out?: Float32Array): Float32Array {
+  const { rows, rowPtr, cols, weights } = stencil;
+  const result = out ?? new Float32Array(rows * 3);
+  for (let r = 0; r < rows; r++) {
+    let x = 0, y = 0, z = 0;
+    for (let k = rowPtr[r]; k < rowPtr[r + 1]; k++) {
+      const c = cols[k] * 3, w = weights[k];
+      x += base[c] * w;
+      y += base[c + 1] * w;
+      z += base[c + 2] * w;
+    }
+    result[r * 3] = x;
+    result[r * 3 + 1] = y;
+    result[r * 3 + 2] = z;
+  }
+  return result;
 }
 
 /** Everything that changes when the shape changes. */
@@ -32,7 +59,16 @@ export interface ActorShape {
   normals: Float32Array;
   /** Per proxy: fitted positions and normals (per proxy vertex). */
   proxies: Map<string, { positions: Float32Array; normals: Float32Array }>;
+  /** Per stencil mesh (by mesh name): positions and normals in the mesh's own vertex space. */
+  meshes: Map<string, { positions: Float32Array; normals: Float32Array }>;
   skeleton?: FittedSkeleton;
+}
+
+/** Per-vertex deltas on top of an ActorShape (same layout as ActorShape, without proxies). */
+export interface SurfaceDelta {
+  positions: Float32Array;
+  normals: Float32Array;
+  meshes: Map<string, { positions: Float32Array; normals: Float32Array }>;
 }
 
 /**
@@ -48,6 +84,7 @@ export class ActorRuntime {
   readonly basePositions: Float32Array;
 
   private constructor(
+    readonly manifestUrl: string,
     readonly manifest: ActorPackManifest,
     private readonly blob: ArrayBuffer,
     private readonly baseUrl: string,
@@ -66,19 +103,46 @@ export class ActorRuntime {
     const baseWeights = manifest.skin ? readBuffer(blob, { ...manifest.skin.weights, type: "f32" }) : undefined;
     const proxySkins = new Map<string, { joints: Uint16Array; weights: Float32Array }>();
 
-    this.meshes = manifest.meshes.map((def) => {
-      const map = readBuffer(blob, { ...def.baseIndex, type: "u32" });
+    const built: MeshData[] = [];
+    this.meshes = built;
+    for (const def of manifest.meshes) {
+      let map: Uint32Array, uv: Float32Array, indices: Uint32Array;
+      let stencil: MeshData["stencil"];
+      if (def.subdivide) {
+        const src = built.find((m) => m.def.name === def.subdivide!.source);
+        if (!src) throw new Error(`${def.name}: subdivision source ${def.subdivide.source} must come first`);
+        ({ map, uv, indices, stencil } = subdivideQuadMesh(src));
+      } else {
+        map = readBuffer(blob, { ...def.baseIndex!, type: "u32" });
+        uv = readBuffer(blob, { ...def.uv!, type: "f32" });
+        indices = readBuffer(blob, { ...def.indices!, type: "u32" });
+      }
       const mesh: MeshData = {
         def,
         map,
-        uv: readBuffer(blob, { ...def.uv, type: "f32" }),
-        indices: readBuffer(blob, { ...def.indices, type: "u32" }),
+        uv,
+        indices,
         hidesBaseVertices: def.hidesBaseVertices ? readBuffer(blob, { ...def.hidesBaseVertices, type: "u32" }) : undefined,
+        clip: def.clip ? readBuffer(blob, { ...def.clip, type: "f32" }) : undefined,
       };
+      if (stencil) {
+        mesh.stencil = stencil;
+        mesh.dominant = dominantColumns(stencil);
+      } else if (def.stencil) {
+        const st = {
+          rows: def.stencil.rows,
+          rowPtr: readBuffer(blob, { ...def.stencil.rowPtr, type: "u32" }),
+          cols: readBuffer(blob, { ...def.stencil.cols, type: "u32" }),
+          weights: readBuffer(blob, { ...def.stencil.weights, type: "f32" }),
+        };
+        mesh.stencil = st;
+        mesh.dominant = dominantColumns(st);
+      }
       if (baseJoints && baseWeights) {
         let srcJ = baseJoints;
         let srcW = baseWeights;
-        if (def.source.kind === "proxy") {
+        if (mesh.stencil) ({ joints: srcJ, weights: srcW } = stencilSkin(mesh.stencil, baseJoints, baseWeights));
+        else if (def.source.kind === "proxy") {
           const name = def.source.proxy;
           if (!proxySkins.has(name)) proxySkins.set(name, proxySkin(this.proxies.get(name)!, baseJoints, baseWeights));
           ({ joints: srcJ, weights: srcW } = proxySkins.get(name)!);
@@ -90,8 +154,24 @@ export class ActorRuntime {
           mesh.weights.set(srcW.subarray(map[i] * 4, map[i] * 4 + 4), i * 4);
         }
       }
-      return mesh;
-    });
+      built.push(mesh);
+    }
+  }
+
+  /** Loads a motion clip listed in the manifest. */
+  async loadClip(name: string): Promise<Clip> {
+    const def = this.manifest.clips?.find((c) => c.name === name);
+    if (!def) throw new Error(`Unknown clip ${name}`);
+    return { def, data: new Float32Array(await this.fetcher(this.baseUrl + def.file)) };
+  }
+
+  /** Loads a texture file shipped with the pack (as raw bytes). */
+  loadFile(file: string): Promise<ArrayBuffer> {
+    return this.fetcher(this.baseUrl + file);
+  }
+
+  get url(): string {
+    return this.baseUrl;
   }
 
   static async load(manifestUrl: string, fetcher: Fetcher = defaultFetcher): Promise<ActorRuntime> {
@@ -100,7 +180,7 @@ export class ActorRuntime {
     if (manifest.format !== "actors-pack" || manifest.version !== 1) throw new Error("Unsupported actor pack");
     const baseUrl = manifestUrl.slice(0, manifestUrl.lastIndexOf("/") + 1);
     const blob = await fetcher(baseUrl + manifest.blob);
-    return new ActorRuntime(manifest, blob, baseUrl, fetcher);
+    return new ActorRuntime(manifestUrl, manifest, blob, baseUrl, fetcher);
   }
 
   /** Loads the given targets (once each). Targets stream in on demand rather than all up front. */
@@ -149,7 +229,7 @@ export class ActorRuntime {
   /** Synchronous version of evaluate(); all weighted targets must already be loaded. */
   evaluateLoaded(weights: Map<string, number>, previous?: ActorShape): ActorShape {
     const positions = this.morph(weights, previous?.positions);
-    const baseLists = this.meshes.filter((m) => m.def.source.kind === "base");
+    const baseLists = this.meshes.filter((m) => m.def.source.kind === "base" && !m.stencil);
     const normals = computeNormals(positions, this.manifest.vertexCount, baseLists, previous?.normals);
     const proxies = new Map<string, { positions: Float32Array; normals: Float32Array }>();
     for (const [name, binding] of this.proxies) {
@@ -158,7 +238,81 @@ export class ActorRuntime {
       const lists = this.meshes.filter((m) => m.def.source.kind === "proxy" && m.def.source.proxy === name);
       proxies.set(name, { positions: p, normals: computeNormals(p, binding.def.vertexCount, lists, prev?.normals) });
     }
+    const meshes = new Map<string, { positions: Float32Array; normals: Float32Array }>();
+    for (const m of this.meshes) {
+      if (!m.stencil) continue;
+      const prev = previous?.meshes.get(m.def.name);
+      const p = applyStencil(m.stencil, positions, prev?.positions);
+      meshes.set(m.def.name, { positions: p, normals: computeNormals(p, m.stencil.rows, [m], prev?.normals) });
+    }
     const skeleton = this.manifest.skeleton ? fitSkeleton(this.manifest.skeleton, positions) : undefined;
-    return { positions, normals, proxies, skeleton };
+    return { positions, normals, proxies, meshes, skeleton };
   }
+
+  /**
+   * How base-shape surfaces change when extra targets are added on top of a
+   * shape: position and normal deltas for the base shape and every stencil
+   * mesh. Meant for GPU morph targets (facial expressions, blinking) that are
+   * blended every frame without re-evaluating the whole shape. Proxies and the
+   * skeleton are not affected. All weighted targets must already be loaded.
+   */
+  surfaceDelta(shape: ActorShape, weights: Map<string, number>): SurfaceDelta {
+    const positions = Float32Array.from(shape.positions);
+    for (const [name, w] of weights) {
+      if (Math.abs(w) < 1e-5) continue;
+      const t = this.targets.get(name);
+      if (!t) throw new Error(`Target ${name} not loaded; call ensureTargets first`);
+      applyTarget(positions, t, w);
+    }
+    const sub = (a: Float32Array, b: Float32Array) => {
+      for (let i = 0; i < a.length; i++) a[i] -= b[i];
+      return a;
+    };
+    const baseLists = this.meshes.filter((m) => m.def.source.kind === "base" && !m.stencil);
+    const normals = computeNormals(positions, this.manifest.vertexCount, baseLists);
+    const meshes = new Map<string, { positions: Float32Array; normals: Float32Array }>();
+    for (const m of this.meshes) {
+      if (!m.stencil) continue;
+      const cur = shape.meshes.get(m.def.name)!;
+      const p = applyStencil(m.stencil, positions);
+      const n = computeNormals(p, m.stencil.rows, [m]);
+      meshes.set(m.def.name, { positions: sub(p, cur.positions), normals: sub(n, cur.normals) });
+    }
+    return { positions: sub(positions, shape.positions), normals: sub(normals, shape.normals), meshes };
+  }
+}
+
+/** Per stencil row: the column (base vertex) with the largest weight. */
+function dominantColumns(st: NonNullable<MeshData["stencil"]>): Uint32Array {
+  const out = new Uint32Array(st.rows);
+  for (let r = 0; r < st.rows; r++) {
+    let best = st.rowPtr[r];
+    for (let k = st.rowPtr[r]; k < st.rowPtr[r + 1]; k++) if (st.weights[k] > st.weights[best]) best = k;
+    out[r] = st.cols[best];
+  }
+  return out;
+}
+
+/** Skin weights for stencil rows: weighted sum of base influences, top 4 renormalized. */
+function stencilSkin(st: NonNullable<MeshData["stencil"]>, baseJoints: Uint16Array, baseWeights: Float32Array) {
+  const joints = new Uint16Array(st.rows * 4);
+  const weights = new Float32Array(st.rows * 4);
+  const acc = new Map<number, number>();
+  for (let r = 0; r < st.rows; r++) {
+    acc.clear();
+    for (let k = st.rowPtr[r]; k < st.rowPtr[r + 1]; k++) {
+      const v = st.cols[k], w = st.weights[k];
+      for (let j = 0; j < 4; j++) {
+        const bw = baseWeights[v * 4 + j] * w;
+        if (bw > 0) acc.set(baseJoints[v * 4 + j], (acc.get(baseJoints[v * 4 + j]) ?? 0) + bw);
+      }
+    }
+    const top = [...acc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
+    const sum = top.reduce((s, [, w]) => s + w, 0) || 1;
+    top.forEach(([j, w], i) => {
+      joints[r * 4 + i] = j;
+      weights[r * 4 + i] = w / sum;
+    });
+  }
+  return { joints, weights };
 }

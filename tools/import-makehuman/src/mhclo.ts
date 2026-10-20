@@ -5,7 +5,8 @@ export interface Mhclo {
   refs: number[];
   weights: number[];
   offsets: number[];
-  scale: [number, number, number][]; // [a, b, restLength] per axis
+  /** [a, b, restLength] for x, y, z (in that order). */
+  scale: [number, number, number][];
   deleteVerts: number[];
 }
 
@@ -49,7 +50,7 @@ export function parseMhclo(text: string): Mhclo {
     section = "header";
     if (parts[0] === "name") out.name = parts[1];
     else if (parts[0] === "obj_file") out.objFile = parts[1];
-    else if (parts[0].endsWith("_scale")) out.scale.push([+parts[1], +parts[2], +parts[3]]);
+    else if (/^[xyz]_scale$/.test(parts[0])) out.scale["xyz".indexOf(parts[0][0])] = [+parts[1], +parts[2], +parts[3]];
   }
   return out;
 }

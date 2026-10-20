@@ -45,3 +45,19 @@ describe("modifiers", () => {
     expect([...modifierTargetWeights(defs, { "nose/w": 0.5 })]).toEqual([["b", 0.5], ["c", 0.5]]);
   });
 });
+
+import { BLINK, EXPRESSIONS, expressionTargetWeights } from "./expressions";
+import { DEFAULT_PARAMS as P } from "./params";
+
+describe("expressions", () => {
+  it("splits each face unit across the ethnic variants by the body's mix", () => {
+    const w = expressionTargetWeights({ "mouth-open": 1 }, { ...P, african: 1, asian: 0, caucasian: 3 });
+    expect(w.get("expression/african/mouth-open")).toBeCloseTo(0.25);
+    expect(w.get("expression/caucasian/mouth-open")).toBeCloseTo(0.75);
+    expect(w.has("expression/asian/mouth-open")).toBe(false);
+  });
+  it("defines blink and the presets on both sides", () => {
+    expect(Object.keys(BLINK)).toEqual(["eye-left-closure", "eye-right-closure"]);
+    expect(Object.keys(EXPRESSIONS)).toContain("smile");
+  });
+});

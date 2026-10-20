@@ -22,7 +22,7 @@ export interface BufferRef {
 
 export interface MaterialHint {
   /** Free-form material kind the renderer adapter maps to its own material. */
-  kind: "skin" | "eye" | "cloth" | "hair" | "other";
+  kind: "skin" | "eye" | "cloth" | "hair" | "teeth" | "mouth" | "other";
   color?: [number, number, number];
   roughness?: number;
 }
@@ -32,18 +32,45 @@ export interface MeshDef {
   name: string;
   /** Which shape this mesh follows: the actor's base shape, or a proxy (garment) by name. */
   source: { kind: "base" } | { kind: "proxy"; proxy: string };
-  role: "body" | "eyes" | "garment" | "bodypart";
-  /** Render vertex -> source vertex index (u32). */
-  baseIndex: BufferRef;
-  /** Render vertex UVs (f32, 2 per vertex). */
-  uv: BufferRef;
-  /** Triangle list in render vertex indices (u32). */
-  indices: BufferRef;
+  role: "body" | "eyes" | "garment" | "bodypart" | "hair";
+  /** Render vertex -> source vertex index (u32). Absent for `subdivide` meshes. */
+  baseIndex?: BufferRef;
+  /** Render vertex UVs (f32, 2 per vertex). Absent for `subdivide` meshes. */
+  uv?: BufferRef;
+  /** Triangle list in render vertex indices (u32). Absent for `subdivide` meshes. */
+  indices?: BufferRef;
+  /**
+   * Built at load time: one Catmull-Clark level of the named earlier mesh
+   * (whose triangles come in quad pairs). The runtime fills in `stencil`.
+   */
+  subdivide?: { source: string };
+  /** Not rendered; only the source of other meshes (e.g. for `subdivide`). */
+  internal?: boolean;
   material: MaterialHint;
   /** Garments are optional and can be toggled. */
   optional?: boolean;
   /** Base vertices hidden while this mesh is shown (e.g. skin under a sock). */
   hidesBaseVertices?: BufferRef;
+  /**
+   * Optional sparse linear map (CSR) from base vertices to this mesh's own
+   * vertices, e.g. a precomputed subdivision. When present, `baseIndex`
+   * indexes the stencil rows instead of base vertices.
+   */
+  stencil?: { rows: number; rowPtr: BufferRef; cols: BufferRef; weights: BufferRef };
+  /**
+   * Per render vertex (f32): surface where the interpolated value is below 0
+   * is cut away by the renderer. Gives smooth garment edges independent of
+   * the mesh's face rows.
+   */
+  clip?: BufferRef;
+  /** Push vertices out along their normal by this many meters (garment thickness). */
+  inflate?: number;
+  /** Mutually exclusive alternatives share a slot (e.g. "body" for low/high detail). */
+  slot?: string;
+  /** Textures shipped with the pack, relative to the manifest. */
+  textures?: Partial<Record<"color" | "maskA" | "maskB", string>>;
+  /** Free-form hints for adapters (e.g. which gender a body part belongs to). */
+  tags?: string[];
 }
 
 /** A joint position: the mean of the given base vertices (after morphing). */
@@ -101,6 +128,30 @@ export interface ProxyDef {
   scaleRefs: [[number, number, number], [number, number, number], [number, number, number]];
 }
 
+/**
+ * A retargetable motion clip. Instead of bone-local rotations (which only fit
+ * one skeleton), each track stores the bone's *world-space rotation change*
+ * relative to a reference pose, plus the direction the bone pointed in that
+ * reference pose. Any skeleton with matching bone names can play it: the
+ * runtime first turns each bone to the reference direction, then applies the
+ * deltas. Root motion is stored in units of hip height.
+ */
+export interface ClipDef {
+  name: string;
+  /** File name relative to the manifest: f32 per frame = bones x quat (xyzw), then root translation xyz. */
+  file: string;
+  fps: number;
+  frameCount: number;
+  loop: boolean;
+  bones: string[];
+  /** Reference-pose direction (head -> tail, model space) per bone, 3 floats each. */
+  refDirs: number[];
+  /** Bone whose position carries the root motion (usually the pelvis). */
+  rootBone: string;
+  /** Attribution for the motion data. */
+  source: string;
+}
+
 export interface ActorPackManifest {
   format: "actors-pack";
   version: 1;
@@ -117,6 +168,7 @@ export interface ActorPackManifest {
   skeleton?: SkeletonDef;
   skin?: SkinDef;
   targets: TargetRef[];
+  clips?: ClipDef[];
   /** Species-specific data (e.g. how sliders map to targets for humans). */
   extra?: Record<string, unknown>;
 }
