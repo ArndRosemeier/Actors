@@ -2,7 +2,7 @@ import { ADULT_MIN_AGE, type HumanParams, MAX_AGE } from "@actors/human";
 import { type CharacterConfig, PAINTED_BROWS, outfitGarments } from "./catalog";
 import type { Character } from "./character";
 
-const CSS = `
+const STYLE = `
 .actors-editor { --ae-panel: #1d1f24; --ae-text: #e6e6e6; --ae-muted: #9aa0a6; --ae-accent: #c98b6b; --ae-border: #2c2f36;
   box-sizing: border-box; background: var(--ae-panel); color: var(--ae-text); font: 13px/1.4 system-ui, sans-serif; padding: 12px 14px 20px; overflow-y: auto; }
 .actors-editor * { box-sizing: border-box; }
@@ -19,11 +19,27 @@ const CSS = `
 .actors-editor summary { cursor: pointer; padding: 3px 0; text-transform: capitalize; }
 .actors-editor .ae-check { display: flex; gap: 6px; align-items: center; margin: 3px 0; }
 .actors-editor .ae-grid { display: grid; grid-template-columns: 1fr 1fr; }
+.actors-editor input[type="search"] { background: #272a31; color: var(--ae-text); border: 1px solid var(--ae-border); border-radius: 6px; padding: 5px 9px; font: inherit; min-width: 0; }
 .actors-editor select, .actors-editor button { background: #272a31; color: var(--ae-text); border: 1px solid var(--ae-border); border-radius: 6px; padding: 5px 9px; font: inherit; }
 .actors-editor button { cursor: pointer; }
 .actors-editor button:hover { border-color: var(--ae-accent); }
 .actors-editor footer { display: flex; gap: 6px; margin-top: 18px; flex-wrap: wrap; }
+.actors-editor .ae-modes { display: flex; gap: 0; margin: 2px 0 4px; }
+.actors-editor .ae-modes button { flex: 1; border-radius: 0; }
+.actors-editor .ae-modes button:first-child { border-radius: 6px 0 0 6px; }
+.actors-editor .ae-modes button:last-child { border-radius: 0 6px 6px 0; }
+.actors-editor .ae-modes button[aria-pressed="true"] { background: var(--ae-accent); border-color: var(--ae-accent); color: #1d1f24; }
+.actors-editor.ae-simple [data-level="detailed"], .actors-editor:not(.ae-simple) [data-level="simple"] { display: none !important; }
 `;
+
+export type EditorMode = "simple" | "detailed";
+
+const ETHNICITIES: [string, string, [number, number, number]][] = [
+  ["african", "African", [1, 0, 0]],
+  ["asian", "Asian", [0, 1, 0]],
+  ["caucasian", "Caucasian", [0, 0, 1]],
+  ["mixed", "Mixed", [1 / 3, 1 / 3, 1 / 3]],
+];
 
 type Slider = { key: keyof HumanParams; label: string; min: number; max: number; step: number; fmt: (v: number) => string };
 const pct = (v: number) => `${Math.round(v * 100)}`;
@@ -48,7 +64,18 @@ export interface EditorOptions {
   details?: boolean;
   /** Extra buttons for the footer. */
   actions?: { label: string; onClick: () => void }[];
+  /**
+   * "simple": the main choices for everyday users (body basics, ethnicity, hair, eyes,
+   * outfit preset, animation, face). "detailed": every control. Default: the viewer's
+   * last choice, else "simple".
+   */
+  mode?: EditorMode;
+  /** Show the Simple/Detailed switch (default true). */
+  modeSwitch?: boolean;
 }
+
+const SIMPLE_BODY = new Set<keyof HumanParams>(["gender", "ageYears", "muscle", "weight", "height", "cupSize"]);
+const MODE_KEY = "actors-editor-mode";
 
 /**
  * A plain-DOM control panel for a Character: body sliders, look, outfit
@@ -61,6 +88,9 @@ export class CharacterEditor {
   private readonly syncers: ((c: CharacterConfig) => void)[] = [];
   private readonly status: HTMLElement;
   private readonly unsubscribe: () => void;
+  private readonly modeButtons: HTMLButtonElement[] = [];
+  private readonly onMode: (() => void)[] = [];
+  private currentMode: EditorMode = "simple";
 
   constructor(
     readonly character: Character,
@@ -70,7 +100,7 @@ export class CharacterEditor {
     if (!document.getElementById("actors-editor-css")) {
       const style = document.createElement("style");
       style.id = "actors-editor-css";
-      style.textContent = CSS;
+      style.textContent = STYLE;
       document.head.appendChild(style);
     }
     const el = (this.element = document.createElement("div"));
@@ -90,21 +120,52 @@ export class CharacterEditor {
     header.querySelector("h1")!.textContent = options.title ?? "Character";
     this.status = header.querySelector(".ae-status")!;
     el.appendChild(header);
+    // Marks a control as shown only in one mode.
+    const only = (level: EditorMode, node: HTMLElement) => {
+      ((node.closest(".ae-row, .ae-check") as HTMLElement | null) ?? node).dataset.level = level;
+      return node;
+    };
+    const detailed = (node: HTMLElement) => only("detailed", node);
+    if (options.modeSwitch !== false) {
+      const modes = document.createElement("div");
+      modes.className = "ae-modes";
+      for (const [m, label] of [["simple", "Simple"], ["detailed", "Detailed"]] as const) {
+        const b = document.createElement("button");
+        b.textContent = label;
+        b.dataset.mode = m;
+        b.addEventListener("click", () => this.setMode(m));
+        modes.appendChild(b);
+        this.modeButtons.push(b);
+      }
+      el.appendChild(modes);
+    }
 
     // Body
     const body = this.section("Body");
-    for (const s of BODY) this.slider(body, s.label, s.min, s.max, s.step, s.fmt, (c) => c.body[s.key], (v) => set({ body: { [s.key]: v } }), `body.${s.key}`);
+    for (const s of BODY) {
+      const row = this.slider(body, s.label, s.min, s.max, s.step, s.fmt, (c) => c.body[s.key], (v) => set({ body: { [s.key]: v } }), `body.${s.key}`);
+      if (!SIMPLE_BODY.has(s.key)) detailed(row);
+    }
+    const eth = this.select(body, "Ethnicity", [...ETHNICITIES.map(([id, label]): [string, string] => [id, label]), ["", "Custom"]], (c) => {
+      const sum = c.body.african + c.body.asian + c.body.caucasian || 1;
+      const mix = [c.body.african / sum, c.body.asian / sum, c.body.caucasian / sum];
+      return ETHNICITIES.find(([, , w]) => w.every((v, i) => Math.abs(v - mix[i]) < 0.02))?.[0] ?? "";
+    }, (v) => {
+      const e = ETHNICITIES.find(([id]) => id === v);
+      if (e) set({ body: { african: e[2][0], asian: e[2][1], caucasian: e[2][2] } });
+    }, "ethnicity");
+    only("simple", eth);
 
     // Look
     const look = this.section("Look");
-    if (cat.photoSkin) this.select(look, "Skin", [["photo", "Photo (follows ethnicity)"], ["procedural", "Procedural"]], (c) => c.skin, (v) => set({ skin: v as CharacterConfig["skin"] }), "skin");
-    const tone = this.slider(look, "Skin tone", 0, 1, 0.01, pct, (c) => c.skinTone, (v) => set({ skinTone: v }), "skinTone");
+    if (cat.photoSkin) detailed(this.select(look, "Skin", [["photo", "Photo (follows ethnicity)"], ["procedural", "Procedural"]], (c) => c.skin, (v) => set({ skin: v as CharacterConfig["skin"] }), "skin"));
+    const tone = detailed(this.slider(look, "Skin tone", 0, 1, 0.01, pct, (c) => c.skinTone, (v) => set({ skinTone: v }), "skinTone"));
     this.syncers.push((c) => (tone.hidden = c.skin === "photo"));
     this.select(look, "Eyes", cat.eyes.map((e) => [e.id, e.label]), (c) => c.eyes, (v) => set({ eyes: v }), "eyes");
     this.select(look, "Hair", [["", "None"], ...cat.hair.map((h): [string, string] => [h.id, h.label])], (c) => c.hair ?? "", (v) => set({ hair: v || null }), "hair");
     this.select(look, "Hair colour", [["", "Natural"], ...cat.hairColors.map((h): [string, string] => [h.id, h.label])], (c) => c.hairColor ?? "", (v) => set({ hairColor: v || null }), "hairColor");
-    this.select(look, "Eyebrows", [...cat.brows.map((b): [string, string] => [b.id, b.label]), [PAINTED_BROWS, "Painted"], ["", "None"]], (c) => c.brows ?? "", (v) => set({ brows: v || null }), "brows");
-    this.select(look, "Detail", [["high", "High (subdivided)"], ["low", "Low"]], (c) => c.detail, (v) => set({ detail: v as CharacterConfig["detail"] }), "detail");
+    detailed(this.select(look, "Eyebrows", [...cat.brows.map((b): [string, string] => [b.id, b.label]), [PAINTED_BROWS, "Painted"], ["", "None"]], (c) => c.brows ?? "", (v) => set({ brows: v || null }), "brows"));
+    detailed(this.select(look, "Detail", [["high", "High (subdivided)"], ["low", "Low"]], (c) => c.detail, (v) => set({ detail: v as CharacterConfig["detail"] }), "detail"));
     this.check(look, "Anatomical detail", (c) => c.anatomy, (v) => set({ anatomy: v }), "anatomy");
 
     // Outfit
@@ -116,6 +177,7 @@ export class CharacterEditor {
     presetSel.dataset.role = "outfit-preset";
     const grid = document.createElement("div");
     grid.className = "ae-grid";
+    detailed(grid);
     outfit.appendChild(grid);
     for (const g of cat.garments) {
       const box = this.check(grid, g.label, (c) => c.outfit.includes(g.id), (on) => {
@@ -127,16 +189,64 @@ export class CharacterEditor {
 
     // Animation and face
     const motion = this.section("Animation");
-    this.select(motion, "Clip", [["", "Bind pose"], ...cat.animations.map((a): [string, string] => [a.id, a.label])], (c) => c.animation ?? "", (v) => set({ animation: v || null }), "animation");
-    const root = this.check(motion, "Root motion", () => character.rootMotion, (v) => (character.rootMotion = v));
+    // Clip pickers: a library choice, a search box for big libraries, and the clip list grouped by category.
+    const libSel = this.select(motion, "Library", cat.libraries.map((l) => [l.id, l.label]), (c) => cat.animations.find((a) => a.id === c.animation)?.library ?? libSel.value, () => fillClips(), "library");
+    if (cat.libraries.length < 2) (libSel.parentElement as HTMLElement).hidden = true;
+    detailed(libSel);
+    const searchRow = document.createElement("div");
+    searchRow.className = "ae-row";
+    searchRow.innerHTML = `<label>Search</label><input type="search" placeholder="walk, dance, jump…" style="grid-column: 2 / 4">`;
+    const search = searchRow.querySelector("input")!;
+    search.dataset.key = "clip-search";
+    motion.appendChild(searchRow);
+    detailed(searchRow);
+    // Simple mode lists only the pack's own clips.
+    this.onMode.push(() => {
+      if (this.currentMode === "simple" && libSel.value !== "") {
+        libSel.value = "";
+        search.value = "";
+        fillClips();
+      }
+    });
+    search.addEventListener("input", () => fillClips());
+    const clipSel = this.select(motion, "Clip", [], (c) => c.animation ?? "", (v) => set({ animation: v || null }), "animation");
+    const fillClips = () => {
+      const lib = libSel.value;
+      const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+      const list = cat.animations.filter((a) => a.library === lib && words.every((w) => `${a.label} ${a.category}`.toLowerCase().includes(w)));
+      clipSel.replaceChildren(new Option("Bind pose", ""));
+      const groups = new Map<string, HTMLOptGroupElement>();
+      for (const a of list.slice(0, 600)) {
+        if (!groups.has(a.category)) {
+          const g = document.createElement("optgroup");
+          g.label = a.category;
+          clipSel.appendChild(g);
+          groups.set(a.category, g);
+        }
+        groups.get(a.category)!.appendChild(new Option(a.label, a.id));
+      }
+      const current = character.config.animation;
+      if (current && !list.some((a) => a.id === current)) {
+        const a = cat.animations.find((x) => x.id === current);
+        // Keep the playing clip selectable at the top, outside the groups.
+        if (a) clipSel.insertBefore(new Option(a.label, a.id), clipSel.children[1] ?? null);
+      }
+      clipSel.value = current ?? "";
+      searchRow.hidden = list.length < 40 && !search.value;
+    };
+    this.syncers.push(() => {
+      if (!clipSel.querySelector(`option[value="${CSS.escape(character.config.animation ?? "")}"]`)) fillClips();
+    });
+    fillClips();
+    const root = detailed(this.check(motion, "Root motion", () => character.rootMotion, (v) => (character.rootMotion = v))) as HTMLInputElement;
     root.dataset.role = "root-motion";
     this.select(motion, "Face", cat.expressions.map((e) => [e.id, e.label]), (c) => c.expression, (v) => set({ expression: v }), "expression");
-    this.slider(motion, "Intensity", 0, 1, 0.01, pct, (c) => c.expressionIntensity, (v) => set({ expressionIntensity: v }), "expressionIntensity");
-    this.check(motion, "Blink", (c) => c.blink, (v) => set({ blink: v }), "blink");
+    detailed(this.slider(motion, "Intensity", 0, 1, 0.01, pct, (c) => c.expressionIntensity, (v) => set({ expressionIntensity: v }), "expressionIntensity"));
+    detailed(this.check(motion, "Blink", (c) => c.blink, (v) => set({ blink: v }), "blink"));
 
     // Detail sliders
     if (options.details !== false && cat.details.length) {
-      const details = this.section("Details");
+      const details = detailed(this.section("Details"));
       const groups = new Map<string, HTMLElement>();
       for (const d of cat.details) {
         if (!groups.has(d.group)) {
@@ -178,6 +288,31 @@ export class CharacterEditor {
 
     this.unsubscribe = character.onChange((c) => this.sync(c));
     this.sync(character.config);
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(MODE_KEY);
+    } catch {
+      // storage unavailable (private mode, sandboxed frame)
+    }
+    this.setMode(options.mode ?? (saved === "detailed" ? "detailed" : "simple"), false);
+  }
+
+  get mode(): EditorMode {
+    return this.currentMode;
+  }
+
+  /** Switches between the simple and the detailed panel. */
+  setMode(mode: EditorMode, remember = true): void {
+    this.currentMode = mode;
+    this.element.classList.toggle("ae-simple", mode === "simple");
+    for (const b of this.modeButtons) b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
+    for (const f of this.onMode) f();
+    if (remember)
+      try {
+        localStorage.setItem(MODE_KEY, mode);
+      } catch {
+        // ignore
+      }
   }
 
   dispose(): void {

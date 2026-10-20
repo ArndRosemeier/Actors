@@ -8,11 +8,11 @@ The first actor is an adult human built on the **MakeHuman / MPFB2 CC0 assets** 
 
 ```bash
 npm install
-npm run import:human   # clones MPFB2, fetches the CC0 skins/hair/skirts/animations it needs into .cache/, builds the pack
+npm run import:human   # clones MPFB2, fetches the CC0 skins/hair/skirts/animations and the CMU mocap into .cache/, builds the pack
 npm run dev            # character generator at http://localhost:5173
 ```
 
-`npm run import:human -- --mpfb <path>` uses an existing MPFB2 checkout instead of cloning.
+`npm run import:human -- --mpfb <path>` uses an existing MPFB2 checkout instead of cloning. The first full import downloads about 6 GB of CMU BVH files (converted clips are cached, raw files are deleted); `--no-cmu` skips the library and `--cmu-limit 50` imports only the first 50 motions.
 
 Other scripts: `npm test` (unit tests), `npm run typecheck`, `npm run build` (static viewer build in `apps/viewer/dist`), and `node apps/viewer/scripts/smoke.mjs [url] [outDir] [--all]` (headless browser smoke test with screenshots, `--all` shoots every outfit preset and clip; dev server must be running).
 
@@ -52,7 +52,7 @@ await character.play("walk");
 * **Face**: MakeHuman CC0 eyes with adjustable iris colour, procedural eyelashes, teeth and tongue; nine expression presets built from MakeHuman's 34 face units (mixed by ethnicity) plus automatic blinking, blended on the GPU.
 * **Anatomy** (adults only): male genital mesh (subdivided MakeHuman helper) and procedural female detail in the skin shader; hidden automatically under garments that cover them.
 * **Clothing**: briefs, bra, T-shirt, long-sleeve top, shorts, jeans, tights, fitted socks, plus a long and a mini skirt from MakeHuman's CC0 skirts pack (skirt skinning + leg colliders, so a stride doesn't pierce them), all following every morph; layering by inflate and depth bias, smooth hems cut per pixel, skin under clothes hidden.
-* **Animation**: 13 clips from Quaternius' CC0 Universal Animation Library (idle, talk, arms folded, phone, walk, formal walk, jog, sprint, crouch walk, dance, sit, nod, pick up), including fingers, retargeted to the fitted rig of any body shape.
+* **Animation**: 84 clips from Quaternius' CC0 Universal Animation Library 1 + 2 (idles, walks, runs, jumps, swimming, sitting, work, combat, reactions, zombie, …, with fingers), plus the whole CMU motion capture database (2,548 motions, searchable, loaded on demand), all retargeted to the fitted rig of any body shape.
 
 ## Engine-agnostic by design
 

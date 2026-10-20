@@ -11,6 +11,7 @@ MPFB2 data (CC0) --[tools/import-makehuman]--> actor pack --[@actors/core]--> sh
 
 * `manifest.json`: meshes, proxies (garments), skeleton, skin, target index and species data (`extra.human`).
 * `base.bin`: base positions, render meshes (split at UV seams, with a map back to shape vertices), skin weights, garment bindings.
+* `clips/<library>/index.json` + `*.bin`: large clip libraries (e.g. CMU) kept out of the manifest and loaded on demand (`ActorRuntime.loadClipLibrary`); clips share bone lists and rest directions through named rigs and may be stored as int16 (`encoding: "i16"`).
 * `clips/*.bin`: retargetable motion clips (per bone: world-space rotation change since the source rig's rest pose + the bone's rest direction; root motion in hip heights). The source rig must have a real rest pose (glTF/Blender rest), never "frame 0 of the take".
 * `textures/`: skin region masks, iris, photo skins (`extra.human.skins`, blended by `skinTextureWeights` and the adapter's `SkinComposer`), hair/brow and skirt textures.
 * Meshes can be derived at load time (`subdivide: { source }`), so the subdivided body costs no download.

@@ -20,7 +20,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # The first run downloads the CMU mocap (~6 GB) once; later runs reuse the converted clips from the cache.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -31,6 +31,10 @@ const camera = (pos, target) => page.evaluate(([pos, target]) => window.__actors
 const seek = (t) => page.evaluate((t) => window.__actors.character.seek(t), t);
 const catalog = await page.evaluate(() => window.__actors.character.catalog);
 
+await page.click('button[data-mode="simple"]');
+await shot("simple-mode");
+await page.selectOption('select[data-key="ethnicity"]', "asian");
+await page.click('button[data-mode="detailed"]');
 await shot("idle");
 // Drive the editor UI once: the clip select, a garment checkbox and an outfit preset.
 await page.selectOption('select[data-key="animation"]', "");
@@ -61,6 +65,14 @@ await set({ animation: "dance" });
 await shot("dance", 2500);
 await page.click('button[data-role="randomize"]');
 await shot("random", 2500);
+// The CMU library: pick it, search it, play a hit.
+if (catalog.libraries.some((l) => l.id === "cmu")) {
+  await page.selectOption('select[data-key="library"]', "cmu");
+  await page.fill('input[data-key="clip-search"]', "walk");
+  const first = await page.$eval('select[data-key="animation"] optgroup option', (o) => o.value);
+  await page.selectOption('select[data-key="animation"]', first);
+  await shot("cmu-walk", 2500);
+}
 
 if (all) {
   await camera([0.6, 1.2, 4.2], [0, 0.95, 0]);
@@ -75,7 +87,7 @@ if (all) {
     await seek(null);
   }
   await set({ outfit: [] });
-  for (const a of catalog.animations) {
+  for (const a of catalog.animations.filter((x) => !x.library)) {
     await set({ animation: a.id });
     await seek(0.5);
     await shot(`anim-${a.id.replace(/ /g, "-")}`, 1200);

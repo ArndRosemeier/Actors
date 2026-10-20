@@ -157,6 +157,33 @@ export interface ClipDef {
   rootBone: string;
   /** Attribution for the motion data. */
   source: string;
+  /** Group for menus, e.g. "Locomotion" or "Combat". */
+  category?: string;
+  /** Longer human-readable description (e.g. the mocap session notes). */
+  description?: string;
+  /**
+   * Data layout. "f32" (default): interleaved per frame as described at `file`.
+   * "i16": all frames' quaternions as int16 (value / 32767), followed by all
+   * frames' root translations as f32.
+   */
+  encoding?: "f32" | "i16";
+}
+
+/** A large clip collection kept out of the manifest, loaded on demand (see ActorRuntime.loadClipLibrary). */
+export interface ClipLibraryRef {
+  name: string;
+  /** Index file (a ClipLibrary as JSON), relative to the manifest. */
+  file: string;
+  count: number;
+  source: string;
+  license: string;
+}
+
+/** Clip library index: clips share bone lists and reference directions through named rigs. */
+export interface ClipLibrary {
+  name: string;
+  rigs: Record<string, Pick<ClipDef, "bones" | "refDirs" | "rootBone">>;
+  clips: (Omit<ClipDef, "bones" | "refDirs" | "rootBone"> & { rig: string })[];
 }
 
 export interface ActorPackManifest {
@@ -176,6 +203,8 @@ export interface ActorPackManifest {
   skin?: SkinDef;
   targets: TargetRef[];
   clips?: ClipDef[];
+  /** Larger clip collections, loaded on demand. */
+  clipLibraries?: ClipLibraryRef[];
   /** Species-specific data (e.g. how sliders map to targets for humans). */
   extra?: Record<string, unknown>;
 }
