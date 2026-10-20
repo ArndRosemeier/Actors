@@ -1,4 +1,4 @@
-import { ADULT_MIN_AGE, type HumanParams, MAX_AGE } from "@actors/human";
+import { ADULT_MIN_AGE, BEARD_STYLES, HORN_STYLES, type HumanParams, MAX_AGE, TAIL_STYLES } from "@actors/human";
 import { type CharacterConfig, PAINTED_BROWS, outfitGarments } from "./catalog";
 import type { Character } from "./character";
 import { PUPILS, SKIN_PATTERNS } from "@actors/three";
@@ -193,7 +193,7 @@ export class CharacterEditor {
     if (cat.photoSkin) detailed(this.select(look, "Skin", [["photo", "Photo (follows ethnicity)"], ["procedural", "Procedural"]], (c) => c.skin, (v) => set({ skin: v as CharacterConfig["skin"] }), "skin"));
     const tone = detailed(this.slider(look, "Skin tone", 0, 1, 0.01, pct, (c) => c.skinTone, (v) => set({ skinTone: v }), "skinTone"));
     this.syncers.push((c) => (tone.hidden = c.skin === "photo"));
-    detailed(this.color(look, "Skin colour", (c) => c.skinColor, (v) => set({ skinColor: v }), "skinColor"));
+    this.color(look, "Skin colour", (c) => c.skinColor, (v) => set({ skinColor: v }), "skinColor");
     this.select(look, "Eyes", cat.eyes.map((e) => [e.id, e.label]), (c) => c.eyes, (v) => set({ eyes: v, eyeColor: null }), "eyes");
     detailed(this.color(look, "Eye colour", (c) => c.eyeColor, (v) => set({ eyeColor: v }), "eyeColor"));
     detailed(this.select(look, "Pupils", Object.keys(PUPILS).map((p): [string, string] => [p, cap(p)]), (c) => c.pupil, (v) => set({ pupil: v as CharacterConfig["pupil"] }), "pupil"));
@@ -206,6 +206,18 @@ export class CharacterEditor {
     this.syncers.push((c) => patRows.forEach((row) => (row.hidden = c.skinPattern === "none")));
     this.select(look, "Hair", [["", "None"], ...cat.hair.map((h): [string, string] => [h.id, h.label])], (c) => c.hair ?? "", (v) => set({ hair: v || null }), "hair");
     this.select(look, "Hair colour", [["", "Natural"], ...cat.hairColors.map((h): [string, string] => [h.id, h.label])], (c) => c.hairColor ?? "", (v) => set({ hairColor: v || null }), "hairColor");
+    const opts = (list: string[]): [string, string][] => list.map((v) => [v, cap(v)]);
+    this.select(look, "Beard", opts(BEARD_STYLES), (c) => c.beard, (v) => set({ beard: v as CharacterConfig["beard"] }), "beard");
+    detailed(this.select(look, "Horns", opts(HORN_STYLES), (c) => c.horns, (v) => set({ horns: v as CharacterConfig["horns"] }), "horns"));
+    const hornRows = [
+      detailed(this.slider(look, "Horn size", 0, 1, 0.01, pct, (c) => c.hornSize, (v) => set({ hornSize: v }), "hornSize")),
+      detailed(this.color(look, "Horn colour", (c) => c.hornColor, (v) => set({ hornColor: v }), "hornColor")),
+    ];
+    this.syncers.push((c) => hornRows.forEach((row) => (row.hidden = c.horns === "none")));
+    detailed(this.slider(look, "Tusks", 0, 1, 0.01, pct, (c) => c.tusks, (v) => set({ tusks: v }), "tusks"));
+    detailed(this.select(look, "Tail", opts(TAIL_STYLES), (c) => c.tail, (v) => set({ tail: v as CharacterConfig["tail"] }), "tail"));
+    const tailRow = detailed(this.slider(look, "Tail length", 0, 1, 0.01, pct, (c) => c.tailLength, (v) => set({ tailLength: v }), "tailLength"));
+    this.syncers.push((c) => (tailRow.hidden = c.tail === "none"));
     detailed(this.select(look, "Eyebrows", [...cat.brows.map((b): [string, string] => [b.id, b.label]), [PAINTED_BROWS, "Painted"], ["", "None"]], (c) => c.brows ?? "", (v) => set({ brows: v || null }), "brows"));
     detailed(this.select(look, "Detail", [["high", "High (subdivided)"], ["low", "Low"]], (c) => c.detail, (v) => set({ detail: v as CharacterConfig["detail"] }), "detail"));
     this.check(look, "Anatomical detail", (c) => c.anatomy, (v) => set({ anatomy: v }), "anatomy");

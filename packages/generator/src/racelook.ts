@@ -1,4 +1,4 @@
-import { ADULT_MIN_AGE, type HumanParams, RACES, RACE_STYLES, raceScale, type RGB, type RaceId, type RaceStyle, type Weighted } from "@actors/human";
+import { ADULT_MIN_AGE, BEARD_STYLES, type BeardStyle, type HumanParams, RACES, RACE_STYLES, raceScale, type RGB, type RaceId, type RaceStyle, type Weighted } from "@actors/human";
 import type { CharacterCatalog, CharacterConfig } from "./catalog";
 
 /**
@@ -25,8 +25,8 @@ export const HAIR_STYLE_MESHES: Record<string, (string | null)[]> = {
   shaved: [null],
   bald: [null],
   tonsure: [null],
-  leaves: [null],
-  crest: [null],
+  leaves: ["leaves"],
+  crest: ["crest"],
 };
 
 /** Norgo's brow names -> eyebrow meshes (null = none). */
@@ -132,5 +132,44 @@ export function randomRaceLook(
     hair: hairMesh,
     hairColor: rgbToHex(jitter(hair, 0.04)),
     brows: brow === undefined ? (catalog.brows[0]?.id ?? null) : brow,
+  };
+}
+
+/**
+ * Random add-ons for a member of a race (or a mix): beard, horns, tusks and
+ * tail, from the race's chances and ranges. Discrete choices come from either
+ * parent race (by mix share).
+ */
+export function raceParts(
+  race: RaceId,
+  race2: RaceId | null,
+  mix: number,
+  body: Pick<HumanParams, "gender">,
+  r: () => number,
+): Pick<CharacterConfig, "beard" | "horns" | "hornSize" | "hornColor" | "tusks" | "tail" | "tailLength"> {
+  const A = RACE_STYLES[race];
+  const B = race2 ? RACE_STYLES[race2] : A;
+  const t = race2 ? clamp01(mix) : 0;
+  const side = (): RaceStyle => (r() < t ? B : A);
+  const range = (s: RaceStyle, k: "hornSize" | "tusks" | "tailLength") => lerp(s[k][0], s[k][1], r());
+  const female = body.gender < 0.5;
+  const bs = side();
+  // Stubble is painted in Norgo; there is no stubble here yet, so it counts as clean-shaven.
+  const beardName = r() < bs.beardChance[female ? 1 : 0] ? weighted(bs.beardStyles, r) : "none";
+  const beard: BeardStyle = BEARD_STYLES.includes(beardName as BeardStyle) ? (beardName as BeardStyle) : "none";
+  const hs = side();
+  const horns = weighted(hs.horns, r);
+  const ts = side();
+  const tusks = r() < ts.tuskChance ? range(ts, "tusks") : 0;
+  const tl = side();
+  const tail = weighted(tl.tail, r);
+  return {
+    beard,
+    horns,
+    hornSize: horns === "none" ? 0.7 : range(hs, "hornSize"),
+    hornColor: horns === "none" ? null : rgbToHex(weighted(hs.hornColors, r)),
+    tusks,
+    tail,
+    tailLength: tail === "none" ? 0.8 : range(tl, "tailLength"),
   };
 }

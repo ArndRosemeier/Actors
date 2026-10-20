@@ -1,10 +1,11 @@
-import { type ActorShape, ActorRuntime, type Fetcher, type MeshData, type MessagePortLike, RemoteRuntime, type ShapeOptions, type SurfaceDelta } from "@actors/core";
+import { type ActorShape, ActorRuntime, type Fetcher, type MeshData, type MessagePortLike, type PartMesh, RemoteRuntime, type ShapeOptions, type SurfaceDelta } from "@actors/core";
 import { type UnitWeights, expressionTargetWeights } from "./expressions";
 import { type MacroTargetDef, macroTargetWeights } from "./macro";
 import { type ModifierDef, modifierTargetWeights } from "./modifiers";
 import { DEFAULT_PARAMS, type HumanParams, sanitizeParams } from "./params";
 import { type SkinTextureDef, skinTextureWeights } from "./skins";
-import { DEFAULT_RACE, type RaceSettings, raceHeadScale, raceScale, raceShapeOptions, raceTargetWeights, sanitizeRace, targetResolver } from "./raceshape";
+import { DEFAULT_RACE, EAR_MASKS, type RaceSettings, raceHeadScale, raceScale, raceShapeOptions, raceTargetWeights, sanitizeRace, targetResolver } from "./raceshape";
+import { type PartsConfig, buildParts, hasParts, partsBody } from "./parts";
 
 export interface HumanExtra {
   macroTargets: MacroTargetDef[];
@@ -123,6 +124,22 @@ export class Human {
     if (!missing.length) return [];
     const [loaded] = await Promise.all([this.runtime.loadMeshes(missing), this.remote?.loadMeshes(missing)]);
     return loaded;
+  }
+
+  /**
+   * Horns, tusks, tail, beard and procedural hair for a shape from `evaluate`
+   * (see parts.ts). Skinned to the pack skeleton, in the shape's model space.
+   */
+  async parts(shape: ActorShape, config: Omit<PartsConfig, "scale">): Promise<PartMesh[]> {
+    const cfg = { ...config, scale: raceScale(sanitizeRace(this.race)) };
+    if (!hasParts(cfg)) return [];
+    const names = { l: this.resolveTarget(EAR_MASKS.l), r: this.resolveTarget(EAR_MASKS.r), lip: this.resolveTarget("mouth-upperlip-volume-incr") };
+    const wanted = Object.values(names).filter((n): n is string => !!n);
+    await this.runtime.ensureTargets(wanted);
+    const mask = (n?: string) => (n ? this.runtime.targetMask(n) : null);
+    const ears = names.l && names.r ? ([mask(names.l)!, mask(names.r)!] as [Float32Array, Float32Array]) : null;
+    const body = partsBody(shape, this.runtime.meshes, ears, mask(names.lip));
+    return body ? buildParts(body, cfg) : [];
   }
 
   evaluate(previous?: ActorShape): Promise<ActorShape> {

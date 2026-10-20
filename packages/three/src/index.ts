@@ -6,6 +6,7 @@ import {
   type Clip,
   type FittedSkeleton,
   type MeshData,
+  type PartMesh,
   Retargeter,
   type SurfaceDelta,
   bakeAxisClip,
@@ -28,6 +29,7 @@ import {
 } from "./materials";
 import { SkinComposer } from "./skincompose";
 import { type ColliderUniforms, MAX_COLLIDERS, createColliderUniforms, useColliders } from "./colliders";
+import { createPartMesh } from "./parts";
 
 export * from "./materials";
 export * from "./dqs";
@@ -35,6 +37,7 @@ export * from "./procedural";
 export * from "./skincompose";
 export * from "./colliders";
 export * from "./racepatterns";
+export * from "./parts";
 
 export interface MaterialFactory {
   (mesh: MeshData, actor: ThreeActor): THREE.Material;
@@ -198,6 +201,33 @@ export class ThreeActor {
       const tint = this.tints.get(data.def.name);
       if (tint !== undefined) this.setGarmentColor(data.def.name, tint);
     }
+  }
+
+  /** Generated add-ons (horns, beards, tails...; see `Human.parts`), by name. */
+  readonly parts = new Map<string, THREE.SkinnedMesh>();
+
+  /**
+   * Replaces the generated add-on meshes. Build them from the shape last given
+   * to `applyShape`, so they match the skeleton's bind pose.
+   */
+  setParts(parts: PartMesh[]): void {
+    for (const mesh of this.parts.values()) {
+      mesh.removeFromParent();
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+    }
+    this.parts.clear();
+    for (const part of parts) {
+      const mesh = createPartMesh(part, this.skin);
+      this.object.add(mesh);
+      if (this.skeleton) mesh.bind(this.skeleton, new THREE.Matrix4());
+      this.parts.set(part.name, mesh);
+    }
+  }
+
+  /** Colour (sRGB hex or THREE.Color) of the generated parts of the given kinds (e.g. ["hair", "leaf"] for the hair colour). */
+  setPartColor(kinds: string[], color: THREE.ColorRepresentation): void {
+    for (const mesh of this.parts.values()) if (kinds.includes(mesh.userData.partKind)) (mesh.material as THREE.MeshStandardMaterial).color.set(color);
   }
 
   /** A texture shipped with the pack (cached). */
@@ -488,6 +518,7 @@ export class ThreeActor {
     const rootInv = this.object.matrixWorld.clone().invert();
     this.skeleton!.boneInverses = this.bones.map((b) => new THREE.Matrix4().multiplyMatrices(rootInv, b.matrixWorld).invert());
     for (const mesh of this.meshes.values()) mesh.bind(this.skeleton!, new THREE.Matrix4());
+    for (const mesh of this.parts.values()) mesh.bind(this.skeleton!, new THREE.Matrix4());
     // Joint positions moved, so rebuild the clip against the new bind pose.
     if (this.clip) this.play(this.clip);
   }
