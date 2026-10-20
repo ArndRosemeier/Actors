@@ -184,3 +184,20 @@ export function meanColor(path: string, step = 7): [number, number, number] {
   }
   return sum.map((v) => Math.round((n ? v / n / 255 : 0.5) * 1000) / 1000) as [number, number, number];
 }
+
+/**
+ * Recolours a PNG in place to an sRGB colour (0..1), keeping its light/dark
+ * pattern: each pixel becomes `rgb * luminance / mean luminance` (alpha kept).
+ */
+export function tintPng(path: string, rgb: [number, number, number]): void {
+  const img = PNG.sync.read(readFileSync(path));
+  const lum = (i: number) => 0.2126 * img.data[i] + 0.7152 * img.data[i + 1] + 0.0722 * img.data[i + 2];
+  let sum = 0, n = 0;
+  for (let i = 0; i < img.data.length; i += 4) if (img.data[i + 3] > 128) (sum += lum(i)), n++;
+  const mean = Math.max(1, n ? sum / n : 128);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const f = Math.min(2.5, lum(i) / mean);
+    for (let c = 0; c < 3; c++) img.data[i + c] = Math.min(255, Math.round(rgb[c] * 255 * f));
+  }
+  writeFileSync(path, PNG.sync.write(img));
+}

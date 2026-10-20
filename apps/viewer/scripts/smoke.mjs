@@ -1,13 +1,15 @@
 // Headless smoke test: loads the viewer, drives the Character API and the editor,
 // saves screenshots. Usage: node scripts/smoke.mjs [url] [outDir] [--all]
 // --all also shoots every outfit preset (female and male) and every animation;
-// --wardrobe shoots every garment on its own (wardrobe-<id>.png).
+// --wardrobe shoots every garment on its own (wardrobe-<id>.png);
+// --hair shoots every hairstyle from the front and the back (hair-<id>.png).
 import { chromium } from "playwright-core";
 import { mkdirSync } from "node:fs";
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const all = process.argv.includes("--all");
 const wardrobe = process.argv.includes("--wardrobe");
+const hairstyles = process.argv.includes("--hair");
 const url = args[0] ?? "http://localhost:5173/";
 const out = args[1] ?? "screenshots";
 mkdirSync(out, { recursive: true });
@@ -114,6 +116,19 @@ if (wardrobe) {
     else if (g.occupies.some((l) => ["hat", "glasses", "mask"].includes(l))) await camera([0.35, 1.65, 0.9], [0, 1.6, 0]);
     else await camera([0.6, 1.2, 3.4], [0, 0.95, 0]);
     await shot(`wardrobe-${g.id}`, 900);
+  }
+}
+
+if (hairstyles) {
+  await set({ animation: null, expression: "neutral", outfit: [], hairColor: null, body: { gender: 0.3, ageYears: 30, muscle: 0.5, weight: 0.5 }, details: {} });
+  for (const h of catalog.hair) {
+    await set({ hair: h.id });
+    // Frame the head wherever it is (earlier steps may leave another size or pose).
+    const [x, y, z] = await page.evaluate(() => window.__actors.character.actor.bones.find((b) => b.name === "head").getWorldPosition(new window.__actors.character.actor.object.position.constructor()).toArray());
+    await camera([x + 0.35, y + 0.07, z + 1.0], [x, y, z]);
+    await shot(`hair-${h.id}`, 900);
+    await camera([x - 0.5, y + 0.07, z - 0.9], [x, y - 0.05, z]);
+    await shot(`hair-${h.id}-back`, 600);
   }
 }
 

@@ -294,8 +294,9 @@ export class Character {
   private async reconcile(): Promise<void> {
     const c = this.cfg;
     const h = this.human;
-    // Garments with their own data file are loaded the first time they are worn.
-    const added = await h.loadMeshes(c.outfit.filter((g) => !h.runtime.isLoaded(g)));
+    // Garments and hairstyles with their own data file are loaded the first time they are worn.
+    const lazy = new Set(h.runtime.manifest.meshes.filter((m) => m.blob).map((m) => m.name));
+    const added = await h.loadMeshes([...c.outfit, c.hair ?? ""].filter((g) => lazy.has(g) && !h.runtime.isLoaded(g)));
     if (added.length) {
       this.actor.addMeshes(added);
       this.applied.shape = ""; // the next shape must include the new garments

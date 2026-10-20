@@ -2,24 +2,24 @@ import { ADULT_MIN_AGE, BEARD_STYLES, type BeardStyle, type HumanParams, RACES, 
 import type { CharacterCatalog, CharacterConfig } from "./catalog";
 
 /**
- * Norgo's hair style names -> hair meshes in the pack, best match first.
+ * Norgo's hair style names -> hair meshes in the pack (one of those present is picked at random).
  * null = no hair mesh (bald, shaved, or styles that come as add-ons later).
  */
 export const HAIR_STYLE_MESHES: Record<string, (string | null)[]> = {
   short: ["hair-short02"],
-  crop: ["hair-short03", "hair-short02"],
-  tousled: ["hair-short03", "hair-bob02"],
+  crop: ["hair-short03", "hair-short02", "hair-short-swept"],
+  tousled: ["hair-short03", "hair-short-messy", "hair-short-curls", "hair-shaggy"],
   buzz: ["hair-short04"],
-  slick: ["hair-short03"],
-  shoulder: ["hair-bob01", "hair-bob02"],
-  long: ["hair-long01"],
+  slick: ["hair-short03", "hair-short-slick", "hair-short-maxwell"],
+  shoulder: ["hair-bob01", "hair-bob02", "hair-bobcut", "hair-bob-blunt", "hair-bob-curled", "hair-bob-inverted"],
+  long: ["hair-long01", "hair-hazel", "hair-long-layered", "hair-long-waves", "hair-long-side-part", "hair-curly-long"],
   ponytail: ["hair-ponytail01"],
-  braid: ["hair-braid01"],
-  braids: ["hair-braid01"],
-  bun: ["hair-ponytail01"],
-  topknot: ["hair-ponytail01"],
-  dreadlocks: ["hair-afro01"],
-  wild: ["hair-afro01", "hair-bob02"],
+  braid: ["hair-braid01", "hair-french-braid", "hair-unkempt-braid"],
+  braids: ["hair-double-braid", "hair-braid01"],
+  bun: ["hair-bun", "hair-braid-bun", "hair-ponytail01"],
+  topknot: ["hair-bun", "hair-ponytail01"],
+  dreadlocks: ["hair-afro01", "hair-cornrows"],
+  wild: ["hair-afro01", "hair-jungle", "hair-curly-wild", "hair-long-shag"],
   undercut: ["hair-short04"],
   mohawk: ["hair-short04"],
   shaved: [null],
@@ -108,7 +108,8 @@ export function randomRaceLook(
   const have = new Set(catalog.hair.map((h) => h.id));
   const style = weighted(female ? side().hairStylesFemale : side().hairStylesMale, r);
   const meshes = HAIR_STYLE_MESHES[style] ?? [];
-  const hairMesh = meshes.length ? (meshes.find((m) => m === null || have.has(m)) ?? null) : (catalog.hair[0]?.id ?? null);
+  const options = meshes.filter((m) => m === null || have.has(m));
+  const hairMesh = meshes.length ? (options.length > 1 ? options[Math.floor(r() * options.length)] : (options[0] ?? null)) : (catalog.hair[0]?.id ?? null);
   const browIds = new Set(catalog.brows.map((b) => b.id));
   const brow = (BROW_STYLE_MESHES[weighted(side().browStyles, r)] ?? []).find((m) => m === null || browIds.has(m));
   return {
