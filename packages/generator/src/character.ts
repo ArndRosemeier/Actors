@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { ActorShape, Clip, Fetcher, MessagePortLike } from "@actors/core";
-import { ADULT_MIN_AGE, BLINK, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type RaceId, raceScale, sanitizeRace } from "@actors/human";
+import { ADULT_MIN_AGE, BEARD_STYLES, BLINK, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type RaceId, raceScale, sanitizeRace } from "@actors/human";
 import { IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
 import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, type RandomOptions, buildCatalog, defaultConfig, outfitGarments, randomConfig, resolveOutfit } from "./catalog";
 
@@ -47,7 +47,7 @@ export class Character {
   private shape?: ActorShape;
   private readonly clips = new Map<string, Promise<Clip>>();
   private readonly listeners = new Set<(config: CharacterConfig) => void>();
-  private applied = { shape: "", face: "", animation: undefined as string | null | undefined };
+  private applied = { shape: "", face: "", parts: "", animation: undefined as string | null | undefined };
   private running: Promise<void> = Promise.resolve();
   private waiting?: Promise<void>;
   private time = 0;
@@ -108,6 +108,11 @@ export class Character {
     this.cfg = { ...this.cfg, ...defined, body, outfit: this.normalizeOutfit(patch.outfit ?? this.cfg.outfit) };
     const race = sanitizeRace({ race: this.cfg.race, race2: this.cfg.race2, mix: this.cfg.raceMix, size: this.cfg.raceSize });
     Object.assign(this.cfg, { race: race.race, race2: race.race2, raceMix: race.race2 ? race.mix : this.cfg.raceMix, raceSize: race.size });
+    const c = this.cfg, clamp01 = (v: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
+    if (!BEARD_STYLES.includes(c.beard)) c.beard = "none";
+    if (!HORN_STYLES.includes(c.horns)) c.horns = "none";
+    if (!TAIL_STYLES.includes(c.tail)) c.tail = "none";
+    Object.assign(c, { hornSize: clamp01(c.hornSize), tusks: clamp01(c.tusks), tailLength: clamp01(c.tailLength) });
     this.applyLook();
     const done = this.sync();
     for (const l of this.listeners) l(this.config);
@@ -225,6 +230,11 @@ export class Character {
     for (const b of this.catalog.brows) a.setVisible(b.id, b.id === c.brows);
     a.skin.uBrowDensity.value = c.brows === PAINTED_BROWS ? 0.92 : 0;
     a.setHairColor(c.hairColor);
+    // Generated beards and leaves take the hair colour (or the hair mesh's own colour).
+    const hairMat = c.hair ? (a.meshes.get(c.hair)?.material as THREE.Material | undefined) : undefined;
+    const natural = (hairMat?.userData.meanColor as THREE.Color | undefined)?.getHexString();
+    a.setPartColor(["hair", "leaf", "fur"], c.hairColor ?? (natural ? `#${natural}` : "#3b2a1e"));
+    a.setPartColor(["horn"], c.hornColor ?? "#d9cfb4");
     if (c.eyeColor) a.setIris(irisFromColor(c.eyeColor));
     else if (IRIS_PRESETS[c.eyes]) a.setIris(c.eyes);
     const f = Math.min(1, Math.max(0, c.skinTone)) * (SKIN_TONES.length - 1);
@@ -293,6 +303,14 @@ export class Character {
       this.applied.shape = shapeKey;
       for (const l of this.shapeListeners) l(this.height);
       this.lastUpdateMs = performance.now() - t0;
+      this.applyLook();
+    }
+    const partsKey = JSON.stringify([shapeKey, c.hair, c.beard, c.horns, c.hornSize, c.tusks, c.tail, c.tailLength, c.seed]);
+    if (partsKey !== this.applied.parts && this.shape) {
+      this.applied.parts = partsKey;
+      const hair = c.hair === "leaves" || c.hair === "crest" ? c.hair : "none";
+      const rgb = new THREE.Color(c.hornColor ?? "#d9cfb4").convertLinearToSRGB();
+      this.actor.setParts(await h.parts(this.shape, { seed: c.seed, horns: c.horns, hornSize: c.hornSize, hornColor: [rgb.r, rgb.g, rgb.b], tusks: c.tusks, tail: c.tail, tailLength: c.tailLength, beard: c.beard, hair }));
       this.applyLook();
     }
     const faceKey = `${shapeKey}|${c.expression}`;

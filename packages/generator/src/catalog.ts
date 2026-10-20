@@ -1,5 +1,5 @@
-import { randomRaceLook } from "./racelook";
-import { ADULT_MIN_AGE, DEFAULT_PARAMS, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type PupilShape, RACES, RACE_IDS, type RaceId, type SkinPattern } from "@actors/human";
+import { raceParts, randomRaceLook } from "./racelook";
+import { ADULT_MIN_AGE, DEFAULT_PARAMS, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type BeardStyle, type HornStyle, type PupilShape, RACES, RACE_IDS, type RaceId, type SkinPattern, type TailStyle } from "@actors/human";
 
 /** One choice in a list: the id the API takes and a display label. */
 export interface Choice {
@@ -102,8 +102,20 @@ export interface CharacterConfig {
   patternColor: string | null;
   /** 0..1, varies procedural details (pattern layout). */
   seed: number;
-  /** Hair mesh id, or null for none. */
+  /** Hair mesh id, a generated style from PROCEDURAL_HAIR ("leaves", "crest"), or null for none. */
   hair: string | null;
+  /** Generated beard (strand cards; "none" for none). */
+  beard: BeardStyle;
+  horns: HornStyle;
+  /** 0..1 */
+  hornSize: number;
+  /** Horn colour (sRGB hex), or null for ivory. */
+  hornColor: string | null;
+  /** 0..1, 0 = no tusks. */
+  tusks: number;
+  tail: TailStyle;
+  /** 0..1 (1 ≈ 60% of the body height). */
+  tailLength: number;
   /** sRGB hex, or null for the hairstyle's own colour. */
   hairColor: string | null;
   /** Eyebrow mesh id, "painted", or null for none. */
@@ -124,6 +136,9 @@ export interface CharacterConfig {
 }
 
 export const PAINTED_BROWS = "painted";
+
+/** Generated hairstyles listed in `catalog.hair` next to the pack's hair meshes. */
+export const PROCEDURAL_HAIR: Record<string, string> = { leaves: "Leaves (sylvan)", crest: "Crest fins (drakeborn)" };
 
 export const OUTFITS: OutfitPreset[] = [
   { id: "nude", label: "Nude", garments: [] },
@@ -225,7 +240,7 @@ export function buildCatalog(human: Human, irisPresets: string[]): CharacterCata
     libraries: [{ id: "", label: `Animations (${(m.clips ?? []).length})` }, ...(m.clipLibraries ?? []).map((l) => ({ id: l.name, label: `${l.name === "cmu" ? "CMU motion capture" : l.name} (${l.count})` }))],
     garments,
     outfits,
-    hair: choices(human.extra.hairLabels),
+    hair: [...choices(human.extra.hairLabels), ...choices(PROCEDURAL_HAIR)],
     hairColors: HAIR_COLORS,
     garmentColors: GARMENT_COLORS,
     brows: choices(human.extra.browLabels),
@@ -282,6 +297,13 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     eyes: catalog.eyes[0]?.id ?? "brown",
     hair: null,
     hairColor: null,
+    beard: "none",
+    horns: "none",
+    hornSize: 0.7,
+    hornColor: null,
+    tusks: 0,
+    tail: "none",
+    tailLength: 0.8,
     brows: catalog.brows[0]?.id ?? PAINTED_BROWS,
     outfit: [],
     garmentColors: {},
@@ -346,7 +368,7 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
   };
   const details: Record<string, number> = {};
   for (const d of catalog.details) if (r() < 0.15) details[d.id] = (r() - (d.min < 0 ? 0.5 : 0)) * 0.8;
-  const hairPool = catalog.hair.filter((h) => female || SHORT_HAIR.test(h.id));
+  const hairPool = catalog.hair.filter((h) => !(h.id in PROCEDURAL_HAIR) && (female || SHORT_HAIR.test(h.id)));
   const old = body.ageYears > 60 && r() < 0.7;
   const presets = catalog.outfits.filter((o) => !o.gender || o.gender === (female ? "female" : "male"));
   const outfitPreset = options.outfit === false ? undefined : pick(presets.length ? presets : catalog.outfits);
@@ -365,6 +387,7 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
     hairColor: old ? "#9a968f" : r() < 0.4 ? null : (pick(catalog.hairColors)?.id ?? null),
     brows: pick(catalog.brows)?.id ?? base.brows,
   };
+  const parts = raceParts(race, race2, base.raceMix, body, r);
   return {
     ...base,
     race,
@@ -382,6 +405,7 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
     patternColor: look?.patternColor ?? null,
     seed: r(),
     ...(look ? { hair: look.hair, hairColor: look.hairColor, brows: look.brows } : {}),
+    ...parts,
     outfit,
     garmentColors: outfitPreset ? { ...outfitPreset.colors, ...garmentColors } : base.garmentColors,
     animation: options.animation ? (pick(catalog.animations.filter((a) => !a.library))?.id ?? base.animation) : base.animation,

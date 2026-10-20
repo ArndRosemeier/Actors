@@ -112,4 +112,25 @@ describe("race looks", () => {
     expect(h.skinColor).toBeNull();
     expect(h.skinPattern).toBe("none");
   });
+
+  it("gives races their add-ons", () => {
+    let dwarfBeards = 0;
+    for (let s = 0; s < 30; s++) {
+      const r = seededRandom(s);
+      const drake = randomConfig(catalog, base, { random: r, race: "drakeborn" });
+      expect(drake.horns).not.toBe("none");
+      expect(drake.tail).toBe("reptile");
+      expect(drake.hornColor).toMatch(/^#[0-9a-f]{6}$/);
+      const orc = randomConfig(catalog, base, { random: r, race: "orc" });
+      expect(orc.tusks).toBeGreaterThan(0.5);
+      const dwarf = randomConfig(catalog, base, { random: r, race: "dwarf", gender: "male" });
+      if (dwarf.beard !== "none") dwarfBeards++;
+      const woman = randomConfig(catalog, base, { random: r, race: "human", gender: "female" });
+      expect(woman.beard).toBe("none");
+      expect(woman.horns).toBe("none");
+      expect(woman.tail).toBe("none");
+      expect(["leaves", "crest"]).not.toContain(woman.hair);
+    }
+    expect(dwarfBeards).toBeGreaterThan(25);
+  });
 });

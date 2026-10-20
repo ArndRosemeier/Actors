@@ -7,3 +7,4 @@ export * from "./expressions";
 export * from "./skins";
 export * from "./races";
 export * from "./raceshape";
+export * from "./parts";
