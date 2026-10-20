@@ -133,10 +133,20 @@ export function createPartMesh(part: PartMesh, skin: SkinUniforms): THREE.Skinne
   g.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(part.joints, 4));
   g.setAttribute("skinWeight", new THREE.BufferAttribute(part.weights, 4));
   g.setIndex(new THREE.BufferAttribute(part.indices, 1));
+  // Parts that follow the skin in face morphs get the two morph channels (see ThreeActor.MORPHS).
+  if (part.anchors) {
+    const n = part.positions.length;
+    g.morphAttributes.position = [0, 1].map(() => new THREE.BufferAttribute(new Float32Array(n), 3));
+    g.morphTargetsRelative = true;
+  }
   const material = createPartMaterial(part, skin);
   const mesh = new THREE.SkinnedMesh(g, material);
   mesh.name = part.name;
   mesh.userData.partKind = part.kind;
+  if (part.anchors) {
+    mesh.userData.anchors = part.anchors;
+    mesh.updateMorphTargets();
+  }
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   const map = (material as THREE.MeshPhysicalMaterial).map;

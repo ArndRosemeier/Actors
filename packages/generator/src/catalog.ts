@@ -106,6 +106,8 @@ export interface CharacterConfig {
   hair: string | null;
   /** Generated beard (strand cards; "none" for none). */
   beard: BeardStyle;
+  /** 0..1 painted stubble on the beard area (under a beard, or on its own). */
+  stubble: number;
   horns: HornStyle;
   /** 0..1 */
   hornSize: number;
@@ -298,6 +300,7 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     hair: null,
     hairColor: null,
     beard: "none",
+    stubble: 0,
     horns: "none",
     hornSize: 0.7,
     hornColor: null,

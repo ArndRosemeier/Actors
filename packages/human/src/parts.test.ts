@@ -69,13 +69,27 @@ describe("race parts", () => {
     expect(Math.min(...horns.positions.filter((_, i) => i % 3 === 0))).toBeLessThan(-0.04);
   });
 
-  it("grows the tail backwards (-Z) from the lower back, on the hips", () => {
+  it("grows the tail backwards (-Z) from inside the lower back, on its own bone chain", () => {
     const [tail] = buildParts(body(), { ...NONE, tail: "reptile" });
     expect(tail.kind).toBe("skin");
     const z = tail.positions.filter((_, i) => i % 3 === 2);
     expect(Math.min(...z)).toBeLessThan(-0.5);
-    expect(Math.max(...z)).toBeLessThan(0);
-    expect(new Set(tail.joints.filter((_, i) => tail.weights[i] > 0))).toEqual(new Set([0]));
+    // The base starts inside the trunk (back surface at z = -0.12).
+    expect(Math.max(...z)).toBeGreaterThan(-0.12);
+    expect(Math.max(...z)).toBeLessThan(0.05);
+    expect(tail.bones?.map((b) => b.parent)).toEqual(["pelvis", "tail_01", "tail_02", "tail_03", "tail_04", "tail_05"]);
+    // Joints: the hips (pelvis = 0) at the base, then the 6 tail bones after the 4 pack bones.
+    const used = new Set(tail.joints.filter((_, i) => tail.weights[i] > 0));
+    expect(used.has(0)).toBe(true);
+    for (let k = 4; k < 10; k++) expect(used.has(k)).toBe(true);
+    expect(Math.max(...used)).toBe(9);
+  });
+
+  it("anchors beard strands to the skin they grow from (face morphs)", () => {
+    const [beard] = buildParts(body(), { ...NONE, beard: "full" });
+    expect(beard.anchors?.length).toBe(beard.positions.length / 3);
+    const [horns] = buildParts(body(), { ...NONE, horns: "ram" });
+    expect(horns.anchors).toBeUndefined();
   });
 
   it("roots beards on the lower front of the face and is deterministic", () => {

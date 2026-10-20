@@ -208,6 +208,7 @@ export class CharacterEditor {
     this.select(look, "Hair colour", [["", "Natural"], ...cat.hairColors.map((h): [string, string] => [h.id, h.label])], (c) => c.hairColor ?? "", (v) => set({ hairColor: v || null }), "hairColor");
     const opts = (list: string[]): [string, string][] => list.map((v) => [v, cap(v)]);
     this.select(look, "Beard", opts(BEARD_STYLES), (c) => c.beard, (v) => set({ beard: v as CharacterConfig["beard"] }), "beard");
+    this.slider(look, "Stubble", 0, 1, 0.01, pct, (c) => c.stubble, (v) => set({ stubble: v }), "stubble");
     detailed(this.select(look, "Horns", opts(HORN_STYLES), (c) => c.horns, (v) => set({ horns: v as CharacterConfig["horns"] }), "horns"));
     const hornRows = [
       detailed(this.slider(look, "Horn size", 0, 1, 0.01, pct, (c) => c.hornSize, (v) => set({ hornSize: v }), "hornSize")),

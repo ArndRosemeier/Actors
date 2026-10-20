@@ -199,3 +199,41 @@ vec3 ey_emit = vec3( 0.0 );
   }
 }
 `;
+
+/**
+ * Painted stubble on the beard region. Needs vBind and uniforms uFace (eye
+ * midpoint in vBind space, w = eye distance), uStubble (x density 0..1,
+ * y region: 0 full beard, 1 goatee, 2 mustache, 3 mutton chops, 4 chinstrap;
+ * z seed) and uStubbleColor (linear). Same regions as the generated beards
+ * (beardCoverage in @actors/human parts.ts).
+ */
+export const GLSL_STUBBLE = /* glsl */ `
+float h_beardCoverage( float style, vec3 f ) {
+  float ax = abs( f.x );
+  float cheek = -0.82 + 0.62 * smoothstep( 0.35, 1.25, ax );
+  float upper = 1.0 - smoothstep( cheek - 0.06, cheek + 0.06, f.y );
+  float side = smoothstep( -1.45, -1.05, f.z );
+  float neck = smoothstep( -2.25, -1.95, f.y + 0.25 * ax ) * ( 1.0 - smoothstep( 1.3, 1.6, ax ) );
+  float front = upper * side * neck;
+  float lipZone = smoothstep( 0.38, 0.5, length( vec2( f.x / 1.1, ( f.y + 1.18 ) / 0.36 ) ) );
+  float mustache = ( 1.0 - smoothstep( 0.5, 0.62, ax ) ) * smoothstep( -1.12, -1.02, f.y ) * ( 1.0 - smoothstep( -0.86, -0.78, f.y ) ) * side;
+  float chin = ( 1.0 - smoothstep( 0.42, 0.56, ax ) ) * ( 1.0 - smoothstep( -1.36, -1.28, f.y ) ) * smoothstep( -2.1, -1.95, f.y );
+  if ( style < 0.5 ) return max( front * lipZone, mustache );
+  if ( style < 1.5 ) return max( chin, mustache ) * side;
+  if ( style < 2.5 ) return mustache;
+  if ( style < 3.5 ) return front * smoothstep( 0.5, 0.75, ax ) * lipZone;
+  return front * smoothstep( -1.75, -1.6, -f.y - 0.18 * ax ) * lipZone;
+}
+vec3 stubble( vec3 c, float lips ) {
+  if ( uStubble.x <= 0.0 || uFace.w <= 0.0 ) return c;
+  vec3 f = ( vBind - uFace.xyz ) / uFace.w;
+  f.z = -f.z; // vBind has +Z back; face coordinates have +Z forward
+  float cov = h_beardCoverage( uStubble.y, f ) * ( 1.0 - lips );
+  if ( cov <= 0.0 ) return c;
+  // Short hairs: fine dots (cut hair ends) over a soft shadow of the hair under the skin.
+  float dots = smoothstep( 0.42, 0.68, h_noise3( f * 160.0 + uStubble.z * 17.0 ) ) * 0.7 + smoothstep( 0.6, 0.8, h_noise3( f * 310.0 + 3.1 ) ) * 0.3;
+  float shade = cov * uStubble.x;
+  c = mix( c, c * mix( vec3( 1.0 ), uStubbleColor * 3.0 + 0.25, 0.6 ), shade * 0.65 );
+  return mix( c, uStubbleColor, min( 1.0, shade * dots * 1.1 ) );
+}
+`;
