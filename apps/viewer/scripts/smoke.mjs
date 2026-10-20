@@ -1,11 +1,13 @@
 // Headless smoke test: loads the viewer, drives the Character API and the editor,
 // saves screenshots. Usage: node scripts/smoke.mjs [url] [outDir] [--all]
-// --all also shoots every outfit preset (female and male) and every animation.
+// --all also shoots every outfit preset (female and male) and every animation;
+// --wardrobe shoots every garment on its own (wardrobe-<id>.png).
 import { chromium } from "playwright-core";
 import { mkdirSync } from "node:fs";
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const all = process.argv.includes("--all");
+const wardrobe = process.argv.includes("--wardrobe");
 const url = args[0] ?? "http://localhost:5173/";
 const out = args[1] ?? "screenshots";
 mkdirSync(out, { recursive: true });
@@ -53,6 +55,15 @@ await shot("torso-male");
 await camera([0.6, 1.2, 4.2], [0, 0.95, 0]);
 await page.selectOption('select[data-role="outfit-preset"]', "casual");
 await shot("outfit-casual", 1500);
+// Recolour through the editor: a palette swatch and the free colour picker.
+await page.click('[data-garment-color="tshirt"] .ae-swatch[data-color="#b3262e"]');
+await page.$eval('[data-garment-color="jeans"] input[type="color"]', (el) => {
+  el.value = "#2f6b45";
+  el.dispatchEvent(new Event("input"));
+});
+await shot("outfit-tinted", 1200);
+await page.evaluate(() => window.__actors.character.wear("business"));
+await shot("outfit-business", 2500);
 await set({ body: { gender: 0, cupSize: 0.6 } });
 await page.evaluate(() => window.__actors.character.wear("long-skirt"));
 await page.click('input[data-garment="tights"]');
@@ -93,6 +104,17 @@ if (all) {
     await shot(`anim-${a.id.replace(/ /g, "-")}`, 1200);
   }
   await seek(null);
+}
+
+if (wardrobe) {
+  await set({ animation: null, hair: "hair-short02", expression: "neutral", garmentColors: {} });
+  for (const g of catalog.garments) {
+    await set({ body: { gender: g.gender === "female" ? 0.05 : g.gender === "male" ? 0.95 : 0.5, ageYears: 30, muscle: 0.5, weight: 0.5 }, details: {}, outfit: [g.id] });
+    if (g.category === "Shoes" || g.category === "Socks & hosiery") await camera([0.5, 0.5, 1.6], [0, 0.4, 0]);
+    else if (g.occupies.some((l) => ["hat", "glasses", "mask"].includes(l))) await camera([0.35, 1.65, 0.9], [0, 1.6, 0]);
+    else await camera([0.6, 1.2, 3.4], [0, 0.95, 0]);
+    await shot(`wardrobe-${g.id}`, 900);
+  }
 }
 
 await camera([1.2, 1.0, 1.0], [0, 0.9, 0]);

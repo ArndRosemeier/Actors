@@ -9,14 +9,28 @@ export interface Choice {
 export interface GarmentChoice extends Choice {
   /** Garments sharing a slot replace each other (e.g. the two skirts). */
   slot?: string;
+  /**
+   * Body layers the garment takes ("top", "bottom", "shoes", "hat", …).
+   * Putting on a garment takes off the others that share one of its layers,
+   * e.g. a dress (top + bottom) replaces both a T-shirt and jeans.
+   */
+  occupies: string[];
+  /** UI group ("Tops", "Shoes", …). */
+  category: string;
   /** Hides the genital mesh/detail while worn. */
   coversAnatomy: boolean;
+  /** Typical wearer, for random outfits; absent = anyone. */
+  gender?: "female" | "male";
 }
 
 /** A named outfit. `female` items are only added for female-leaning bodies (gender < 0.5). */
 export interface OutfitPreset extends Choice {
   garments: string[];
   female?: string[];
+  /** Typical wearer, for random outfits; absent = anyone. */
+  gender?: "female" | "male";
+  /** Garment colours (sRGB hex) the preset starts with; others keep their own colours. */
+  colors?: Record<string, string>;
 }
 
 /** Everything a pack offers, as plain ids and labels (for UIs and random generation). */
@@ -38,6 +52,8 @@ export interface CharacterCatalog {
   outfits: OutfitPreset[];
   hair: Choice[];
   hairColors: Choice[];
+  /** Suggested garment colours (sRGB hex ids); any other hex colour works too. */
+  garmentColors: Choice[];
   brows: Choice[];
   eyes: Choice[];
   expressions: Choice[];
@@ -65,6 +81,8 @@ export interface CharacterConfig {
   brows: string | null;
   /** Garment ids that are worn; empty = nude. */
   outfit: string[];
+  /** Garment colours by garment id (sRGB hex); missing = the garment's own colours. */
+  garmentColors: Record<string, string>;
   /** Genital mesh (male) / genital detail (female). Adults only. */
   anatomy: boolean;
   /** Clip name, or null for the bind pose. */
@@ -81,12 +99,37 @@ export const PAINTED_BROWS = "painted";
 export const OUTFITS: OutfitPreset[] = [
   { id: "nude", label: "Nude", garments: [] },
   { id: "underwear", label: "Underwear", garments: ["briefs"], female: ["bra"] },
-  { id: "casual", label: "T-shirt and jeans", garments: ["briefs", "tshirt", "jeans", "socks"], female: ["bra"] },
-  { id: "sporty", label: "T-shirt and shorts", garments: ["briefs", "tshirt", "shorts", "socks"], female: ["bra"] },
-  { id: "layers", label: "Long sleeves and jeans", garments: ["briefs", "longsleeve", "jeans", "socks"], female: ["bra"] },
-  { id: "long-skirt", label: "Long skirt", garments: ["briefs", "longsleeve", "skirt"], female: ["bra"] },
-  { id: "mini-skirt", label: "Mini skirt", garments: ["briefs", "tshirt", "skirt-mini", "socks"], female: ["bra"] },
-  { id: "skirt-and-bra", label: "Long skirt and bra", garments: ["briefs", "skirt"], female: ["bra"] },
+  { id: "casual", label: "T-shirt and jeans", garments: ["briefs", "tshirt", "jeans", "socks", "sneakers"], female: ["bra"] },
+  { id: "sporty", label: "T-shirt and shorts", garments: ["briefs", "tshirt", "shorts", "socks", "sneakers"], female: ["bra"] },
+  { id: "layers", label: "Long sleeves and jeans", garments: ["briefs", "longsleeve", "jeans", "socks", "ankle-boots"], female: ["bra"] },
+  { id: "long-skirt", label: "Long skirt", garments: ["briefs", "longsleeve", "skirt", "ballet-flats"], female: ["bra"], gender: "female" },
+  { id: "mini-skirt", label: "Mini skirt", garments: ["briefs", "tshirt", "skirt-mini", "socks", "sneakers"], female: ["bra"], gender: "female" },
+  { id: "skirt-and-bra", label: "Long skirt and bra", garments: ["briefs", "skirt"], female: ["bra"], gender: "female" },
+  { id: "polo", label: "Polo and chinos", garments: ["briefs", "polo", "wool-pants", "socks", "leather-shoes"], female: ["bra"] },
+  { id: "cargo", label: "Sweater and cargo pants", garments: ["briefs", "fisherman-sweater", "cargo-pants", "socks", "work-boots"], female: ["bra"] },
+  { id: "summer", label: "Tank top and denim shorts", garments: ["briefs", "tank-top", "denim-shorts", "t-bar-shoes"], female: ["bra"], gender: "female" },
+  { id: "street", label: "Street casual", garments: ["briefs", "jacket-jeans", "sneakers", "newsboy-cap"], gender: "male" },
+  { id: "casual-suit", label: "Casual set", garments: ["briefs", "tee-jeans-fitted", "canvas-sneakers"], female: ["bra"], gender: "female" },
+  { id: "sport", label: "Sportswear", garments: ["briefs", "sportsuit", "sneakers"], female: ["bra"], gender: "female" },
+  { id: "work", label: "Work overalls", garments: ["briefs", "worksuit", "work-boots"], gender: "male" },
+  { id: "business", label: "Business suit", garments: ["briefs", "suit-tie", "socks", "black-shoes"], gender: "male" },
+  { id: "double-breasted", label: "Double-breasted suit", garments: ["briefs", "suit-double", "socks", "leather-shoes"], gender: "male" },
+  { id: "tuxedo", label: "Dinner jacket", garments: ["briefs", "suit-dinner", "socks", "black-shoes"], gender: "male" },
+  { id: "pantsuit", label: "Pantsuit", garments: ["briefs", "suit-female", "stiletto-booties"], female: ["bra"], gender: "female" },
+  { id: "evening", label: "Evening gown", garments: ["briefs", "gown", "gloves-long", "ballet-flats"], gender: "female" },
+  { id: "shift-dress", label: "Shift dress", garments: ["briefs", "shift-dress", "pantyhose", "ballet-flats"], gender: "female" },
+  { id: "halter-dress", label: "Halter dress", garments: ["briefs", "halter-midi", "t-bar-shoes"], gender: "female" },
+  { id: "flapper", label: "Flapper dress", garments: ["briefs", "flapper-dress", "cloche-hat", "t-bar-shoes"], gender: "female" },
+  { id: "kimono", label: "Kimono", garments: ["briefs", "kimono", "cloth-shoes"], gender: "female" },
+  { id: "elegant-male", label: "Elegant", garments: ["briefs", "elegant-male", "socks", "black-shoes", "fedora"], gender: "male" },
+  { id: "monk", label: "Monk robe", garments: ["briefs", "monk-robe", "monk-hood"] },
+  { id: "viking", label: "Viking", garments: ["briefs", "viking-tunic", "viking-pants", "viking-boots"], gender: "male" },
+  { id: "antique", label: "Mycenaean tunic", garments: ["briefs", "tunic", "t-bar-shoes"] },
+  { id: "office", label: "Blouse and pencil skirt", garments: ["briefs", "blouse-pencil-skirt", "pantyhose", "stiletto-booties"], female: ["bra"], gender: "female" },
+  { id: "party", label: "Tube top and mini skirt", garments: ["briefs", "tube-top", "skirt-tiered-mini", "gogo-boots"], gender: "female" },
+  { id: "lingerie", label: "Lingerie", garments: ["lace-thong", "underwear-top", "fishnet-stockings"], gender: "female" },
+  { id: "biker", label: "Biker", garments: ["briefs", "jacket-jeans", "biker-boots", "mma-gloves", "sunglasses"], gender: "male" },
+  { id: "weekend", label: "Striped shirt and jeans", garments: ["briefs", "striped-shirt-jeans", "socks", "trainers"], gender: "male" },
 ];
 
 export const HAIR_COLORS: Choice[] = [
@@ -99,14 +142,47 @@ export const HAIR_COLORS: Choice[] = [
   { id: "#9a968f", label: "Grey" },
 ];
 
+/** Suggested garment colours; the editor also offers a free colour picker. */
+export const GARMENT_COLORS: Choice[] = [
+  { id: "#1c1c1f", label: "Black" },
+  { id: "#f1efe9", label: "White" },
+  { id: "#8b8e93", label: "Grey" },
+  { id: "#1f2a44", label: "Navy" },
+  { id: "#3566a8", label: "Blue" },
+  { id: "#93bde3", label: "Light blue" },
+  { id: "#1f7a7a", label: "Teal" },
+  { id: "#2f6b45", label: "Green" },
+  { id: "#5f6838", label: "Olive" },
+  { id: "#e3c44a", label: "Yellow" },
+  { id: "#d9752b", label: "Orange" },
+  { id: "#b3262e", label: "Red" },
+  { id: "#5e1a2b", label: "Burgundy" },
+  { id: "#e79bb6", label: "Pink" },
+  { id: "#5d3b80", label: "Purple" },
+  { id: "#d2bd98", label: "Beige" },
+  { id: "#6b4a32", label: "Brown" },
+];
+
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 
 export function buildCatalog(human: Human, irisPresets: string[]): CharacterCatalog {
   const m = human.runtime.manifest;
   const labels = human.extra.garmentLabels ?? {};
+  const info = human.extra.garments ?? {};
   const garments = m.meshes
     .filter((d) => d.role === "garment" && !d.internal)
-    .map((d) => ({ id: d.name, label: labels[d.name] ?? d.name, slot: d.slot, coversAnatomy: !!d.tags?.includes("covers:anatomy") }));
+    .map((d): GarmentChoice => {
+      const g = info[d.name] ?? {};
+      return {
+        id: d.name,
+        label: g.label ?? labels[d.name] ?? d.name,
+        slot: d.slot,
+        occupies: g.occupies ?? [],
+        category: g.category ?? "Clothes",
+        coversAnatomy: !!d.tags?.includes("covers:anatomy"),
+        ...(g.gender ? { gender: g.gender } : {}),
+      };
+    });
   const have = new Set(garments.map((g) => g.id));
   const outfits = OUTFITS.filter((o) => o.garments.every((g) => have.has(g))).map((o) => ({ ...o, female: o.female?.filter((g) => have.has(g)) }));
   const choices = (r: Record<string, string> | undefined) => Object.entries(r ?? {}).map(([id, label]) => ({ id, label }));
@@ -121,12 +197,33 @@ export function buildCatalog(human: Human, irisPresets: string[]): CharacterCata
     outfits,
     hair: choices(human.extra.hairLabels),
     hairColors: HAIR_COLORS,
+    garmentColors: GARMENT_COLORS,
     brows: choices(human.extra.browLabels),
     eyes: irisPresets.map((id) => ({ id, label: cap(id) })),
     expressions: Object.keys(EXPRESSIONS).map((id) => ({ id, label: cap(id) })),
     details: human.modifiers.map((d) => ({ id: d.id, label: d.label, group: d.group, min: d.negative.length ? -1 : 0, max: 1 })),
     photoSkin: (human.extra.skins?.length ?? 0) > 0,
   };
+}
+
+/**
+ * A wearable outfit from a list of garment ids: unknown ids are dropped, and a
+ * later garment takes off earlier ones it shares a slot or body layer with
+ * (a dress replaces a T-shirt and jeans).
+ */
+export function resolveOutfit(catalog: Pick<CharacterCatalog, "garments">, outfit: string[]): string[] {
+  const byId = new Map(catalog.garments.map((g) => [g.id, g]));
+  const out: string[] = [];
+  for (const id of outfit) {
+    const g = byId.get(id);
+    if (!g || out.includes(id)) continue;
+    for (let i = out.length - 1; i >= 0; i--) {
+      const prev = byId.get(out[i])!;
+      if ((g.slot && prev.slot === g.slot) || g.occupies.some((l) => prev.occupies.includes(l))) out.splice(i, 1);
+    }
+    out.push(id);
+  }
+  return out;
 }
 
 /** Garment ids of an outfit preset for a body. */
@@ -145,6 +242,7 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     hairColor: null,
     brows: catalog.brows[0]?.id ?? PAINTED_BROWS,
     outfit: [],
+    garmentColors: {},
     anatomy: true,
     animation: catalog.animations.some((a) => a.id === "idle") ? "idle" : null,
     expression: "neutral",
@@ -206,7 +304,12 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
   for (const d of catalog.details) if (r() < 0.15) details[d.id] = (r() - (d.min < 0 ? 0.5 : 0)) * 0.8;
   const hairPool = catalog.hair.filter((h) => female || SHORT_HAIR.test(h.id));
   const old = body.ageYears > 60 && r() < 0.7;
-  const outfitPreset = options.outfit === false ? undefined : pick(catalog.outfits);
+  const presets = catalog.outfits.filter((o) => !o.gender || o.gender === (female ? "female" : "male"));
+  const outfitPreset = options.outfit === false ? undefined : pick(presets.length ? presets : catalog.outfits);
+  const outfit = outfitPreset ? outfitGarments(outfitPreset, body) : base.outfit;
+  // About half the garments get a colour from the palette; the rest keep their own.
+  const garmentColors: Record<string, string> = {};
+  if (outfitPreset) for (const g of outfit) if (r() < 0.5) garmentColors[g] = pick(catalog.garmentColors)?.id ?? "#808080";
   return {
     ...base,
     body,
@@ -215,7 +318,8 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
     hair: !female && r() < 0.12 ? null : (pick(hairPool)?.id ?? null),
     hairColor: old ? "#9a968f" : r() < 0.4 ? null : (pick(catalog.hairColors)?.id ?? null),
     brows: pick(catalog.brows)?.id ?? base.brows,
-    outfit: outfitPreset ? outfitGarments(outfitPreset, body) : base.outfit,
+    outfit,
+    garmentColors: outfitPreset ? { ...outfitPreset.colors, ...garmentColors } : base.garmentColors,
     animation: options.animation ? (pick(catalog.animations.filter((a) => !a.library))?.id ?? base.animation) : base.animation,
   };
 }
