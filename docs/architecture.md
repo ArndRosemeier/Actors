@@ -25,7 +25,7 @@ MPFB2 data (CC0) --[tools/import-makehuman]--> actor pack --[@actors/core]--> sh
 5. `fitProxy`: garments are bound to body triangles (MakeHuman `.mhclo` scheme) and follow every morph.
 6. Subdivided meshes follow via their stencil (each new vertex is a fixed weighted sum of base vertices).
 7. `surfaceDelta`: position/normal deltas for extra targets on top of a shape, used for GPU face morphs.
-8. `Retargeter`: plays a clip on any fitted skeleton: each bone is first swung (shortest arc) onto the source rest direction, then the recorded world-space change is applied. This is the standard "align rest poses, copy world rotations" retarget.
+8. `Retargeter`: plays a clip on any fitted skeleton: each limb bone (arms, hands, fingers, legs, feet) is first swung (shortest arc) onto the source rest direction, then the recorded world-space change is applied. Torso, neck, head and clavicle bones are not swung, because each rig places them differently (aligning them tilted the pelvis and lifted the shoulders); they keep the target's own rest posture and only get the change. This is the standard "align rest poses, copy world rotations" retarget.
 
 All of it is synchronous after targets load and has no DOM dependency. `serveRuntime` / `RemoteRuntime` (`packages/core/src/worker.ts`) run it in a Web Worker; the viewer does this by default (`?noworker` turns it off).
 

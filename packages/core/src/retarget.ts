@@ -51,6 +51,17 @@ export interface RetargetPose {
   rootIndex: number;
 }
 
+/**
+ * Bones whose rest direction is turned onto the clip's before the motion is applied.
+ * Limb bones run along the limb in every rig, so matching directions matches the
+ * anatomy (e.g. a T-pose source onto an A-pose target). Torso, neck, head and
+ * clavicle bones are placed differently per rig (a clavicle may start at the
+ * sternum or the spine, a pelvis bone may point up or tilt back), so aligning
+ * them would tilt the pelvis and lift the shoulders; they only get the clip's
+ * change since its rest pose.
+ */
+export const LIMB_BONES = /^((upperarm|lowerarm|hand|thigh|calf|foot|ball)_[lr]|(index|middle|ring|pinky|thumb)_0[1-3]_[lr])$/;
+
 /** Plays a retargetable clip on a fitted skeleton. Rebuild when the skeleton is re-fitted. */
 export class Retargeter {
   private readonly track: Int32Array; // skeleton bone -> clip track index, or -1
@@ -63,7 +74,7 @@ export class Retargeter {
   constructor(
     private readonly skeleton: FittedSkeleton,
     private readonly clip: Clip,
-    private readonly options: { inPlace?: boolean } = {},
+    private readonly options: { inPlace?: boolean; align?: (bone: string) => boolean } = {},
   ) {
     const { names } = skeleton;
     const def = clip.def;
@@ -73,10 +84,11 @@ export class Retargeter {
       if (i >= 0) this.track[i] = k;
     });
     this.bindWorld = skeleton.worldRotations.map((m) => quatFromMat3(m));
-    // Reference pose: each animated bone turned (shortest arc) to the clip's reference direction.
-    this.worldRef = names.map((_, i) => {
+    // Reference pose: each animated limb bone turned (shortest arc) to the clip's reference direction.
+    const align = options.align ?? ((b: string) => LIMB_BONES.test(b));
+    this.worldRef = names.map((name, i) => {
       const k = this.track[i];
-      if (k < 0) return this.bindWorld[i];
+      if (k < 0 || !align(name)) return this.bindWorld[i];
       const boneDir = rotate(this.bindWorld[i], [0, 1, 0]);
       const ref = normalize([def.refDirs[k * 3], def.refDirs[k * 3 + 1], def.refDirs[k * 3 + 2]]);
       return quatMul(quatFromTo(boneDir, ref), this.bindWorld[i]);
