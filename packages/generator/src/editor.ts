@@ -6,10 +6,12 @@ const STYLE = `
 .actors-editor { --ae-panel: #1d1f24; --ae-text: #e6e6e6; --ae-muted: #9aa0a6; --ae-accent: #c98b6b; --ae-border: #2c2f36;
   box-sizing: border-box; background: var(--ae-panel); color: var(--ae-text); font: 13px/1.4 system-ui, sans-serif; padding: 12px 14px 20px; overflow-y: auto; }
 .actors-editor * { box-sizing: border-box; }
+.actors-editor [hidden] { display: none !important; }
 .actors-editor header { display: flex; align-items: baseline; justify-content: space-between; }
 .actors-editor h1 { font-size: 18px; margin: 0 0 8px; }
 .actors-editor h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ae-muted); margin: 16px 0 6px; }
 .actors-editor .ae-status { color: var(--ae-muted); font-size: 12px; }
+.actors-editor .ae-note { color: var(--ae-muted); font-size: 12px; margin: 2px 0 6px; }
 .actors-editor .ae-row { display: grid; grid-template-columns: 110px 1fr 40px; gap: 8px; align-items: center; margin: 3px 0; }
 .actors-editor .ae-row label { color: var(--ae-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .actors-editor .ae-row output { text-align: right; font-variant-numeric: tabular-nums; color: var(--ae-muted); }
@@ -139,6 +141,19 @@ export class CharacterEditor {
       }
       el.appendChild(modes);
     }
+
+    // Race
+    const raceSec = this.section("Race");
+    const raceNames = cat.races.map((r): [string, string] => [r.id, r.label]);
+    this.select(raceSec, "Race", raceNames, (c) => c.race, (v) => set({ race: v as CharacterConfig["race"] }), "race");
+    const raceInfo = document.createElement("p");
+    raceInfo.className = "ae-note";
+    raceSec.appendChild(raceInfo);
+    this.syncers.push((c) => (raceInfo.textContent = cat.races.find((r) => r.id === c.race)?.description ?? ""));
+    detailed(this.select(raceSec, "Mixed with", [["", "None"], ...raceNames], (c) => c.race2 ?? "", (v) => set({ race2: (v || null) as CharacterConfig["race2"], raceMix: v ? character.config.raceMix || 0.5 : 0 }), "race2"));
+    const mixRow = detailed(this.slider(raceSec, "Mix", 0, 1, 0.01, pct, (c) => c.raceMix, (v) => set({ raceMix: v }), "raceMix"));
+    this.syncers.push((c) => (mixRow.hidden = !c.race2));
+    detailed(this.slider(raceSec, "Size", 0, 1, 0.01, pct, (c) => c.raceSize, (v) => set({ raceSize: v }), "raceSize"));
 
     // Body
     const body = this.section("Body");

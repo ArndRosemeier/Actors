@@ -1,4 +1,4 @@
-import { ADULT_MIN_AGE, DEFAULT_PARAMS, EXPRESSIONS, type Human, type HumanParams, MAX_AGE } from "@actors/human";
+import { ADULT_MIN_AGE, DEFAULT_PARAMS, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, RACES, RACE_IDS, type RaceId } from "@actors/human";
 
 /** One choice in a list: the id the API takes and a display label. */
 export interface Choice {
@@ -31,6 +31,8 @@ export interface AnimationChoice extends Choice {
 }
 
 export interface CharacterCatalog {
+  /** Fantasy races (human first). */
+  races: (Choice & { id: RaceId; description: string })[];
   animations: AnimationChoice[];
   /** Animation sources: "" = the pack's own clips, then each loaded clip library. */
   libraries: Choice[];
@@ -49,6 +51,14 @@ export interface CharacterCatalog {
 
 /** The whole look and motion of a character, serialisable as JSON. */
 export interface CharacterConfig {
+  /** Race of the body (see `catalog.races`). */
+  race: RaceId;
+  /** Second race for mixed heritage (half-elf, half-orc...), or null. */
+  race2: RaceId | null;
+  /** 0..1 share of `race2`. */
+  raceMix: number;
+  /** 0..1 within the race's size range (0.5 = typical; giantkin are 1.6-1.9× human size). */
+  raceSize: number;
   body: HumanParams;
   /** Detail slider values by id (missing = 0). */
   details: Record<string, number>;
@@ -111,6 +121,7 @@ export function buildCatalog(human: Human, irisPresets: string[]): CharacterCata
   const outfits = OUTFITS.filter((o) => o.garments.every((g) => have.has(g))).map((o) => ({ ...o, female: o.female?.filter((g) => have.has(g)) }));
   const choices = (r: Record<string, string> | undefined) => Object.entries(r ?? {}).map(([id, label]) => ({ id, label }));
   return {
+    races: RACE_IDS.map((id) => ({ id, label: RACES[id].name, description: RACES[id].description })),
     animations: human.runtime.clipDefs.map((c) => {
       const library = m.clipLibraries?.find((l) => c.file.startsWith(l.file.slice(0, l.file.lastIndexOf("/") + 1)))?.name ?? "";
       const label = library && c.description ? `${c.name.replace(/^\S+\s/, "")} · ${c.description}` : cap(c.name);
@@ -136,6 +147,10 @@ export function outfitGarments(preset: OutfitPreset, body: Pick<HumanParams, "ge
 
 export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
   return {
+    race: "human",
+    race2: null,
+    raceMix: 0,
+    raceSize: 0.5,
     body: { ...DEFAULT_PARAMS },
     details: {},
     skin: catalog.photoSkin ? "photo" : "procedural",

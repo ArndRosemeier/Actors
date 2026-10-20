@@ -4,6 +4,7 @@ import { computeNormals } from "./normals";
 import { subdivideQuadMesh } from "./subdivide";
 import { type ProxyBinding, fitProxy, proxySkin } from "./proxy";
 import { type FittedSkeleton, fitSkeleton } from "./skeleton";
+import { type ShapeOptions, applyBoneScales, applyScale, applyTip, hasShapeOptions, targetMask } from "./deform";
 import { type MorphTarget, applyTarget, decodeTarget } from "./target";
 
 export type Fetcher = (url: string) => Promise<ArrayBuffer>;
@@ -82,6 +83,9 @@ export class ActorRuntime {
   readonly meshes: MeshData[];
   readonly proxies = new Map<string, ProxyBinding>();
   readonly basePositions: Float32Array;
+  private readonly baseJoints?: Uint16Array;
+  private readonly baseWeights?: Float32Array;
+  private readonly masks = new Map<string, Float32Array>();
 
   private constructor(
     readonly manifestUrl: string,
@@ -101,6 +105,8 @@ export class ActorRuntime {
     }
     const baseJoints = manifest.skin ? readBuffer(blob, { ...manifest.skin.joints, type: "u16" }) : undefined;
     const baseWeights = manifest.skin ? readBuffer(blob, { ...manifest.skin.weights, type: "f32" }) : undefined;
+    this.baseJoints = baseJoints;
+    this.baseWeights = baseWeights;
     const proxySkins = new Map<string, { joints: Uint16Array; weights: Float32Array }>();
 
     const built: MeshData[] = [];
@@ -241,16 +247,41 @@ export class ActorRuntime {
     return positions;
   }
 
-  /** Full update: morph, normals, skeleton, proxies. */
-  async evaluate(weights: Map<string, number>, previous?: ActorShape): Promise<ActorShape> {
+  /**
+   * Full update: morph, shape passes (see ShapeOptions: proportions, tips,
+   * scale), normals, skeleton, proxies.
+   */
+  async evaluate(weights: Map<string, number>, previous?: ActorShape, options?: ShapeOptions): Promise<ActorShape> {
     const active = [...weights].filter(([, w]) => Math.abs(w) >= 1e-5).map(([n]) => n);
-    await this.ensureTargets(active);
-    return this.evaluateLoaded(weights, previous);
+    await this.ensureTargets([...active, ...(options?.tips ?? []).map((t) => t.mask)]);
+    return this.evaluateLoaded(weights, previous, options);
   }
 
-  /** Synchronous version of evaluate(); all weighted targets must already be loaded. */
-  evaluateLoaded(weights: Map<string, number>, previous?: ActorShape): ActorShape {
+  /** Per base vertex 0..1 weights of a loaded target's region (see TipDeform). */
+  targetMask(name: string): Float32Array {
+    let m = this.masks.get(name);
+    if (!m) {
+      const t = this.targets.get(name);
+      if (!t) throw new Error(`Target ${name} not loaded; call ensureTargets first`);
+      m = targetMask(t, this.manifest.vertexCount);
+      this.masks.set(name, m);
+    }
+    return m;
+  }
+
+  /** Applies the shape passes to morphed positions, in place. */
+  private deform(positions: Float32Array, options: ShapeOptions): void {
+    for (const tip of options.tips ?? []) applyTip(positions, this.targetMask(tip.mask), tip.amount, tip.direction);
+    const bones = options.bones ?? {};
+    if (this.manifest.skeleton && this.baseJoints && this.baseWeights && Object.keys(bones).length)
+      applyBoneScales(positions, fitSkeleton(this.manifest.skeleton, positions), this.baseJoints, this.baseWeights, bones);
+    if (options.scale !== undefined) applyScale(positions, options.scale);
+  }
+
+  /** Synchronous version of evaluate(); all weighted targets (and tip masks) must already be loaded. */
+  evaluateLoaded(weights: Map<string, number>, previous?: ActorShape, options?: ShapeOptions): ActorShape {
     const positions = this.morph(weights, previous?.positions);
+    if (hasShapeOptions(options)) this.deform(positions, options);
     const baseLists = this.meshes.filter((m) => m.def.source.kind === "base" && !m.stencil);
     const normals = computeNormals(positions, this.manifest.vertexCount, baseLists, previous?.normals);
     const proxies = new Map<string, { positions: Float32Array; normals: Float32Array }>();

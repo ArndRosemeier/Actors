@@ -46,6 +46,7 @@ await character.play("walk");
 ## What the human can do
 
 * **Shape**: every MakeHuman macro and detail slider, evaluated in a Web Worker so dragging never stalls rendering.
+* **Fantasy races**: human, elf, dwarf, orc, halfling, goblin, sylvan, drakeborn, umbral and giantkin (ported from the author's Norgo game), and mixes of any two. Each race adds its own MakeHuman target recipe, per-bone length and girth scaling (short, thick dwarf limbs; long goblin arms), head scale, procedural pointed ear tips and an overall size, all applied before the skeleton, clothes and hair are fitted, so everything follows.
 * **Skin**: MakeHuman's 18 CC0 photo skins (young / middle-aged / old × female / male × African / Asian / Caucasian), blended on the GPU to follow the gender, age and ethnicity sliders; own skin shader with pores and wrapped per-channel diffuse as cheap subsurface scattering. A procedural mode (region tints from MPFB's CC0 masks (lips, areolae, nails, eyelids, genitals, ears), skin-tone slider) is still available.
 * **Hair and brows**: 9 MakeHuman CC0 hairstyles and 5 eyebrow styles as fitted proxies that follow every morph, with recolouring.
 * **Detail**: one Catmull-Clark subdivision level built at load time (55k vertices for the body) with a low-detail option; dual-quaternion skinning on every material so elbows, knees and shoulders keep their volume.
@@ -62,5 +63,5 @@ await character.play("walk");
 
 ## Content rules
 
-* **Adults only.** Age is clamped to 18+ in the data path (`@actors/human` `sanitizeParams`), not just in the UI, and the importer never ships the baby targets.
+* **Adults only.** Age is clamped to 18+ in the data path (`@actors/human` `sanitizeParams`), not just in the UI, and the importer never ships the baby targets. Small races (halflings, goblins) keep adult proportions: head scale is capped (`MAX_HEAD_SCALE`).
 * Code: MIT (see [LICENSE](LICENSE)). Assets: see [NOTICE-ASSETS.md](NOTICE-ASSETS.md). No MakeHuman/MPFB *code* is used; the runtime is an independent implementation.

@@ -46,8 +46,8 @@ export class CharacterStage {
     key.position.set(2, 4, 3);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
-    key.shadow.camera.left = key.shadow.camera.bottom = -1.5;
-    key.shadow.camera.right = key.shadow.camera.top = 1.5;
+    key.shadow.camera.left = key.shadow.camera.bottom = -2.2;
+    key.shadow.camera.right = key.shadow.camera.top = 2.2;
     key.shadow.bias = -0.0005;
     key.shadow.normalBias = 0.02;
     scene.add(key);
@@ -98,6 +98,19 @@ export class CharacterStage {
   view(position: THREE.Vector3Tuple, target: THREE.Vector3Tuple = [0, 0.95, 0]): void {
     this.camera.position.fromArray(position);
     this.controls.target.fromArray(target);
+    this.controls.update();
+  }
+
+  /**
+   * Re-frames the camera for a character `height` meters tall: same viewing
+   * direction, distance and target scaled from the default 1.7 m framing.
+   */
+  frame(height: number): void {
+    const k = Math.max(0.3, height) / 1.7;
+    const dir = this.camera.position.clone().sub(this.controls.target);
+    const dist = 4.27 * k;
+    this.controls.target.set(this.controls.target.x, 0.95 * k, this.controls.target.z);
+    this.camera.position.copy(this.controls.target).add(dir.setLength(dist));
     this.controls.update();
   }
 
