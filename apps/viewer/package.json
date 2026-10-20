@@ -12,7 +12,8 @@
     "@actors/core": "0.0.1",
     "@actors/human": "0.0.1",
     "@actors/three": "0.0.1",
-    "three": "0.170.0"
+    "three": "0.170.0",
+    "@actors/generator": "0.0.1"
   },
   "devDependencies": {
     "@types/three": "0.170.0",

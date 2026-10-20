@@ -9,12 +9,24 @@ The first actor is an adult human built on the **MakeHuman / MPFB2 CC0 assets** 
 ```bash
 npm install
 npm run import:human   # clones MPFB2, fetches the CC0 skins/hair/skirts/animations it needs into .cache/, builds the pack
-npm run dev            # viewer at http://localhost:5173
+npm run dev            # character generator at http://localhost:5173
 ```
 
 `npm run import:human -- --mpfb <path>` uses an existing MPFB2 checkout instead of cloning.
 
-Other scripts: `npm test` (unit tests), `npm run typecheck`, `npm run build` (static viewer build in `apps/viewer/dist`), and `node apps/viewer/scripts/smoke.mjs [url] [outDir]` (headless browser smoke test with screenshots; dev server must be running).
+Other scripts: `npm test` (unit tests), `npm run typecheck`, `npm run build` (static viewer build in `apps/viewer/dist`), and `node apps/viewer/scripts/smoke.mjs [url] [outDir] [--all]` (headless browser smoke test with screenshots, `--all` shoots every outfit preset and clip; dev server must be running).
+
+## Use it in your app
+
+`@actors/generator` is the reusable character generator: a `Character` you add to any three.js scene (every option and clip, one JSON config), plus an optional ready-made stage and control panel. See [packages/generator/README.md](packages/generator/README.md).
+
+```ts
+const character = await Character.load({ pack: "/packs/human/manifest.json", renderer });
+scene.add(character.object);
+await character.set({ body: { gender: 1, muscle: 0.7 }, hair: "hair-short04" });
+await character.wear("casual"); // or "nude", or any garment list via set({ outfit })
+await character.play("walk");
+```
 
 ## Layout
 
@@ -24,7 +36,8 @@ Other scripts: `npm test` (unit tests), `npm run typecheck`, `npm run build` (st
 | `packages/human` | Human-specific logic: MakeHuman-style macro sliders (gender, age, muscle, …), detail sliders, adult age clamp, facial expressions and blinking, worker entry. |
 | `packages/three` | three.js adapter: skinned meshes sharing one skeleton, skin/eye/lash/cloth materials, dual-quaternion skinning, GPU face morphs, clip playback. |
 | `tools/import-makehuman` | Offline importer: MakeHuman/MPFB2 data, MakeHuman eyes and Quaternius animations → actor pack (JSON manifest + binary blob + one streamed file per morph target + clips + textures). |
-| `apps/viewer` | Vite demo: live sliders, skin/eyes/detail, outfit layering, animation clips (with `?compare` to show the source animation side by side), expressions, glTF export. |
+| `packages/generator` | Reusable character generator on top of the three adapters: `Character` (one JSON config for shape, look, outfit, anatomy, clip, face; randomize, save/load, glTF export), `CharacterStage` (studio scene) and `CharacterEditor` (DOM control panel). |
+| `apps/viewer` | The generator as a Vite app (a few lines on top of `@actors/generator`), with `?compare` to show the source animation side by side. |
 
 ## What the human can do
 

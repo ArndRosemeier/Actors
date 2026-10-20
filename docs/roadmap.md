@@ -11,7 +11,8 @@ Based on the research in the project (`research/character-base-options.md`, `res
 - **Anatomy**: male geometry from the subdivided MakeHuman genital helper; female detail drawn procedurally in the skin shader. Adult-only, hidden under covering garments.
 - **Detail**: Catmull-Clark subdivision at load time; dual-quaternion skinning.
 - **Clothing**: generated garment library cut from the tights helper with per-pixel hems, fitted `.mhclo` socks, long and mini skirt from MakeHuman's CC0 skirts pack with skirt skinning (averaged thigh weights) and GPU leg colliders; layering.
-- **Animation**: Quaternius Universal Animation Library clips (CC0, Unreal-mannequin skeleton with fingers and a stored rest pose) retargeted to any fitted skeleton; nine expression presets from MakeHuman's face units, auto-blink on GPU morphs.
+- **Animation**: Quaternius Universal Animation Library clips (CC0, Unreal-mannequin skeleton with fingers and a stored rest pose) retargeted to any fitted skeleton (limbs aligned to the source rest pose, torso and clavicles keep the body's own posture); nine expression presets from MakeHuman's face units, auto-blink on GPU morphs.
+- **Generator**: `@actors/generator` packages everything as a reusable `Character` (JSON config, every clip, outfit presets from nude up, randomize, save/load, glTF export) with an optional stage and editor panel; the viewer is built on it.
 - **Performance**: shape evaluation in a Web Worker; subdivision computed at load time; targets streamed on demand; the importer pulls single files out of MakeHuman's asset-pack zips with HTTP range requests.
 
 ## Known gaps and next steps

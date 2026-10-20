@@ -3,41 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Actors · Human Viewer</title>
+    <title>Actors · Character Generator</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
-    <aside id="panel">
-      <header>
-        <h1>Human</h1>
-        <span id="status">Loading…</span>
-      </header>
-      <section id="macro"></section>
-      <section id="look">
-        <h2>Look</h2>
-      </section>
-      <section>
-        <h2>Outfit</h2>
-        <div id="outfit"></div>
-      </section>
-      <section id="motion">
-        <h2>Animation</h2>
-        <select id="anim">
-          <option value="">Bind pose</option>
-        </select>
-        <select id="expression"></select>
-      </section>
-      <section>
-        <h2>Details</h2>
-        <div id="details"></div>
-      </section>
-      <footer>
-        <button id="randomize">Randomize</button>
-        <button id="reset">Reset</button>
-        <button id="export">Export glTF</button>
-      </footer>
-    </aside>
+    <aside id="panel"></aside>
     <main id="view"></main>
     <script type="module" src="./src/main.ts"></script>
   </body>
