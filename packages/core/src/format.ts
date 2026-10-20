@@ -1,0 +1,140 @@
+/**
+ * The "actor pack" format: an engine-agnostic description of a morphable,
+ * rigged character, produced offline by an importer (see tools/) and
+ * consumed at runtime by @actors/core.
+ *
+ * A pack is a JSON manifest plus one binary blob for the base data and one
+ * small binary file per morph target, so targets can be streamed on demand.
+ *
+ * Conventions: meters, +Y up, character faces +Z (same as glTF).
+ */
+
+export type ScalarType = "f32" | "u32" | "u16" | "i16" | "u8";
+
+/** A typed slice of the pack's base binary blob. */
+export interface BufferRef {
+  /** Byte offset into the base blob. Always aligned to 4. */
+  offset: number;
+  /** Number of scalars (not bytes). */
+  count: number;
+  type: ScalarType;
+}
+
+export interface MaterialHint {
+  /** Free-form material kind the renderer adapter maps to its own material. */
+  kind: "skin" | "eye" | "cloth" | "hair" | "other";
+  color?: [number, number, number];
+  roughness?: number;
+}
+
+/** A renderable surface. Its vertices are split at UV seams; `baseIndex` maps each one back to a shape vertex. */
+export interface MeshDef {
+  name: string;
+  /** Which shape this mesh follows: the actor's base shape, or a proxy (garment) by name. */
+  source: { kind: "base" } | { kind: "proxy"; proxy: string };
+  role: "body" | "eyes" | "garment" | "bodypart";
+  /** Render vertex -> source vertex index (u32). */
+  baseIndex: BufferRef;
+  /** Render vertex UVs (f32, 2 per vertex). */
+  uv: BufferRef;
+  /** Triangle list in render vertex indices (u32). */
+  indices: BufferRef;
+  material: MaterialHint;
+  /** Garments are optional and can be toggled. */
+  optional?: boolean;
+  /** Base vertices hidden while this mesh is shown (e.g. skin under a sock). */
+  hidesBaseVertices?: BufferRef;
+}
+
+/** A joint position: the mean of the given base vertices (after morphing). */
+export interface JointRef {
+  vertices: number[];
+}
+
+export interface BoneDef {
+  name: string;
+  /** Index into `bones`, or -1 for a root. Parents always come before children. */
+  parent: number;
+  head: JointRef;
+  tail: JointRef;
+  /**
+   * Roll around the head->tail axis, in radians, using Blender's bone
+   * convention (local Y along the bone). Kept so bone-local animation data
+   * authored in Blender-style rigs stays compatible.
+   */
+  roll: number;
+}
+
+export interface SkeletonDef {
+  name: string;
+  bones: BoneDef[];
+}
+
+/** Per base-vertex skinning: 4 influences per vertex. */
+export interface SkinDef {
+  joints: BufferRef; // u16, 4 per base vertex
+  weights: BufferRef; // f32, 4 per base vertex
+}
+
+export interface TargetRef {
+  name: string;
+  group: string;
+  /** File name relative to the manifest. */
+  file: string;
+  /** Number of vertices the target moves. */
+  count: number;
+}
+
+/**
+ * A proxy is a separate mesh (garment, body part) whose vertices are bound to
+ * triangles of the base shape, so it follows every morph. Each proxy vertex =
+ * w0*V[r0] + w1*V[r1] + w2*V[r2] + offset * scale, where scale per axis is the
+ * current distance between two reference vertices divided by its rest length.
+ */
+export interface ProxyDef {
+  name: string;
+  vertexCount: number;
+  refs: BufferRef; // u32, 3 per proxy vertex
+  weights: BufferRef; // f32, 3 per proxy vertex
+  offsets: BufferRef; // f32, 3 per proxy vertex (meters)
+  /** Per axis [vertexA, vertexB, restLength in meters]. */
+  scaleRefs: [[number, number, number], [number, number, number], [number, number, number]];
+}
+
+export interface ActorPackManifest {
+  format: "actors-pack";
+  version: 1;
+  id: string;
+  species: string;
+  units: "meters";
+  source: { name: string; license: string; url: string };
+  /** Base blob file name, relative to the manifest. */
+  blob: string;
+  vertexCount: number;
+  basePositions: BufferRef; // f32, 3 per vertex
+  meshes: MeshDef[];
+  proxies: ProxyDef[];
+  skeleton?: SkeletonDef;
+  skin?: SkinDef;
+  targets: TargetRef[];
+  /** Species-specific data (e.g. how sliders map to targets for humans). */
+  extra?: Record<string, unknown>;
+}
+
+export const TARGET_MAGIC = 0x54474141; // "AAGT" little-endian
+export const TARGET_FLAG_DENSE = 1;
+
+const CTORS = {
+  f32: Float32Array,
+  u32: Uint32Array,
+  u16: Uint16Array,
+  i16: Int16Array,
+  u8: Uint8Array,
+} as const;
+
+export type TypedArrayFor<T extends ScalarType> = InstanceType<(typeof CTORS)[T]>;
+
+export function readBuffer<T extends ScalarType>(blob: ArrayBuffer, ref: BufferRef & { type: T }): TypedArrayFor<T> {
+  const Ctor = CTORS[ref.type];
+  return new Ctor(blob, ref.offset, ref.count) as TypedArrayFor<T>;
+}

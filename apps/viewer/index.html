@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Actors · Human Viewer</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <aside id="panel">
+      <header>
+        <h1>Human</h1>
+        <span id="status">Loading…</span>
+      </header>
+      <section id="macro"></section>
+      <section>
+        <h2>Outfit</h2>
+        <div id="outfit"></div>
+      </section>
+      <section>
+        <h2>Animation</h2>
+        <select id="anim">
+          <option value="">Bind pose</option>
+          <option value="idle" selected>Idle</option>
+          <option value="walk">Walk (in place)</option>
+        </select>
+      </section>
+      <section>
+        <h2>Details</h2>
+        <div id="details"></div>
+      </section>
+      <footer>
+        <button id="randomize">Randomize</button>
+        <button id="reset">Reset</button>
+        <button id="export">Export glTF</button>
+      </footer>
+    </aside>
+    <main id="view"></main>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
