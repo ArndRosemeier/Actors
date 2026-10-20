@@ -16,6 +16,10 @@ npm run dev            # character generator at http://localhost:5173
 
 Other scripts: `npm test` (unit tests), `npm run typecheck`, `npm run build` (static viewer build in `apps/viewer/dist`), and `node apps/viewer/scripts/smoke.mjs [url] [outDir] [--all]` (headless browser smoke test with screenshots, `--all` shoots every outfit preset and clip; dev server must be running).
 
+## Live demo
+
+Every push to `main` builds the pack and the generator and deploys them to GitHub Pages (`.github/workflows/pages.yml`): https://arndrosemeier.github.io/Actors/ (add `?compare` to see the source animations side by side). Pull requests run the same build and tests without deploying.
+
 ## Use it in your app
 
 `@actors/generator` is the reusable character generator: a `Character` you add to any three.js scene (every option and clip, one JSON config), plus an optional ready-made stage and control panel. See [packages/generator/README.md](packages/generator/README.md).
