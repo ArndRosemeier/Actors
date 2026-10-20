@@ -24,6 +24,13 @@ Every push to `main` builds the pack and the generator and deploys them to GitHu
 
 `@actors/generator` is the reusable character generator: a `Character` you add to any three.js scene (every option and clip, one JSON config), plus an optional ready-made stage and control panel. See [packages/generator/README.md](packages/generator/README.md).
 
+Other projects install it from a GitHub release (no npm registry or token needed) and get the asset files from the hosted demo or with `npx actors-packs`; see [docs/using-actors.md](docs/using-actors.md):
+
+```bash
+npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.1.0/actors-generator-0.1.0.tgz
+npx actors-packs   # asset packs for this version -> public/packs
+```
+
 ```ts
 const character = await Character.load({ pack: "/packs/human/manifest.json", renderer });
 scene.add(character.object);
