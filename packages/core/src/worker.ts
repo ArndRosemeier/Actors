@@ -17,7 +17,8 @@ export interface MessagePortLike {
 
 type Request =
   | { id: number; type: "load"; url: string }
-  | { id: number; type: "evaluate"; weights: [string, number][]; options?: ShapeOptions };
+  | { id: number; type: "evaluate"; weights: [string, number][]; options?: ShapeOptions }
+  | { id: number; type: "loadMeshes"; names: string[] };
 
 type Response = { id: number; ok: true; shape?: ActorShape } | { id: number; ok: false; error: string };
 
@@ -38,6 +39,10 @@ export function serveRuntime(port: MessagePortLike): void {
       try {
         if (req.type === "load") {
           runtime = await ActorRuntime.load(req.url);
+          port.postMessage({ id: req.id, ok: true } satisfies Response);
+        } else if (req.type === "loadMeshes") {
+          if (!runtime) throw new Error("No actor pack loaded");
+          await runtime.loadMeshes(req.names);
           port.postMessage({ id: req.id, ok: true } satisfies Response);
         } else {
           if (!runtime) throw new Error("No actor pack loaded");
@@ -81,6 +86,11 @@ export class RemoteRuntime {
     const remote = new RemoteRuntime(port);
     await remote.call({ type: "load", url: manifestUrl } as Request);
     return remote;
+  }
+
+  /** Loads on-demand meshes in the worker too, so its shapes include their proxies (see ActorRuntime.loadMeshes). */
+  async loadMeshes(names: string[]): Promise<void> {
+    await this.call({ type: "loadMeshes", names } as Request);
   }
 
   async evaluate(weights: Map<string, number>, options?: ShapeOptions): Promise<ActorShape> {

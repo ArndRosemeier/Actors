@@ -1,15 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { ADULT_MIN_AGE, RACE_IDS } from "@actors/human";
-import { type CharacterCatalog, OUTFITS, defaultConfig, outfitGarments, randomConfig, seededRandom } from "./catalog";
+import { type CharacterCatalog, GARMENT_COLORS, OUTFITS, defaultConfig, outfitGarments, randomConfig, resolveOutfit, seededRandom } from "./catalog";
 
+const IDS = ["briefs", "bra", "tshirt", "jeans", "socks", "skirt", "skirt-mini", "dress", "sneakers"];
 const catalog: CharacterCatalog = {
   races: RACE_IDS.map((id) => ({ id, label: id, description: "" })),
   animations: [{ id: "idle", label: "Idle", category: "Idle", loop: true, library: "" }, { id: "walk", label: "Walk", category: "Locomotion", loop: true, library: "" }],
   libraries: [{ id: "", label: "Animations" }],
-  garments: ["briefs", "bra", "tshirt", "jeans", "socks", "skirt", "skirt-mini"].map((id) => ({ id, label: id, coversAnatomy: id === "briefs", slot: id.startsWith("skirt") ? "skirt" : undefined })),
-  outfits: OUTFITS.filter((o) => !o.garments.includes("shorts") && !o.garments.includes("longsleeve")),
+  garments: IDS.map((id) => ({
+    id,
+    label: id,
+    coversAnatomy: id === "briefs",
+    slot: id.startsWith("skirt") ? "skirt" : undefined,
+    category: "Clothes",
+    occupies: id.startsWith("skirt") || id === "jeans" ? ["bottom"] : id === "tshirt" ? ["top"] : id === "dress" ? ["top", "bottom"] : id === "sneakers" ? ["shoes"] : [],
+    ...(id === "dress" || id.startsWith("skirt") ? { gender: "female" as const } : {}),
+  })),
+  outfits: OUTFITS.filter((o) => o.garments.every((g) => IDS.includes(g))),
   hair: [{ id: "hair-short02", label: "Short" }, { id: "hair-long01", label: "Long" }],
   hairColors: [{ id: "#1b1512", label: "Black" }],
+  garmentColors: [{ id: "#1c1c1f", label: "Black" }, { id: "#b3262e", label: "Red" }],
   brows: [{ id: "brows-eyebrow001", label: "1" }],
   eyes: [{ id: "brown", label: "Brown" }, { id: "blue", label: "Blue" }],
   expressions: [{ id: "neutral", label: "Neutral" }],
@@ -24,6 +34,36 @@ describe("outfits", () => {
     const casual = OUTFITS.find((o) => o.id === "casual")!;
     expect(outfitGarments(casual, { gender: 0 })).toContain("bra");
     expect(outfitGarments(casual, { gender: 1 })).not.toContain("bra");
+  });
+});
+
+describe("resolveOutfit", () => {
+  it("lets a garment take off others on the same body layer or slot", () => {
+    expect(resolveOutfit(catalog, ["briefs", "tshirt", "jeans", "dress"])).toEqual(["briefs", "dress"]);
+    expect(resolveOutfit(catalog, ["dress", "tshirt"])).toEqual(["tshirt"]);
+    expect(resolveOutfit(catalog, ["skirt", "skirt-mini", "sneakers", "nope", "sneakers"])).toEqual(["skirt-mini", "sneakers"]);
+  });
+
+  it("keeps every preset intact", () => {
+    for (const o of catalog.outfits) for (const gender of [0, 1]) expect(resolveOutfit(catalog, outfitGarments(o, { gender }))).toEqual(outfitGarments(o, { gender }));
+  });
+});
+
+describe("garment colours", () => {
+  it("offers valid sRGB hex presets", () => {
+    expect(GARMENT_COLORS.length).toBeGreaterThan(8);
+    for (const c of GARMENT_COLORS) expect(c.id).toMatch(/^#[0-9a-f]{6}$/);
+  });
+
+  it("random characters only use palette colours on worn garments", () => {
+    const base = defaultConfig(catalog);
+    for (let s = 0; s < 50; s++) {
+      const c = randomConfig(catalog, base, { random: seededRandom(s) });
+      for (const [id, col] of Object.entries(c.garmentColors)) {
+        expect(c.outfit).toContain(id);
+        expect(catalog.garmentColors.map((x) => x.id)).toContain(col);
+      }
+    }
   });
 });
 

@@ -53,6 +53,8 @@ export function parseMhclo(text: string): Mhclo {
     else if (parts[0] === "obj_file") out.objFile = parts[1];
     else if (parts[0] === "material") out.material = parts[1];
     else if (/^[xyz]_scale$/.test(parts[0])) out.scale["xyz".indexOf(parts[0][0])] = [+parts[1], +parts[2], +parts[3]];
+    // Newer MakeClothes "shear" references: two vertices and their rest coordinates on that axis.
+    else if (/^shear_[xyz]$/.test(parts[0])) out.scale["xyz".indexOf(parts[0][6])] ??= [+parts[1], +parts[2], Math.abs(+parts[4] - +parts[3])];
   }
   return out;
 }

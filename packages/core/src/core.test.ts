@@ -84,3 +84,67 @@ describe("skirt skinning", () => {
     expect(w.has("calf_l")).toBe(false);
   });
 });
+
+describe("on-demand meshes", () => {
+  it("loads a garment from its own file and fits its proxy afterwards", async () => {
+    const { ActorRuntime } = await import("./runtime");
+    const f32 = (a: number[]) => new Float32Array(a).buffer;
+    const u32 = (a: number[]) => new Uint32Array(a).buffer;
+    const concat = (parts: ArrayBuffer[]) => {
+      const out = new Uint8Array(parts.reduce((s, p) => s + p.byteLength, 0));
+      let o = 0;
+      for (const p of parts) {
+        out.set(new Uint8Array(p), o);
+        o += p.byteLength;
+      }
+      return out.buffer;
+    };
+    // Base: one triangle. Garment: one vertex 1 cm in front of its centre.
+    const base = concat([f32([0, 0, 0, 1, 0, 0, 0, 1, 0]), u32([0, 1, 2]), f32([0, 0, 0, 1, 0, 1]), u32([0, 1, 2])]);
+    const garment = concat([u32([0, 1, 2]), f32([1 / 3, 1 / 3, 1 / 3]), f32([0, 0, 0.01]), u32([0]), f32([0, 0]), u32([0, 0, 0])]);
+    const manifest = {
+      format: "actors-pack",
+      version: 1,
+      id: "t",
+      species: "test",
+      units: "meters",
+      source: { name: "", license: "", url: "" },
+      blob: "base.bin",
+      vertexCount: 3,
+      basePositions: { offset: 0, count: 9, type: "f32" },
+      meshes: [
+        { name: "body", source: { kind: "base" }, role: "body", baseIndex: { offset: 36, count: 3, type: "u32" }, uv: { offset: 48, count: 6, type: "f32" }, indices: { offset: 72, count: 3, type: "u32" }, material: { kind: "skin" } },
+        {
+          name: "cape",
+          source: { kind: "proxy", proxy: "cape" },
+          role: "garment",
+          blob: "cape.bin",
+          optional: true,
+          baseIndex: { offset: 36, count: 1, type: "u32" },
+          uv: { offset: 40, count: 2, type: "f32" },
+          indices: { offset: 48, count: 3, type: "u32" },
+          material: { kind: "cloth" },
+        },
+      ],
+      proxies: [{ name: "cape", blob: "cape.bin", vertexCount: 1, refs: { offset: 0, count: 3, type: "u32" }, weights: { offset: 12, count: 3, type: "f32" }, offsets: { offset: 24, count: 3, type: "f32" }, scaleRefs: [[0, 1, 0], [0, 2, 0], [0, 1, 0]] }],
+      targets: [],
+    };
+    const files: Record<string, ArrayBuffer> = { "p/m.json": new TextEncoder().encode(JSON.stringify(manifest)).buffer as ArrayBuffer, "p/base.bin": base, "p/cape.bin": garment };
+    const fetched: string[] = [];
+    const rt = await ActorRuntime.load("p/m.json", async (url) => {
+      fetched.push(url);
+      return files[url];
+    });
+    expect(rt.isLoaded("body")).toBe(true);
+    expect(rt.isLoaded("cape")).toBe(false);
+    expect(fetched).not.toContain("p/cape.bin");
+    expect((await rt.evaluate(new Map())).proxies.has("cape")).toBe(false);
+    const [cape] = await rt.loadMeshes(["cape", "body"]);
+    expect(cape.def.name).toBe("cape");
+    expect(await rt.loadMeshes(["cape"])).toEqual([]);
+    const shape = await rt.evaluate(new Map());
+    const p = shape.proxies.get("cape")!.positions;
+    expect(p[0]).toBeCloseTo(1 / 3, 5);
+    expect(p[2]).toBeCloseTo(0.01, 5);
+  });
+});

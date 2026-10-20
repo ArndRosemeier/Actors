@@ -3,7 +3,7 @@ import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { ActorShape, Clip, Fetcher, MessagePortLike } from "@actors/core";
 import { ADULT_MIN_AGE, BLINK, EXPRESSIONS, Human, type HumanParams, MAX_AGE, sanitizeRace } from "@actors/human";
 import { IRIS_PRESETS, ThreeActor } from "@actors/three";
-import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, type RandomOptions, buildCatalog, defaultConfig, outfitGarments, randomConfig } from "./catalog";
+import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, type RandomOptions, buildCatalog, defaultConfig, outfitGarments, randomConfig, resolveOutfit } from "./catalog";
 
 /** A change to a character. `body` is merged into the current body; every other field replaces the current value. */
 export type CharacterPatch = Partial<Omit<CharacterConfig, "body">> & { body?: Partial<HumanParams> };
@@ -131,7 +131,7 @@ export class Character {
   wear(outfitId: string): Promise<void> {
     const preset = this.catalog.outfits.find((o) => o.id === outfitId);
     if (!preset) throw new Error(`Unknown outfit ${outfitId}`);
-    return this.set({ outfit: outfitGarments(preset, this.cfg.body) });
+    return this.set({ outfit: outfitGarments(preset, this.cfg.body), garmentColors: { ...this.cfg.garmentColors, ...preset.colors } });
   }
 
   /** Plays a clip from `catalog.animations` (looping), or the bind pose for null. */
@@ -201,28 +201,18 @@ export class Character {
 
   // --- internals ---------------------------------------------------------------
 
-  /** One garment per slot (the last one wins), unknown ids dropped. */
   private normalizeOutfit(outfit: string[]): string[] {
-    const bySlot = new Map<string, string>();
-    const out: string[] = [];
-    for (const id of outfit) {
-      const g = this.catalog.garments.find((x) => x.id === id);
-      if (!g || out.includes(id)) continue;
-      if (g.slot) {
-        const prev = bySlot.get(g.slot);
-        if (prev) out.splice(out.indexOf(prev), 1);
-        bySlot.set(g.slot, id);
-      }
-      out.push(id);
-    }
-    return out;
+    return resolveOutfit(this.catalog, outfit);
   }
 
   /** Everything that needs no new shape: visibility, colours, eyes, morph weights. */
   private applyLook(): void {
     const c = this.cfg;
     const a = this.actor;
-    for (const g of this.catalog.garments) a.setVisible(g.id, c.outfit.includes(g.id));
+    for (const g of this.catalog.garments) {
+      a.setVisible(g.id, c.outfit.includes(g.id));
+      a.setGarmentColor(g.id, c.garmentColors[g.id] ?? null);
+    }
     for (const h of this.catalog.hair) a.setVisible(h.id, h.id === c.hair);
     for (const b of this.catalog.brows) a.setVisible(b.id, b.id === c.brows);
     a.skin.uBrowDensity.value = c.brows === PAINTED_BROWS ? 0.92 : 0;
@@ -257,6 +247,12 @@ export class Character {
   private async reconcile(): Promise<void> {
     const c = this.cfg;
     const h = this.human;
+    // Garments with their own data file are loaded the first time they are worn.
+    const added = await h.loadMeshes(c.outfit.filter((g) => !h.runtime.isLoaded(g)));
+    if (added.length) {
+      this.actor.addMeshes(added);
+      this.applied.shape = ""; // the next shape must include the new garments
+    }
     const shapeKey = JSON.stringify([c.body, c.details, c.race, c.race2, c.raceMix, c.raceSize]);
     if (shapeKey !== this.applied.shape) {
       const t0 = performance.now();

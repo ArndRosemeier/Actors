@@ -1,4 +1,4 @@
-import { type ActorShape, ActorRuntime, type Fetcher, type MessagePortLike, RemoteRuntime, type ShapeOptions, type SurfaceDelta } from "@actors/core";
+import { type ActorShape, ActorRuntime, type Fetcher, type MeshData, type MessagePortLike, RemoteRuntime, type ShapeOptions, type SurfaceDelta } from "@actors/core";
 import { type UnitWeights, expressionTargetWeights } from "./expressions";
 import { type MacroTargetDef, macroTargetWeights } from "./macro";
 import { type ModifierDef, modifierTargetWeights } from "./modifiers";
@@ -12,6 +12,8 @@ export interface HumanExtra {
   adultMinAge: number;
   expressionUnits?: string[];
   garmentLabels?: Record<string, string>;
+  /** UI and outfit info per garment mesh (labels, groups, body layers). */
+  garments?: Record<string, GarmentInfo>;
   /** UV box [u0, v0, u1, v1] of the genital region on the body texture. */
   anatomy?: { genitalsUV: [number, number, number, number] };
   /** Photographic skin textures, blended by gender, age and ethnicity (see skinTextureWeights). */
@@ -20,6 +22,19 @@ export interface HumanExtra {
   hairLabels?: Record<string, string>;
   /** Display names of the eyebrow meshes (slot "brows"). */
   browLabels?: Record<string, string>;
+}
+
+/** Per-garment info written by the importer. */
+export interface GarmentInfo {
+  label?: string;
+  /** UI group, e.g. "Tops", "Shoes". */
+  category?: string;
+  /** Body layers the garment takes ("top", "bottom", "shoes", …); garments sharing a layer replace each other. */
+  occupies?: string[];
+  /** Typical wearer (only used to pick random outfits). */
+  gender?: "female" | "male";
+  /** Where the asset came from (author, pack, licence). */
+  credit?: string;
 }
 
 /** A human actor: parameters + detail sliders -> target weights -> shape. */
@@ -84,6 +99,18 @@ export class Human {
 
   get usesWorker(): boolean {
     return !!this.remote;
+  }
+
+  /**
+   * Loads on-demand meshes (e.g. garments with their own data file) on the
+   * main thread and in the worker. Evaluate the shape again afterwards so it
+   * includes them. Returns the newly loaded meshes.
+   */
+  async loadMeshes(names: string[]): Promise<MeshData[]> {
+    const missing = names.filter((n) => !this.runtime.isLoaded(n));
+    if (!missing.length) return [];
+    const [loaded] = await Promise.all([this.runtime.loadMeshes(missing), this.remote?.loadMeshes(missing)]);
+    return loaded;
   }
 
   evaluate(previous?: ActorShape): Promise<ActorShape> {

@@ -123,7 +123,12 @@ export function writeJpeg(srcPath: string, dstPath: string, quality = 88): void 
  * Loads an RGBA image, halves it until it is at most `maxSize` wide, writes it
  * as PNG and returns the mean colour of its opaque pixels (0..1).
  */
-export function writeRgbaDownsampled(srcPath: string, dstPath: string, maxSize: number): [number, number, number] {
+/**
+ * Writes a PNG at most `maxSize` wide (halving, alpha-weighted) and returns its
+ * mean sRGB colour (0..1) over opaque texels, or, with `sampleUVs` (u, v pairs,
+ * OBJ convention), over the texels at those UVs, i.e. only the parts the mesh uses.
+ */
+export function writeRgbaDownsampled(srcPath: string, dstPath: string, maxSize: number, sampleUVs?: ArrayLike<number>): [number, number, number] {
   const buf = readFileSync(srcPath);
   let img: { width: number; height: number; data: Uint8Array } = srcPath.endsWith(".png") ? PNG.sync.read(buf) : jpeg.decode(buf, { useTArray: true });
   while (img.width > maxSize) {
@@ -148,10 +153,19 @@ export function writeRgbaDownsampled(srcPath: string, dstPath: string, maxSize: 
   writeFileSync(dstPath, PNG.sync.write(png));
   let n = 0;
   const mean = [0, 0, 0];
-  for (let i = 0; i < img.data.length; i += 4)
-    if (img.data[i + 3] > 128) {
-      n++;
-      for (let c = 0; c < 3; c++) mean[c] += img.data[i + c] / 255;
+  const add = (i: number) => {
+    if (img.data[i + 3] <= 128) return;
+    n++;
+    for (let c = 0; c < 3; c++) mean[c] += img.data[i + c] / 255;
+  };
+  if (sampleUVs?.length) {
+    const wrap = (t: number) => t - Math.floor(t);
+    for (let k = 0; k + 1 < sampleUVs.length; k += 2) {
+      const x = Math.min(img.width - 1, Math.floor(wrap(sampleUVs[k]) * img.width));
+      const y = Math.min(img.height - 1, Math.floor((1 - wrap(sampleUVs[k + 1])) * img.height));
+      add((y * img.width + x) * 4);
     }
+  }
+  if (!n) for (let i = 0; i < img.data.length; i += 4) add(i);
   return mean.map((v) => (n ? v / n : 0.5)) as [number, number, number];
 }
