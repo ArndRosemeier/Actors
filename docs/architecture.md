@@ -12,7 +12,7 @@ MPFB2 data (CC0) --[tools/import-makehuman]--> actor pack --[@actors/core]--> sh
 * `manifest.json`: meshes, proxies (garments), skeleton, skin, target index and species data (`extra.human`).
 * `base.bin`: base positions, render meshes (split at UV seams, with a map back to shape vertices), skin weights, garment bindings.
 * `clips/*.bin`: retargetable motion clips (per bone: world-space rotation change since the source rig's rest pose + the bone's rest direction; root motion in hip heights). The source rig must have a real rest pose (glTF/Blender rest), never "frame 0 of the take".
-* `textures/`: small data textures (skin region masks, iris).
+* `textures/`: skin region masks, iris, photo skins (`extra.human.skins`, blended by `skinTextureWeights` and the adapter's `SkinComposer`), hair/brow and skirt textures.
 * Meshes can be derived at load time (`subdivide: { source }`), so the subdivided body costs no download.
 * `targets/*.bin`: one file per morph target, int16-quantized, sparse or dense, loaded on demand. Only the targets with a non-zero weight are fetched, so the first load is a few MB instead of ~38 MB.
 
@@ -33,7 +33,7 @@ All of it is synchronous after targets load and has no DOM dependency. `serveRun
 
 One `SkinnedMesh` per pack mesh, sharing one `Skeleton`. When the shape changes, vertex buffers are rewritten and the skeleton is re-bound in place; running animations are re-baked against the new bind pose.
 
-Materials (`materials.ts`) patch three's built-in shaders: skin (mask tints, brows, pores, wrapped diffuse, procedural vulva detail), eyes (iris recolouring), lashes, cloth (weave normal maps, per-pixel hem cut from the `clip` attribute) and dual-quaternion skinning on all of them, including the shadow pass. Two morph channels per face mesh ("expression", "blink") are filled from `surfaceDelta` and blended every frame.
+Materials (`materials.ts`) patch three's built-in shaders: hair cards (alpha to coverage, luminance-preserving recolour), leg colliders for skirt-skinned garments (`colliders.ts`), skin (mask tints, brows, pores, wrapped diffuse, procedural vulva detail), eyes (iris recolouring), lashes, cloth (weave normal maps, per-pixel hem cut from the `clip` attribute) and dual-quaternion skinning on all of them, including the shadow pass. Two morph channels per face mesh ("expression", "blink") are filled from `surfaceDelta` and blended every frame.
 
 ## Adding another species
 

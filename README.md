@@ -8,7 +8,7 @@ The first actor is an adult human built on the **MakeHuman / MPFB2 CC0 assets** 
 
 ```bash
 npm install
-npm run import:human   # clones MPFB2 (CC0 assets) into .cache/ and builds the human pack
+npm run import:human   # clones MPFB2, fetches the CC0 skins/hair/skirts/animations it needs into .cache/, builds the pack
 npm run dev            # viewer at http://localhost:5173
 ```
 
@@ -29,11 +29,12 @@ Other scripts: `npm test` (unit tests), `npm run typecheck`, `npm run build` (st
 ## What the human can do
 
 * **Shape**: every MakeHuman macro and detail slider, evaluated in a Web Worker so dragging never stalls rendering.
-* **Skin**: own physically based skin shader: region tints from MPFB's CC0 masks (lips, areolae, nails, eyelids, genitals, ears), drawn eyebrows, tiling pore normal map, wrapped per-channel diffuse as cheap subsurface scattering.
+* **Skin**: MakeHuman's 18 CC0 photo skins (young / middle-aged / old × female / male × African / Asian / Caucasian), blended on the GPU to follow the gender, age and ethnicity sliders; own skin shader with pores and wrapped per-channel diffuse as cheap subsurface scattering. A procedural mode (region tints from MPFB's CC0 masks (lips, areolae, nails, eyelids, genitals, ears), skin-tone slider) is still available.
+* **Hair and brows**: 9 MakeHuman CC0 hairstyles and 5 eyebrow styles as fitted proxies that follow every morph, with recolouring.
 * **Detail**: one Catmull-Clark subdivision level built at load time (55k vertices for the body) with a low-detail option; dual-quaternion skinning on every material so elbows, knees and shoulders keep their volume.
 * **Face**: MakeHuman CC0 eyes with adjustable iris colour, procedural eyelashes, teeth and tongue; nine expression presets built from MakeHuman's 34 face units (mixed by ethnicity) plus automatic blinking, blended on the GPU.
 * **Anatomy** (adults only): male genital mesh (subdivided MakeHuman helper) and procedural female detail in the skin shader; hidden automatically under garments that cover them.
-* **Clothing**: briefs, bra, T-shirt, long-sleeve top, shorts, jeans, tights, skirt and fitted socks, all following every morph; layering by inflate and depth bias, smooth hems cut per pixel, skin under clothes hidden.
+* **Clothing**: briefs, bra, T-shirt, long-sleeve top, shorts, jeans, tights, fitted socks, plus a long and a mini skirt from MakeHuman's CC0 skirts pack (skirt skinning + leg colliders, so a stride doesn't pierce them), all following every morph; layering by inflate and depth bias, smooth hems cut per pixel, skin under clothes hidden.
 * **Animation**: 13 clips from Quaternius' CC0 Universal Animation Library (idle, talk, arms folded, phone, walk, formal walk, jog, sprint, crouch walk, dance, sit, nod, pick up), including fingers, retargeted to the fitted rig of any body shape.
 
 ## Engine-agnostic by design

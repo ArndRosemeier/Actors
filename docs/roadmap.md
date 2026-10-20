@@ -5,19 +5,20 @@ Based on the research in the project (`research/character-base-options.md`, `res
 ## Done
 - Actor pack format, importer, renderer-free runtime, three.js adapter, viewer, glTF export.
 - All MakeHuman macro + detail sliders, adult age clamp in the data path.
-- **Skin**: own skin shader (region tints from MPFB masks, eyebrows, pores, wrap-lighting subsurface approximation).
-- **Eyes, brows, lashes, teeth**: MakeHuman CC0 eyes (iris colour presets), procedural lashes and brows, wet teeth/tongue materials.
+- **Skin**: MakeHuman's 18 CC0 photo skins blended on the GPU by gender, age and ethnicity; own skin shader (pores, wrap-lighting subsurface approximation); procedural mode with region tints from MPFB masks.
+- **Eyes, brows, lashes, teeth**: MakeHuman CC0 eyes (iris colour presets), MakeHuman CC0 eyebrow proxies (5 styles, painted brows as an option), procedural lashes, wet teeth/tongue materials.
+- **Hair**: 9 MakeHuman CC0 hairstyles as fitted proxies, alpha-to-coverage cards, recolourable.
 - **Anatomy**: male geometry from the subdivided MakeHuman genital helper; female detail drawn procedurally in the skin shader. Adult-only, hidden under covering garments.
 - **Detail**: Catmull-Clark subdivision at load time; dual-quaternion skinning.
-- **Clothing**: generated garment library cut from the tights helper with per-pixel hems, plus skirt and fitted `.mhclo` socks; layering.
+- **Clothing**: generated garment library cut from the tights helper with per-pixel hems, fitted `.mhclo` socks, long and mini skirt from MakeHuman's CC0 skirts pack with skirt skinning (averaged thigh weights) and GPU leg colliders; layering.
 - **Animation**: Quaternius Universal Animation Library clips (CC0, Unreal-mannequin skeleton with fingers and a stored rest pose) retargeted to any fitted skeleton; nine expression presets from MakeHuman's face units, auto-blink on GPU morphs.
-- **Performance**: shape evaluation in a Web Worker; subdivision computed at load time (base download 6.5 MB → 1.6 MB); targets streamed on demand.
+- **Performance**: shape evaluation in a Web Worker; subdivision computed at load time; targets streamed on demand; the importer pulls single files out of MakeHuman's asset-pack zips with HTTP range requests.
 
 ## Known gaps and next steps
-1. **Skin textures**: no photographic skin albedo yet. The CC0 MakeHuman skin packs live on makehumancommunity.org, which this build environment cannot reach; the shader is ready for a `color` texture on the body mesh.
-2. **Hair**: none yet (scalp hair is not part of the roadmap's first pass).
-3. **Anatomy quality**: the male helper mesh is low-poly even after subdivision; a sculpted, CC0 replacement mesh is the next upgrade. Female detail is shader-only (no geometry).
-4. **Corrective shapes**: DQS fixes volume loss; per-joint corrective morphs (shoulder raise, deep knee bend) would further improve extreme poses.
-5. **Garments**: no cloth simulation; the skirt is a tube that legs can poke through in a wide stride.
-6. **Animation**: the free Standard editions have ~90 clips between them; only 13 are wired up. No facial animation in the clips (expressions are separate). The first retargeter used CMU BVH files without a real rest pose and broke shoulders and hands; clips now always come from sources with a stored rest pose, and `?compare` in the viewer shows the source next to the actor.
-7. **WebGPU**: the skin, eye, DQS and hem shaders are GLSL patches for WebGL; WebGPU needs TSL ports.
+1. **Anatomy quality**: the male helper mesh is low-poly even after subdivision. The only CC0 community replacement ("man genital" by ukiyoe) was tested and is not better: it has no scrotum and a pubic plate that shows as a raised patch on the subdivided body. Other community genitals are AGPL. Next step: a sculpted or commissioned CC0 mesh. Female detail is shader-only (no geometry).
+2. **Corrective shapes**: DQS fixes volume loss; per-joint corrective morphs (shoulder raise, deep knee bend) would further improve extreme poses.
+3. **Garments**: no cloth simulation. Long skirts stay outside the legs (colliders) but stretch in a wide stride; multi-layer skirts (tiers) are not supported by the colliders yet.
+4. **Animation**: the free Standard editions have ~90 clips between them; only 13 are wired up. No facial animation in the clips (expressions are separate). The first retargeter used CMU BVH files without a real rest pose and broke shoulders and hands; clips now always come from sources with a stored rest pose, and `?compare` in the viewer shows the source next to the actor.
+5. **Hair quality**: MakeHuman's hair cards are game-grade; strand-level or higher-density hair would need new assets.
+6. **Download size**: hair meshes sit in the base blob (3.5 MB); they could be split out and streamed like targets.
+7. **WebGPU**: the skin, eye, DQS, hem and collider shaders are GLSL patches for WebGL; WebGPU needs TSL ports.
