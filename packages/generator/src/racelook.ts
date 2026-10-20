@@ -146,7 +146,7 @@ export function raceParts(
   mix: number,
   body: Pick<HumanParams, "gender">,
   r: () => number,
-): Pick<CharacterConfig, "beard" | "horns" | "hornSize" | "hornColor" | "tusks" | "tail" | "tailLength"> {
+): Pick<CharacterConfig, "beard" | "stubble" | "horns" | "hornSize" | "hornColor" | "tusks" | "tail" | "tailLength"> {
   const A = RACE_STYLES[race];
   const B = race2 ? RACE_STYLES[race2] : A;
   const t = race2 ? clamp01(mix) : 0;
@@ -154,9 +154,11 @@ export function raceParts(
   const range = (s: RaceStyle, k: "hornSize" | "tusks" | "tailLength") => lerp(s[k][0], s[k][1], r());
   const female = body.gender < 0.5;
   const bs = side();
-  // Stubble is painted in Norgo; there is no stubble here yet, so it counts as clean-shaven.
   const beardName = r() < bs.beardChance[female ? 1 : 0] ? weighted(bs.beardStyles, r) : "none";
   const beard: BeardStyle = BEARD_STYLES.includes(beardName as BeardStyle) ? (beardName as BeardStyle) : "none";
+  // Stubble: Norgo's "stubble" style, a shadow under short beards, or a few clean-shaven men.
+  const u = r();
+  const stubble = beardName === "stubble" ? 0.5 + u * 0.4 : beard === "short" || beard === "goatee" || beard === "mustache" ? 0.3 + u * 0.3 : !female && beard === "none" && u < 0.3 ? 0.25 + u * 1.5 : 0;
   const hs = side();
   const horns = weighted(hs.horns, r);
   const ts = side();
@@ -165,6 +167,7 @@ export function raceParts(
   const tail = weighted(tl.tail, r);
   return {
     beard,
+    stubble,
     horns,
     hornSize: horns === "none" ? 0.7 : range(hs, "hornSize"),
     hornColor: horns === "none" ? null : rgbToHex(weighted(hs.hornColors, r)),

@@ -18,4 +18,22 @@ export interface PartMesh {
   indices: Uint32Array;
   /** Base colour (sRGB 0..1); hair-like parts take the hair colour instead when it is set. */
   color?: [number, number, number];
+  /**
+   * Extra bones this part adds (e.g. a tail chain), in model space (bind pose).
+   * Joint indices past the pack skeleton refer to them: pack bone count + the
+   * bone's position among all parts' extra bones, in part order.
+   */
+  bones?: PartBone[];
+  /**
+   * Per vertex: a base vertex the part follows in face morphs (a beard strand
+   * moves with the skin it grows from when the mouth opens). Absent = rigid.
+   */
+  anchors?: Uint32Array;
+}
+
+export interface PartBone {
+  name: string;
+  /** Parent bone name: a pack bone or an earlier extra bone. */
+  parent: string;
+  head: [number, number, number];
 }

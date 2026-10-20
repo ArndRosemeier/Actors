@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { ActorShape, Clip, Fetcher, MessagePortLike } from "@actors/core";
-import { ADULT_MIN_AGE, BEARD_STYLES, BLINK, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type RaceId, raceScale, sanitizeRace } from "@actors/human";
+import { ADULT_MIN_AGE, BEARD_STYLES, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type RaceId, raceScale, sanitizeRace } from "@actors/human";
 import { IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
 import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, type RandomOptions, buildCatalog, defaultConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit } from "./catalog";
 
@@ -112,7 +112,7 @@ export class Character {
     if (!BEARD_STYLES.includes(c.beard)) c.beard = "none";
     if (!HORN_STYLES.includes(c.horns)) c.horns = "none";
     if (!TAIL_STYLES.includes(c.tail)) c.tail = "none";
-    Object.assign(c, { hornSize: clamp01(c.hornSize), tusks: clamp01(c.tusks), tailLength: clamp01(c.tailLength) });
+    Object.assign(c, { hornSize: clamp01(c.hornSize), tusks: clamp01(c.tusks), tailLength: clamp01(c.tailLength), stubble: clamp01(c.stubble ?? 0) });
     this.applyLook();
     const done = this.sync();
     for (const l of this.listeners) l(this.config);
@@ -238,7 +238,10 @@ export class Character {
     // Generated beards and leaves take the hair colour (or the hair mesh's own colour).
     const hairMat = c.hair ? (a.meshes.get(c.hair)?.material as THREE.Material | undefined) : undefined;
     const natural = (hairMat?.userData.meanColor as THREE.Color | undefined)?.getHexString();
-    a.setPartColor(["hair", "leaf", "fur"], c.hairColor ?? (natural ? `#${natural}` : "#3b2a1e"));
+    const beardColor = c.hairColor ?? (natural ? `#${natural}` : "#3b2a1e");
+    a.setPartColor(["hair", "leaf", "fur"], beardColor);
+    a.skin.uStubble.value.set(c.stubble, 0, c.seed * 31, 0);
+    a.skin.uStubbleColor.value.set(beardColor).multiplyScalar(0.55);
     a.setPartColor(["horn"], c.hornColor ?? "#d9cfb4");
     if (c.eyeColor) a.setIris(irisFromColor(c.eyeColor));
     else if (IRIS_PRESETS[c.eyes]) a.setIris(c.eyes);
@@ -305,6 +308,12 @@ export class Character {
       const head = sk ? sk.heads[sk.names.indexOf("head")] : undefined;
       const ground = this.actor.groundOffset();
       this.actor.skin.uBind.value.set(ground, raceScale(h.race), head ? head[1] + ground : 1.55, head ? -head[2] : 0);
+      // Face frame for painted stubble (same space as the patterns).
+      const eyes = eyeCentres(this.shape, h.runtime.meshes);
+      if (eyes) {
+        const [l, r] = eyes;
+        this.actor.skin.uFace.value.set((l[0] + r[0]) / 2, (l[1] + r[1]) / 2 + ground, -(l[2] + r[2]) / 2, Math.hypot(l[0] - r[0], l[1] - r[1], l[2] - r[2]));
+      }
       this.applied.shape = shapeKey;
       for (const l of this.shapeListeners) l(this.height);
       this.lastUpdateMs = performance.now() - t0;

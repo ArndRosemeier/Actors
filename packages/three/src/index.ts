@@ -106,7 +106,14 @@ export class ThreeActor {
   readonly object = new THREE.Group();
   readonly meshes = new Map<string, THREE.SkinnedMesh>();
   readonly bones: THREE.Bone[] = [];
-  readonly skeleton?: THREE.Skeleton;
+  /** Shared skeleton: the pack's bones, then extra bones added by parts (tails). Replaced when parts add bones. */
+  skeleton?: THREE.Skeleton;
+  /** Number of pack bones at the start of `bones`. */
+  private packBones = 0;
+  /** Extra bones (from parts) and their bind-pose heads in model space. */
+  private readonly extraHeads = new Map<THREE.Bone, THREE.Vector3>();
+  /** Last face-morph deltas per channel (re-applied to parts built later). */
+  private readonly lastDeltas = new Map<string, SurfaceDelta | null>();
   readonly mixer: THREE.AnimationMixer;
   readonly skin: SkinUniforms = createSkinUniforms();
   /** Leg capsules for skirt-like garments, updated every frame from the bones. */
@@ -143,6 +150,7 @@ export class ThreeActor {
       }
       skel.bones.forEach((b, i) => (b.parent >= 0 ? this.bones[b.parent].add(this.bones[i]) : this.object.add(this.bones[i])));
       this.skeleton = new THREE.Skeleton(this.bones);
+      this.packBones = this.bones.length;
     }
     const genitals = (runtime.manifest.extra?.human as { anatomy?: { genitalsUV: number[] } } | undefined)?.anatomy?.genitalsUV;
     if (genitals) this.skin.uGenitalBox.value.fromArray(genitals);
@@ -217,11 +225,53 @@ export class ThreeActor {
       (mesh.material as THREE.Material).dispose();
     }
     this.parts.clear();
+    // Extra bones (tail chains): replace the previous ones, then rebuild the skeleton.
+    const hadExtra = this.extraHeads.size > 0;
+    for (const bone of this.extraHeads.keys()) bone.removeFromParent();
+    this.extraHeads.clear();
+    this.bones.length = this.packBones;
+    for (const part of parts)
+      for (const b of part.bones ?? []) {
+        const parent = this.bones.find((x) => x.name === b.parent);
+        if (!parent) throw new Error(`Part ${part.name}: unknown parent bone ${b.parent}`);
+        const bone = new THREE.Bone();
+        bone.name = b.name;
+        parent.add(bone);
+        this.bones.push(bone);
+        this.extraHeads.set(bone, new THREE.Vector3(...b.head));
+      }
+    const skeletonChanged = hadExtra || this.extraHeads.size > 0;
+    if (skeletonChanged && this.skeleton) this.skeleton = new THREE.Skeleton(this.bones);
     for (const part of parts) {
       const mesh = createPartMesh(part, this.skin);
       this.object.add(mesh);
-      if (this.skeleton) mesh.bind(this.skeleton, new THREE.Matrix4());
       this.parts.set(part.name, mesh);
+      if (this.skeleton && !skeletonChanged) mesh.bind(this.skeleton, new THREE.Matrix4());
+    }
+    if (skeletonChanged && this.fitted) this.rebind(this.fitted);
+    // Face morphs: parts that follow the skin get the current deltas and weights.
+    for (const [channel, delta] of this.lastDeltas) this.setPartMorph(channel as (typeof ThreeActor.MORPHS)[number], delta);
+    const body = [...this.meshes.values()].find((m) => m.morphTargetInfluences);
+    for (const mesh of this.parts.values()) if (mesh.morphTargetInfluences && body) mesh.morphTargetInfluences.splice(0, 2, ...body.morphTargetInfluences!);
+  }
+
+  private setPartMorph(channel: (typeof ThreeActor.MORPHS)[number], delta: SurfaceDelta | null): void {
+    const k = ThreeActor.MORPHS.indexOf(channel);
+    for (const mesh of this.parts.values()) {
+      const anchors = mesh.userData.anchors as Uint32Array | undefined;
+      const g = mesh.geometry;
+      if (!anchors || !g.morphAttributes.position) continue;
+      const mp = g.morphAttributes.position[k].array as Float32Array;
+      mp.fill(0);
+      if (delta)
+        for (let i = 0; i < anchors.length; i++) {
+          const a = anchors[i];
+          if (a === 0xffffffff) continue;
+          mp[i * 3] = delta.positions[a * 3];
+          mp[i * 3 + 1] = delta.positions[a * 3 + 1];
+          mp[i * 3 + 2] = delta.positions[a * 3 + 2];
+        }
+      g.dispose();
     }
   }
 
@@ -491,11 +541,14 @@ export class ThreeActor {
       // three caches morph data in a texture; disposing forces a re-upload (attributes are re-created on demand).
       g.dispose();
     }
+    this.lastDeltas.set(channel, delta);
+    this.setPartMorph(channel, delta);
   }
 
   setMorphWeight(channel: (typeof ThreeActor.MORPHS)[number], weight: number): void {
     const k = ThreeActor.MORPHS.indexOf(channel);
     for (const mesh of this.meshes.values()) if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[k] = weight;
+    for (const mesh of this.parts.values()) if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[k] = weight;
   }
 
   /**
@@ -557,6 +610,7 @@ export class ThreeActor {
       bone.scale.set(1, 1, 1);
     });
     this.object.updateMatrixWorld(true);
+    this.placeExtraBones();
     const rootInv = this.object.matrixWorld.clone().invert();
     this.skeleton!.boneInverses = this.bones.map((b) => new THREE.Matrix4().multiplyMatrices(rootInv, b.matrixWorld).invert());
     for (const mesh of this.meshes.values()) mesh.bind(this.skeleton!, new THREE.Matrix4());
@@ -588,6 +642,60 @@ export class ThreeActor {
       this.bones[i].quaternion.fromArray(f.localRotations[i]);
       this.bones[i].position.fromArray(f.localPositions[i]);
     });
+    for (const bone of this.extraHeads.keys()) bone.quaternion.identity();
+  }
+
+  /** Puts extra (part) bones at their bind-pose heads, unrotated relative to their parents. Pack bones must be in the bind pose. */
+  private placeExtraBones(): void {
+    const sway = new THREE.Quaternion();
+    for (const [bone, head] of this.extraHeads) {
+      bone.quaternion.identity();
+      bone.position.copy(bone.parent!.worldToLocal(this.object.localToWorld(head.clone())));
+      bone.updateMatrixWorld(true);
+      if (bone.parent && !this.extraHeads.has(bone.parent as THREE.Bone)) {
+        // Sway axes of the chain, in its root's frame (the chain is unrotated, so they hold for every bone).
+        const inv = (bone.parent as THREE.Bone).getWorldQuaternion(sway).invert().multiply(this.object.getWorldQuaternion(new THREE.Quaternion()));
+        bone.userData.yaw = new THREE.Vector3(0, 1, 0).applyQuaternion(inv);
+        bone.userData.pitch = new THREE.Vector3(1, 0, 0).applyQuaternion(inv);
+      }
+    }
+  }
+
+  /**
+   * Idle sway for tail chains, as tracks over `duration` seconds (whole cycles,
+   * so looping clips stay seamless). Baked into every clip, so it also exports.
+   */
+  private swayTracks(duration: number): THREE.KeyframeTrack[] {
+    const tracks: THREE.KeyframeTrack[] = [];
+    const roots = [...this.extraHeads.keys()].filter((b) => !this.extraHeads.has(b.parent as THREE.Bone));
+    for (const root of roots) {
+      const chain: THREE.Bone[] = [root];
+      for (let b = root; ; ) {
+        const next = b.children.find((c) => this.extraHeads.has(c as THREE.Bone)) as THREE.Bone | undefined;
+        if (!next) break;
+        chain.push(next);
+        b = next;
+      }
+      const yaw = root.userData.yaw as THREE.Vector3, pitch = root.userData.pitch as THREE.Vector3;
+      if (!yaw || !pitch) continue;
+      const cycles = Math.max(1, Math.round(duration / 1.8));
+      const steps = Math.max(12, cycles * 24);
+      const times = Array.from({ length: steps + 1 }, (_, i) => (i / steps) * duration);
+      const q = new THREE.Quaternion(), qp = new THREE.Quaternion();
+      chain.forEach((bone, k) => {
+        const values: number[] = [];
+        for (const t of times) {
+          const ph = (t / duration) * cycles * Math.PI * 2;
+          // A wave travelling to the tip, stronger toward it; a slight lift and fall.
+          q.setFromAxisAngle(yaw, 0.09 * (0.4 + k * 0.25) * Math.sin(ph - k * 0.7));
+          qp.setFromAxisAngle(pitch, 0.03 * Math.sin(ph * 2 - k * 0.5));
+          q.multiply(qp);
+          values.push(q.x, q.y, q.z, q.w);
+        }
+        tracks.push(new THREE.QuaternionKeyframeTrack(`${bone.name}.quaternion`, times, values));
+      });
+    }
+    return tracks;
   }
 
   /** Converts a clip into a regular three.js AnimationClip for the current skeleton (e.g. for glTF export). */
@@ -597,10 +705,13 @@ export class ThreeActor {
       const baked = new Retargeter(this.fitted, clip, { inPlace: this.inPlace }).bake(clip.def.fps);
       const tracks: THREE.KeyframeTrack[] = this.fitted.names.map((n, i) => new THREE.QuaternionKeyframeTrack(`${n}.quaternion`, baked.times, baked.rotations[i]));
       tracks.push(new THREE.VectorKeyframeTrack(`${baked.rootBone}.position`, baked.times, baked.rootPositions));
-      return new THREE.AnimationClip(clip.def.name, baked.times[baked.times.length - 1], tracks);
+      const duration = baked.times[baked.times.length - 1];
+      tracks.push(...this.swayTracks(duration));
+      return new THREE.AnimationClip(clip.def.name, duration, tracks);
     }
     const { times, tracks } = bakeAxisClip(this.fitted, clip);
-    const out = [...tracks].map(([bone, values]) => new THREE.QuaternionKeyframeTrack(`${bone}.quaternion`, times, values));
+    const out: THREE.KeyframeTrack[] = [...tracks].map(([bone, values]) => new THREE.QuaternionKeyframeTrack(`${bone}.quaternion`, times, values));
+    out.push(...this.swayTracks(clip.duration));
     return new THREE.AnimationClip(clip.name, clip.duration, out);
   }
 

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { useDualQuaternionSkinning } from "./dqs";
-import { GLSL_BIND_VERTEX, GLSL_EYE, GLSL_NOISE, GLSL_PATTERN } from "./racepatterns";
+import { GLSL_BIND_VERTEX, GLSL_EYE, GLSL_NOISE, GLSL_PATTERN, GLSL_STUBBLE } from "./racepatterns";
 import { fabricNormalMap, lashAlphaMap, poreNormalMap } from "./procedural";
 
 /**
@@ -32,6 +32,12 @@ export interface SkinUniforms {
   uAccent: { value: THREE.Color };
   /** x ground offset, y body scale, z/w head joint height and depth (pattern space, see racepatterns.ts). */
   uBind: { value: THREE.Vector4 };
+  /** Eye midpoint in pattern space (vBind) and eye distance (w); w = 0 disables face-space painting. */
+  uFace: { value: THREE.Vector4 };
+  /** Painted stubble: x density 0..1, y beard region (0 full .. 4 chinstrap), z seed. */
+  uStubble: { value: THREE.Vector4 };
+  /** Stubble colour (linear). */
+  uStubbleColor: { value: THREE.Color };
 }
 
 export function createSkinUniforms(): SkinUniforms {
@@ -52,6 +58,9 @@ export function createSkinUniforms(): SkinUniforms {
     uPattern: { value: new THREE.Vector4(0, 0, 0, 0) },
     uAccent: { value: new THREE.Color(0.2, 0.15, 0.1) },
     uBind: { value: new THREE.Vector4(0.85, 1, 1.55, 0) },
+    uFace: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uStubble: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uStubbleColor: { value: new THREE.Color(0.03, 0.02, 0.015) },
   };
 }
 
@@ -72,10 +81,14 @@ uniform vec3 uAlbedoTint;
 uniform vec4 uPattern;
 uniform vec3 uAccent;
 uniform vec4 uBind;
+uniform vec4 uFace;
+uniform vec4 uStubble;
+uniform vec3 uStubbleColor;
 varying vec2 vSkinUv;
 varying vec3 vBind;
 ${GLSL_NOISE}
 ${GLSL_PATTERN}
+${GLSL_STUBBLE}
 
 float skinHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
 float skinNoise( vec2 p ) {
@@ -117,6 +130,7 @@ if ( uAlbedoMix > 0.0 ) tone = mix( tone, texture2D( uAlbedo, vSkinUv ).rgb * uA
 float browHair = smoothstep( 0.3, 0.7, skinNoise( vSkinUv * vec2( 3000.0, 900.0 ) ) );
 float browMask = smoothstep( 0.02, 0.3, mB.a );
 tone = mix( tone, uBrowColor, browMask * uBrowDensity );
+tone = stubble( tone, mA.r );
 // Fantasy-race pattern (scales, bark, veins...).
 if ( uPattern.x > 0.5 ) tone = skinPattern( tone, mA.r, mA.b );
 // Vulva: deeper, redder inner tissue in the cleft.

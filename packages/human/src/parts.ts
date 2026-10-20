@@ -9,7 +9,10 @@
  * strand cards grown from roots sampled on the morphed skin; horns, tusks and
  * tails are tubes along curves. Renderer-free and deterministic from `seed`.
  */
-import type { ActorShape, FittedSkeleton, MeshData, PartKind, PartMesh } from "@actors/core";
+import type { ActorShape, FittedSkeleton, MeshData, PartBone, PartKind, PartMesh } from "@actors/core";
+
+/** `PartMesh.anchors` value for vertices that don't follow face morphs. */
+export const NO_ANCHOR = 0xffffffff;
 import type { HornStyle, TailStyle } from "./races";
 export type BeardStyle = "none" | "short" | "full" | "long" | "braided" | "forked" | "goatee" | "mustache" | "mutton" | "chinstrap";
 /** Procedural hair styles (the pack's hair meshes cover the rest). */
@@ -110,6 +113,10 @@ class Builder {
   ji: number[] = [];
   jw: number[] = [];
   idx: number[] = [];
+  anchor: number[] = [];
+  /** Base vertex the next vertices follow in face morphs (NO_ANCHOR = rigid). */
+  follow = NO_ANCHOR;
+  bones: PartBone[] = [];
   get count() {
     return this.pos.length / 3;
   }
@@ -118,6 +125,7 @@ class Builder {
     this.nrm.push(...n);
     this.uv.push(u, v);
     this.shade.push(shade);
+    this.anchor.push(this.follow);
     const total = w.slice(0, 4).reduce((s, [, x]) => s + x, 0) || 1;
     for (let k = 0; k < 4; k++) {
       this.ji.push(w[k]?.[0] ?? 0);
@@ -136,6 +144,8 @@ class Builder {
       joints: Uint16Array.from(this.ji),
       weights: Float32Array.from(this.jw),
       indices: Uint32Array.from(this.idx),
+      ...(this.anchor.some((a) => a !== NO_ANCHOR) ? { anchors: Uint32Array.from(this.anchor) } : {}),
+      ...(this.bones.length ? { bones: this.bones } : {}),
     };
   }
 }
@@ -480,6 +490,7 @@ function buildBeard(ctx: Ctx, style: BeardStyle, scale: number, b: Builder) {
       combK: 0.4, collideHead: false,
     });
     const wgt = vertexWeights(ctx, r.v);
+    b.follow = r.v;
     const w = (short ? 0.005 : 0.0065) * rng.range(0.8, 1.3) * scaleK * (isMust ? 0.8 : 1);
     const u = rng.range(0, 0.75);
     card(b, pts, (t) => w * (1 - t * 0.5), u, u + 0.25, rng.range(0.8, 1.2), () => wgt, () => r.n);
@@ -488,7 +499,9 @@ function buildBeard(ctx: Ctx, style: BeardStyle, scale: number, b: Builder) {
     // A braid hanging from the chin.
     const start = add(chin, [0, -0.07 * scaleK, 0.01]);
     const spine = growStrand(ctx, start, DOWN, { segs: 10, length: 0.14 * scaleK, gravity: 1, stiff: 0.05, volume: 0, curl: 0, curlFreq: 1, noise: 0, comb: () => DOWN, combK: 0.5, collideHead: false });
-    const wgt = vertexWeights(ctx, nearestVertex(ctx, add(chin, [0, -0.04, 0])));
+    const anchor = nearestVertex(ctx, add(chin, [0, -0.04, 0]));
+    const wgt = vertexWeights(ctx, anchor);
+    b.follow = anchor;
     for (let s = 0; s < 3; s++) {
       const pts = spine.map((p, i) => add(p, [Math.sin(i * 1.6 + s * 2.1) * 0.006, 0, Math.cos(i * 1.6 + s * 2.1) * 0.004]));
       card(b, pts, (t) => 0.022 * scaleK * (1 - t * 0.3), 0.1 + s * 0.3, 0.35 + s * 0.3, 0.9, () => wgt, () => FWD, s);
@@ -617,6 +630,8 @@ function buildTusks(ctx: Ctx, tusks: number, scale: number, b: Builder) {
       const t = i / 8;
       pts.push(add(root, [s * k * 0.16 * t, k * t, k * 0.12 * t + k * 0.18 * t * t]));
     }
+    // Tusks move with the lower lip when the mouth opens.
+    b.follow = nearestVertex(ctx, [x, y, root[2] + r0 * 1.2]);
     tube(b, pts, (t) => r0 * Math.pow(1 - t, 0.8) + 0.0008, 10, () => [[ctx.bone("head"), 1]], 0, (t) => 0.85 + 0.2 * t);
   }
 }
@@ -666,23 +681,50 @@ function tailRoot(ctx: Ctx): { p: V3; v: number } {
   return { p, v: best };
 }
 
+/** Tail bone names, root to tip. */
+export const TAIL_BONES = ["tail_01", "tail_02", "tail_03", "tail_04", "tail_05", "tail_06"];
+
 function buildTail(ctx: Ctx, style: TailStyle, length: number, b: Builder) {
   if (style === "none" || length < 0.05) return;
-  const { p: root, v } = tailRoot(ctx);
+  const { p: surface, v } = tailRoot(ctx);
   const H = ctx.height;
   const L = length * H * 0.62;
-  const pts: V3[] = [];
+  const r0 = style === "thin" ? 0.022 * (H / 1.8) : style === "furred" ? 0.05 * (H / 1.8) : 0.065 * (H / 1.8);
+  // The tube starts inside the body (one base radius in front of the skin) so the
+  // whole base is buried, and leaves the lower back with a flare.
+  const inside = add(surface, [0, r0 * 0.15, r0 * 1.1]);
+  const pts: V3[] = [inside, add(surface, [0, r0 * 0.05, r0 * 0.45])];
   const segs = 28;
   for (let i = 0; i <= segs; i++) {
     const t = i / segs;
     // Out backwards, drooping, the end curling up a little (resting pose).
-    pts.push(add(root, [0, -L * (0.45 * t - 0.12 * t * t * t), -L * t * 0.95]));
+    pts.push(add(surface, [0, -L * (0.45 * t - 0.12 * t * t * t), -L * t * 0.95]));
   }
-  const r0 = style === "thin" ? 0.022 * (H / 1.8) : style === "furred" ? 0.05 * (H / 1.8) : 0.065 * (H / 1.8);
-  // Rigid with the hips (no extra bones, so clips and glTF stay standard).
-  const w = vertexWeights(ctx, v);
-  const pelvis = ctx.bone("pelvis");
-  tube(b, pts, (t) => r0 * (1 - t * 0.92) + 0.003, 16, (_p, t) => (t < 0.1 ? w : [[pelvis, 1]]), 0);
+  // A chain of bones along the tail (parented to the pelvis) so it can sway.
+  const N = TAIL_BONES.length;
+  const at = (f: number) => pts[2 + Math.round(f * segs)];
+  b.bones = TAIL_BONES.map((name, k) => ({ name, parent: k ? TAIL_BONES[k - 1] : "pelvis", head: at(k / N) }));
+  const base = ctx.body.skeleton.names.length;
+  const hips = vertexWeights(ctx, v);
+  const n = pts.length;
+  tube(
+    b,
+    pts,
+    (t) => {
+      const u = Math.max(0, (t * (n - 1) - 2) / segs);
+      return (r0 * (1 - u * 0.92) + 0.003) * (1 + 0.3 * (1 - Math.min(1, u * 9)));
+    },
+    16,
+    (_p, t) => {
+      const u = Math.max(0, (t * (n - 1) - 2) / segs);
+      // Base: blended with the body's own weights so the seam follows the hips.
+      if (u < 0.04) return hips;
+      const f = Math.min(N - 1e-3, u * N);
+      const i0 = Math.floor(f), w1 = f - i0, i1 = Math.min(N - 1, i0 + 1);
+      return i0 === 0 && w1 < 0.5 ? [[base, 0.5 + w1], ...hips.map(([j, w]): [number, number] => [j, w * (0.5 - w1)])] : [[base + i0, 1 - w1], [base + i1, w1]];
+    },
+    0,
+  );
 }
 
 /** Per vertex: the body UV at the root (skin-material parts take the skin's colour from there). */
@@ -729,6 +771,27 @@ export function buildParts(body: PartsBody, c: PartsConfig): PartMesh[] {
   return parts;
 }
 
+/** Eye centres (actor's left, right) of a shape, or null if the pack has no eyes. */
+export function eyeCentres(shape: ActorShape, meshes: MeshData[]): [V3, V3] | null {
+  const eyes = meshes.find((m) => m.def.material.kind === "eye" && !m.stencil);
+  if (!eyes) return null;
+  // Eyes may be a proxy (own vertex space) or base geometry.
+  const src = eyes.def.source.kind === "proxy" ? shape.proxies.get(eyes.def.source.proxy)?.positions : shape.positions;
+  if (!src) return null;
+  const mean = (side: number): V3 => {
+    let x = 0, y = 0, z = 0, w = 0;
+    for (const v of new Set(eyes.map)) {
+      if (src[v * 3] * side <= 0) continue;
+      x += src[v * 3];
+      y += src[v * 3 + 1];
+      z += src[v * 3 + 2];
+      w++;
+    }
+    return w ? [x / w, y / w, z / w] : [0.032 * side, 0, 0];
+  };
+  return [mean(1), mean(-1)];
+}
+
 /**
  * Collects what the builders need from an evaluated shape: body triangles and
  * skin weights (from the unsubdivided body mesh), eye centres, ear midpoint
@@ -766,21 +829,9 @@ export function partsBody(shape: ActorShape, meshes: MeshData[], earMasks: [Floa
     }
     return w ? [x / w, y / w, z / w] : [0, 0, 0];
   };
-  // Eyes may be a proxy (own vertex space) or base geometry.
-  const src = eyes.def.source.kind === "proxy" ? shape.proxies.get(eyes.def.source.proxy)?.positions : pos;
-  if (!src) return null;
-  const eyeMean = (side: number): V3 => {
-    let x = 0, y = 0, z = 0, w = 0;
-    for (const v of new Set(eyes.map)) {
-      if (src[v * 3] * side <= 0) continue;
-      x += src[v * 3];
-      y += src[v * 3 + 1];
-      z += src[v * 3 + 2];
-      w++;
-    }
-    return w ? [x / w, y / w, z / w] : [0.032 * side, 0, 0];
-  };
-  const eL = eyeMean(1), eR = eyeMean(-1);
+  const centres = eyeCentres(shape, meshes);
+  if (!centres) return null;
+  const [eL, eR] = centres;
   const headJ = sk.heads[sk.names.indexOf("head")] as V3;
   const earMid = earMasks ? mul(add(mean((v) => (earMasks[0][v] > 0.5 ? 1 : 0)), mean((v) => (earMasks[1][v] > 0.5 ? 1 : 0))), 0.5) : add(headJ, [0, 0.06, 0]);
   const scale = len(sub(eL, eR)) / 0.064;
