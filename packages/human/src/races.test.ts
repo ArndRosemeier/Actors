@@ -53,7 +53,7 @@ describe("races", () => {
 describe("bone proportion pass", () => {
   it("lengthens a bone and carries its children along", () => {
     // Two bones along +Y: a (0..1) and its child b (1..2); one vertex per bone.
-    const skeleton = { names: ["a", "b"], parents: [-1, 0], heads: [[0, 0, 0], [0, 1, 0]] as [number, number, number][], tails: [[0, 1, 0], [0, 2, 0]] as [number, number, number][] };
+    const skeleton = { names: ["a", "b"], parents: Int32Array.from([-1, 0]), heads: [[0, 0, 0], [0, 1, 0]] as [number, number, number][], tails: [[0, 1, 0], [0, 2, 0]] as [number, number, number][] };
     const positions = new Float32Array([0.1, 0.5, 0, 0, 1.5, 0]);
     const joints = new Uint16Array([0, 0, 0, 0, 1, 0, 0, 0]);
     const weights = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0]);
