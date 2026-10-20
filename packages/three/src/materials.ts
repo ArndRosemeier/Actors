@@ -19,6 +19,10 @@ export interface SkinUniforms {
   uGenitalBox: { value: THREE.Vector4 };
   uFemale: { value: number };
   uSSS: { value: number };
+  /** Photographic albedo (body UV layout). Used when uAlbedoMix > 0. */
+  uAlbedo: { value: THREE.Texture | null };
+  /** 0 = procedural tone + region tints, 1 = photographic albedo. */
+  uAlbedoMix: { value: number };
 }
 
 export function createSkinUniforms(): SkinUniforms {
@@ -33,6 +37,8 @@ export function createSkinUniforms(): SkinUniforms {
     uGenitalBox: { value: new THREE.Vector4(0, 0, 0, 0) },
     uFemale: { value: 0 },
     uSSS: { value: 1 },
+    uAlbedo: { value: null },
+    uAlbedoMix: { value: 0 },
   };
 }
 
@@ -47,6 +53,8 @@ uniform float uBrowDensity;
 uniform vec4 uGenitalBox;
 uniform float uFemale;
 uniform float uSSS;
+uniform sampler2D uAlbedo;
+uniform float uAlbedoMix;
 varying vec2 vSkinUv;
 
 float skinHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
@@ -84,6 +92,8 @@ tone = mix( tone, tone * vec3( 0.93, 0.82, 0.82 ), mA.a * 0.6 );
 tone = mix( tone, tone * vec3( 0.86, 0.66, 0.64 ), mB.r * 0.7 );
 tone = mix( tone, tone * vec3( 0.94, 0.88, 0.86 ), mB.g * 0.6 );
 tone = mix( tone, tone * vec3( 1.02, 0.9, 0.88 ), mB.b * 0.5 );
+// Photographic skin already carries lips, areolae, nails and mottling.
+if ( uAlbedoMix > 0.0 ) tone = mix( tone, texture2D( uAlbedo, vSkinUv ).rgb, uAlbedoMix );
 float browHair = smoothstep( 0.3, 0.7, skinNoise( vSkinUv * vec2( 3000.0, 900.0 ) ) );
 float browMask = smoothstep( 0.02, 0.3, mB.a );
 tone = mix( tone, uBrowColor, browMask * uBrowDensity );
@@ -227,11 +237,12 @@ export function useClipAttribute<T extends THREE.Material>(material: T): T {
   return material;
 }
 
-export function createClothMaterial(color: THREE.Color, roughness: number, fabric: string, layer: number): THREE.MeshStandardMaterial {
+export function createClothMaterial(color: THREE.Color, roughness: number, fabric: string, layer: number, map: THREE.Texture | null = null): THREE.MeshStandardMaterial {
   const normalMap = fabricNormalMap(fabric).clone();
   normalMap.repeat.set(24, 24);
   const mat = new THREE.MeshStandardMaterial({
-    color,
+    color: map ? new THREE.Color(1, 1, 1) : color,
+    map,
     roughness,
     normalMap,
     normalScale: new THREE.Vector2(0.6, 0.6),
@@ -254,6 +265,46 @@ export function createLashMaterial(color: THREE.Color): THREE.MeshLambertMateria
     side: THREE.DoubleSide,
   });
   return useDualQuaternionSkinning(mat);
+}
+
+/**
+ * Hair cards (MakeHuman hair proxies): alpha-tested texture with alpha to
+ * coverage for soft edges under MSAA, two-sided, slight sheen. `uHairTint`
+ * and `uHairMix` recolour it: the texture's brightness pattern is kept and
+ * scaled so its mean matches the chosen colour (see ThreeActor.setHairColor).
+ */
+export function createHairMaterial(map: THREE.Texture | null, blended = false): THREE.MeshPhysicalMaterial {
+  // Blended mode suits soft, flat strands on the skin (eyebrows); cards with volume use alpha to coverage.
+  const mat = new THREE.MeshPhysicalMaterial({
+    map,
+    ...(blended ? { transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 } : { alphaTest: 0.35, alphaToCoverage: true }),
+    side: THREE.DoubleSide,
+    roughness: 0.55,
+    sheen: 0.6,
+    sheenRoughness: 0.35,
+    sheenColor: new THREE.Color(0.35, 0.3, 0.25),
+    specularIntensity: 0.35,
+  });
+  const uniforms = { uHairTint: { value: new THREE.Color(1, 1, 1) }, uHairMix: { value: 0 }, uHairMeanLum: { value: 0.2 } };
+  mat.userData.hair = uniforms;
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform vec3 uHairTint;\nuniform float uHairMix;\nuniform float uHairMeanLum;")
+      .replace(
+        "#include <map_fragment>",
+        `#include <map_fragment>
+float hairLum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+diffuseColor.rgb = mix( diffuseColor.rgb, uHairTint * clamp( hairLum / uHairMeanLum, 0.0, 2.5 ), uHairMix );`,
+      );
+  };
+  mat.customProgramCacheKey = () => "actors-hair";
+  return useDualQuaternionSkinning(mat);
+}
+
+/** Shadow-map material for alpha-tested hair cards. */
+export function createAlphaDepthMaterial(map: THREE.Texture | null): THREE.MeshDepthMaterial {
+  return useDualQuaternionSkinning(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map, alphaTest: 0.35 }));
 }
 
 export function createWetMaterial(color: THREE.Color, roughness: number): THREE.MeshPhysicalMaterial {

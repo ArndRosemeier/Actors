@@ -4,3 +4,4 @@ export * from "./modifiers";
 export * from "./clips";
 export * from "./human";
 export * from "./expressions";
+export * from "./skins";

@@ -3,6 +3,7 @@ import { type UnitWeights, expressionTargetWeights } from "./expressions";
 import { type MacroTargetDef, macroTargetWeights } from "./macro";
 import { type ModifierDef, modifierTargetWeights } from "./modifiers";
 import { DEFAULT_PARAMS, type HumanParams, sanitizeParams } from "./params";
+import { type SkinTextureDef, skinTextureWeights } from "./skins";
 
 export interface HumanExtra {
   macroTargets: MacroTargetDef[];
@@ -12,6 +13,12 @@ export interface HumanExtra {
   garmentLabels?: Record<string, string>;
   /** UV box [u0, v0, u1, v1] of the genital region on the body texture. */
   anatomy?: { genitalsUV: [number, number, number, number] };
+  /** Photographic skin textures, blended by gender, age and ethnicity (see skinTextureWeights). */
+  skins?: SkinTextureDef[];
+  /** Display names of the hair meshes. */
+  hairLabels?: Record<string, string>;
+  /** Display names of the eyebrow meshes (slot "brows"). */
+  browLabels?: Record<string, string>;
 }
 
 /** A human actor: parameters + detail sliders -> target weights -> shape. */
@@ -32,6 +39,11 @@ export class Human {
 
   get modifiers(): ModifierDef[] {
     return this.extra.modifiers;
+  }
+
+  /** Skin textures to blend for the current parameters (empty if the pack has none). */
+  skinTextures(max = 4): { file: string; weight: number }[] {
+    return this.extra.skins?.length ? skinTextureWeights(this.extra.skins, this.params, max) : [];
   }
 
   targetWeights(): Map<string, number> {

@@ -109,3 +109,49 @@ export function writeRgbaPng(path: string, channels: (Gray | null)[]): void {
     }
   writeFileSync(path, PNG.sync.write(png));
 }
+
+/** Re-encodes a PNG/JPEG image as JPEG (alpha dropped). */
+export function writeJpeg(srcPath: string, dstPath: string, quality = 88): void {
+  const buf = readFileSync(srcPath);
+  const img = srcPath.endsWith(".png") ? PNG.sync.read(buf) : jpeg.decode(buf, { useTArray: true });
+  const data = Buffer.from(img.data);
+  for (let i = 3; i < data.length; i += 4) data[i] = 255;
+  writeFileSync(dstPath, jpeg.encode({ data, width: img.width, height: img.height }, quality).data);
+}
+
+/**
+ * Loads an RGBA image, halves it until it is at most `maxSize` wide, writes it
+ * as PNG and returns the mean colour of its opaque pixels (0..1).
+ */
+export function writeRgbaDownsampled(srcPath: string, dstPath: string, maxSize: number): [number, number, number] {
+  const buf = readFileSync(srcPath);
+  let img: { width: number; height: number; data: Uint8Array } = srcPath.endsWith(".png") ? PNG.sync.read(buf) : jpeg.decode(buf, { useTArray: true });
+  while (img.width > maxSize) {
+    const w = img.width >> 1, h = img.height >> 1;
+    const out = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        // Alpha-weighted colour average so transparent texels don't darken edges.
+        let a = 0, r = 0, g = 0, b = 0;
+        for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+          const i = ((y * 2 + dy) * img.width + x * 2 + dx) * 4;
+          const al = img.data[i + 3];
+          a += al; r += img.data[i] * al; g += img.data[i + 1] * al; b += img.data[i + 2] * al;
+        }
+        const o = (y * w + x) * 4;
+        out[o] = a ? r / a : 0; out[o + 1] = a ? g / a : 0; out[o + 2] = a ? b / a : 0; out[o + 3] = a / 4;
+      }
+    img = { width: w, height: h, data: out };
+  }
+  const png = new PNG({ width: img.width, height: img.height });
+  png.data = Buffer.from(img.data);
+  writeFileSync(dstPath, PNG.sync.write(png));
+  let n = 0;
+  const mean = [0, 0, 0];
+  for (let i = 0; i < img.data.length; i += 4)
+    if (img.data[i + 3] > 128) {
+      n++;
+      for (let c = 0; c < 3; c++) mean[c] += img.data[i + c] / 255;
+    }
+  return mean.map((v) => (n ? v / n : 0.5)) as [number, number, number];
+}

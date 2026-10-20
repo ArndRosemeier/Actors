@@ -144,7 +144,7 @@ export class ActorRuntime {
         if (mesh.stencil) ({ joints: srcJ, weights: srcW } = stencilSkin(mesh.stencil, baseJoints, baseWeights));
         else if (def.source.kind === "proxy") {
           const name = def.source.proxy;
-          if (!proxySkins.has(name)) proxySkins.set(name, proxySkin(this.proxies.get(name)!, baseJoints, baseWeights));
+          if (!proxySkins.has(name)) proxySkins.set(name, proxySkin(this.proxies.get(name)!, baseJoints, baseWeights, manifest.skeleton?.bones.map((b) => b.name)));
           ({ joints: srcJ, weights: srcW } = proxySkins.get(name)!);
         }
         mesh.joints = new Uint16Array(map.length * 4);

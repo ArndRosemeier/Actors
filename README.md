@@ -8,33 +8,51 @@ The first actor is an adult human built on the **MakeHuman / MPFB2 CC0 assets** 
 
 ```bash
 npm install
-npm run import:human   # clones MPFB2 (CC0 assets) into .cache/ and builds the human pack
-npm run dev            # viewer at http://localhost:5173
+npm run import:human   # clones MPFB2, fetches the CC0 skins/hair/skirts/animations it needs into .cache/, builds the pack
+npm run dev            # character generator at http://localhost:5173
 ```
 
 `npm run import:human -- --mpfb <path>` uses an existing MPFB2 checkout instead of cloning.
 
-Other scripts: `npm test` (unit tests), `npm run typecheck`, `npm run build` (static viewer build in `apps/viewer/dist`), and `node apps/viewer/scripts/smoke.mjs [url] [outDir]` (headless browser smoke test with screenshots; dev server must be running).
+Other scripts: `npm test` (unit tests), `npm run typecheck`, `npm run build` (static viewer build in `apps/viewer/dist`), and `node apps/viewer/scripts/smoke.mjs [url] [outDir] [--all]` (headless browser smoke test with screenshots, `--all` shoots every outfit preset and clip; dev server must be running).
+
+## Live demo
+
+Every push to `main` builds the pack and the generator and deploys them to GitHub Pages (`.github/workflows/pages.yml`): https://arndrosemeier.github.io/Actors/ (add `?compare` to see the source animations side by side). Pull requests run the same build and tests without deploying.
+
+## Use it in your app
+
+`@actors/generator` is the reusable character generator: a `Character` you add to any three.js scene (every option and clip, one JSON config), plus an optional ready-made stage and control panel. See [packages/generator/README.md](packages/generator/README.md).
+
+```ts
+const character = await Character.load({ pack: "/packs/human/manifest.json", renderer });
+scene.add(character.object);
+await character.set({ body: { gender: 1, muscle: 0.7 }, hair: "hair-short04" });
+await character.wear("casual"); // or "nude", or any garment list via set({ outfit })
+await character.play("walk");
+```
 
 ## Layout
 
 | Path | What it is |
 |---|---|
-| `packages/core` | Renderer-free runtime: pack format, morph blending, normals, Catmull-Clark subdivision, skeleton fitting, garment (proxy) fitting, mocap retargeting, Web Worker evaluation. Runs in a browser, a worker or Node. |
+| `packages/core` | Renderer-free runtime: pack format, morph blending, normals, Catmull-Clark subdivision, skeleton fitting, garment (proxy) fitting, clip retargeting, Web Worker evaluation. Runs in a browser, a worker or Node. |
 | `packages/human` | Human-specific logic: MakeHuman-style macro sliders (gender, age, muscle, …), detail sliders, adult age clamp, facial expressions and blinking, worker entry. |
 | `packages/three` | three.js adapter: skinned meshes sharing one skeleton, skin/eye/lash/cloth materials, dual-quaternion skinning, GPU face morphs, clip playback. |
-| `tools/import-makehuman` | Offline importer: MakeHuman/MPFB2 data, MakeHuman eyes and CMU mocap → actor pack (JSON manifest + binary blob + one streamed file per morph target + clips + textures). |
-| `apps/viewer` | Vite demo: live sliders, skin/eyes/detail, outfit layering, mocap clips, expressions, glTF export. |
+| `tools/import-makehuman` | Offline importer: MakeHuman/MPFB2 data, MakeHuman eyes and Quaternius animations → actor pack (JSON manifest + binary blob + one streamed file per morph target + clips + textures). |
+| `packages/generator` | Reusable character generator on top of the three adapters: `Character` (one JSON config for shape, look, outfit, anatomy, clip, face; randomize, save/load, glTF export), `CharacterStage` (studio scene) and `CharacterEditor` (DOM control panel). |
+| `apps/viewer` | The generator as a Vite app (a few lines on top of `@actors/generator`), with `?compare` to show the source animation side by side. |
 
 ## What the human can do
 
 * **Shape**: every MakeHuman macro and detail slider, evaluated in a Web Worker so dragging never stalls rendering.
-* **Skin**: own physically based skin shader: region tints from MPFB's CC0 masks (lips, areolae, nails, eyelids, genitals, ears), drawn eyebrows, tiling pore normal map, wrapped per-channel diffuse as cheap subsurface scattering.
+* **Skin**: MakeHuman's 18 CC0 photo skins (young / middle-aged / old × female / male × African / Asian / Caucasian), blended on the GPU to follow the gender, age and ethnicity sliders; own skin shader with pores and wrapped per-channel diffuse as cheap subsurface scattering. A procedural mode (region tints from MPFB's CC0 masks (lips, areolae, nails, eyelids, genitals, ears), skin-tone slider) is still available.
+* **Hair and brows**: 9 MakeHuman CC0 hairstyles and 5 eyebrow styles as fitted proxies that follow every morph, with recolouring.
 * **Detail**: one Catmull-Clark subdivision level built at load time (55k vertices for the body) with a low-detail option; dual-quaternion skinning on every material so elbows, knees and shoulders keep their volume.
 * **Face**: MakeHuman CC0 eyes with adjustable iris colour, procedural eyelashes, teeth and tongue; nine expression presets built from MakeHuman's 34 face units (mixed by ethnicity) plus automatic blinking, blended on the GPU.
 * **Anatomy** (adults only): male genital mesh (subdivided MakeHuman helper) and procedural female detail in the skin shader; hidden automatically under garments that cover them.
-* **Clothing**: briefs, bra, T-shirt, long-sleeve top, shorts, jeans, tights, skirt and fitted socks, all following every morph; layering by inflate and depth bias, smooth hems cut per pixel, skin under clothes hidden.
-* **Animation**: CMU motion capture (walk, run, idle, dance, wave) retargeted to the fitted rig of any body shape.
+* **Clothing**: briefs, bra, T-shirt, long-sleeve top, shorts, jeans, tights, fitted socks, plus a long and a mini skirt from MakeHuman's CC0 skirts pack (skirt skinning + leg colliders, so a stride doesn't pierce them), all following every morph; layering by inflate and depth bias, smooth hems cut per pixel, skin under clothes hidden.
+* **Animation**: 13 clips from Quaternius' CC0 Universal Animation Library (idle, talk, arms folded, phone, walk, formal walk, jog, sprint, crouch walk, dance, sit, nod, pick up), including fingers, retargeted to the fitted rig of any body shape.
 
 ## Engine-agnostic by design
 

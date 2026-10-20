@@ -2,7 +2,7 @@ import type { AxisClip, AxisTrack } from "@actors/core";
 
 /**
  * Small procedural clips for the "game_engine" rig, used to check skinning
- * and deformation. Real animation comes from retargeted mocap later.
+ * and deformation. Real animation comes from the retargeted clips in the pack.
  * Axes are model space in the bind pose: +X = character's left, +Y = up, +Z = forward.
  */
 const X: [number, number, number] = [1, 0, 0];

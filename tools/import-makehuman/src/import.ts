@@ -1,11 +1,11 @@
 /**
- * Converts MakeHuman/MPFB2 CC0 assets (plus CMU motion capture) into an actor pack.
+ * Converts MakeHuman/MPFB2 CC0 assets (plus Quaternius CC0 animations) into an actor pack.
  *
  *   npm run import:human [-- --mpfb <path to mpfb2 checkout>] [--out <dir>]
  *
  * Without --mpfb, the MPFB2 repository is shallow-cloned into .cache/mpfb2.
  * A few extra CC0 files (eyes) come from the MakeHuman repository and motion
- * clips from a GitHub mirror of the CMU BVH conversion; all are cached in .cache/.
+ * clips from Quaternius' Universal Animation Library (CC0); all are cached in .cache/.
  * Only data is used; no MakeHuman/MPFB code is copied.
  */
 import { execFileSync } from "node:child_process";
@@ -23,12 +23,15 @@ import {
   encodeTarget,
 } from "@actors/core";
 import { BlobWriter } from "./blob";
-import { fetchCached, fetchText } from "./fetch";
+import { fetchCached, fetchText, fetchZipEntry, fetchZipText } from "./fetch";
 import { GARMENTS, garmentCut, insideFaces, selectGarmentFaces } from "./garments";
-import { type Gray, blankGray, blurGray, loadGray, maxGray, rasterizeUV, resizeGray, writeRgbaPng } from "./image";
+import { type Gray, blankGray, blurGray, loadGray, maxGray, rasterizeUV, resizeGray, writeJpeg, writeRgbaDownsampled, writeRgbaPng } from "./image";
 import { parseMhclo } from "./mhclo";
 import { type ObjData, type ObjFace, buildRenderMesh, parseObj } from "./obj";
-import { CLIP_SPECS, importClip } from "./clips";
+import { CLIP_SPECS, UAL_ARCHIVES, type UalArchive, importClip } from "./clips";
+import { type Gltf, parseGlb } from "./gltf";
+import { readZip } from "./zip";
+import type { SkinTextureDef } from "@actors/human";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const CACHE = join(ROOT, ".cache");
@@ -37,6 +40,9 @@ const RIG = "game_engine";
 const ADULT_MIN_AGE = 18;
 const MASK_SIZE = 2048;
 const MH_RAW = "https://raw.githubusercontent.com/makehumancommunity/makehuman/master/makehuman/data";
+/** MakeHuman's CC0 asset packs; only the files used are fetched (HTTP range requests). */
+const MH_PACKS = "https://files.makehumancommunity.org/asset_packs";
+const SYSTEM_ASSETS = `${MH_PACKS}/makehuman_system_assets/makehuman_system_assets_cc0.zip`;
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -274,7 +280,7 @@ function main() {
   const eyeObj = parseObj(fetchText(CACHE, `${MH_RAW}/eyes/high-poly/high-poly.obj`));
   copyFileSync(fetchCached(CACHE, `${MH_RAW}/eyes/materials/brown_eye.png`), join(out, "textures/eye_brown.png"));
   const proxies: ProxyDef[] = [];
-  const addProxy = (name: string, clo: ReturnType<typeof parseMhclo>, cloObj: ObjData, faces = cloObj.faces) => {
+  const addProxy = (name: string, clo: ReturnType<typeof parseMhclo>, cloObj: ObjData, faces = cloObj.faces, legBlend?: ProxyDef["legBlend"]) => {
     const n = cloObj.positions.length / 3;
     if (clo.refs.length / 3 !== n) throw new Error(`${name}: mhclo/obj vertex count mismatch`);
     if (clo.scale.filter(Boolean).length !== 3) throw new Error(`${name}: needs x/y/z scale references`);
@@ -285,6 +291,7 @@ function main() {
       weights: blob.add("f32", clo.weights),
       offsets: blob.add("f32", clo.offsets.map((v) => v * SCALE)),
       scaleRefs: clo.scale.map(([a, b, l]) => [a, b, l * SCALE]) as ProxyDef["scaleRefs"],
+      ...(legBlend ? { legBlend } : {}),
     });
     return buildRenderMesh(cloObj, faces);
   };
@@ -336,9 +343,7 @@ function main() {
     console.log(`Garment ${spec.name}: ${faces.length} faces`);
   }
   addBaseMesh("tights", tightsFaces, { role: "garment", optional: true, inflate: 0.001, material: { kind: "cloth", color: [0.08, 0.08, 0.1], roughness: 0.6 }, tags: ["fabric:knit", "covers:anatomy"] }, normalizeUV);
-  addBaseMesh("skirt", facesOf("helper-skirt"), { role: "garment", optional: true, inflate: 0.009, material: { kind: "cloth", color: [0.35, 0.12, 0.15], roughness: 0.8 }, tags: ["fabric:smooth"] }, normalizeUV);
   garmentLabels.tights = "Tights";
-  garmentLabels.skirt = "Skirt";
 
   // A real .mhclo garment, fitted by triangle binding (CC0 MPFB test asset).
   const testdata = join(src, "test/testdata");
@@ -360,6 +365,97 @@ function main() {
     hidesBaseVertices: blob.add("u32", coveredBody(sockObj.positions.map((v) => v * SCALE), sockObj.faces.map((f) => f.v), 0.03, 0.03)),
   });
   garmentLabels.socks = "Socks";
+
+  // Skirts: CC0 garments from MakeHuman's skirts01 asset pack. Skirt skinning hangs them
+  // between the legs (averaged thigh weights) so a stride doesn't split or pierce them.
+  const SKIRTS_PACK = `${MH_PACKS}/skirts01/skirts01_cc0.zip`;
+  const SKIRT_BLEND: ProxyDef["legBlend"] = {
+    remap: { calf_l: "thigh_l", calf_r: "thigh_r", foot_l: "thigh_l", foot_r: "thigh_r", ball_l: "thigh_l", ball_r: "thigh_r" },
+    pairs: [["thigh_l", "thigh_r"]],
+    hip: "pelvis",
+    hipShare: 0.35,
+  };
+  const SKIRTS: [string, string, string, number][] = [
+    ["skirt", "toigo_long_full_skirt", "Long skirt", 0.004],
+    ["skirt-mini", "frankyaye_mini_skirt_01", "Mini skirt", 0.004],
+  ];
+  for (const [name, id, label, inflate] of SKIRTS) {
+    const clo = parseMhclo(fetchZipText(CACHE, SKIRTS_PACK, `clothes/${id}/${id}.mhclo`));
+    const cloObj = parseObj(fetchZipText(CACHE, SKIRTS_PACK, `clothes/${id}/${clo.objFile}`));
+    const mhmat = fetchZipText(CACHE, SKIRTS_PACK, `clothes/${id}/${clo.material}`);
+    const diffuse = mhmat.match(/^diffuseTexture\s+(\S+)/m)?.[1];
+    const file = `textures/${name}.png`;
+    const mean = diffuse ? writeRgbaDownsampled(fetchZipEntry(CACHE, SKIRTS_PACK, `clothes/${id}/${diffuse}`), join(out, file), 1024) : [0.4, 0.2, 0.2];
+    const m = addProxy(name, clo, cloObj, cloObj.faces, SKIRT_BLEND);
+    meshes.push({
+      name,
+      source: { kind: "proxy", proxy: name },
+      role: "garment",
+      baseIndex: blob.add("u32", m.map),
+      uv: blob.add("f32", m.uv),
+      indices: blob.add("u32", m.indices),
+      material: { kind: "cloth", color: mean as [number, number, number], roughness: 0.8 },
+      ...(diffuse ? { textures: { color: file } } : {}),
+      optional: true,
+      inflate,
+      slot: "skirt",
+      tags: ["fabric:smooth"],
+    });
+    garmentLabels[name] = label;
+  }
+
+  // --- Hair: MakeHuman system hairstyles (CC0 .mhclo proxies with alpha-card textures) ---
+  const HAIRS: [string, string][] = [
+    ["short02", "Short"],
+    ["short03", "Short, side part"],
+    ["short04", "Buzz cut"],
+    ["bob01", "Bob"],
+    ["bob02", "Bob, curled"],
+    ["long01", "Long"],
+    ["ponytail01", "Ponytail"],
+    ["braid01", "Braid"],
+    ["afro01", "Afro"],
+  ];
+  const hairLabels: Record<string, string> = {};
+  const browLabels: Record<string, string> = {};
+  /** A MakeHuman hair-like proxy (hair, eyebrows) with its alpha texture. */
+  const addHairProxy = (dir: string, id: string, slot: string, texSize: number, optional: boolean) => {
+    const clo = parseMhclo(fetchZipText(CACHE, SYSTEM_ASSETS, `${dir}/${id}/${id}.mhclo`));
+    const cloObj = parseObj(fetchZipText(CACHE, SYSTEM_ASSETS, `${dir}/${id}/${clo.objFile}`));
+    const mhmat = fetchZipText(CACHE, SYSTEM_ASSETS, `${dir}/${id}/${clo.material ?? `${id}.mhmat`}`);
+    const diffuse = mhmat.match(/^diffuseTexture\s+(\S+)/m)?.[1];
+    if (!diffuse) throw new Error(`${dir}/${id}: no diffuse texture`);
+    const file = `textures/${slot}_${id}.png`;
+    const mean = writeRgbaDownsampled(fetchZipEntry(CACHE, SYSTEM_ASSETS, `${dir}/${id}/${diffuse}`), join(out, file), texSize);
+    const name = `${slot}-${id}`;
+    const m = addProxy(name, clo, cloObj);
+    meshes.push({
+      name,
+      source: { kind: "proxy", proxy: name },
+      role: "hair",
+      slot,
+      optional,
+      baseIndex: blob.add("u32", m.map),
+      uv: blob.add("f32", m.uv),
+      indices: blob.add("u32", m.indices),
+      // Mean colour of the texture, so adapters can recolour it.
+      material: { kind: "hair", color: mean, roughness: 0.45 },
+      textures: { color: file },
+      tags: [slot === "hair" ? "scalp" : "brows"],
+    });
+    return name;
+  };
+  for (const [id, label] of HAIRS) hairLabels[addHairProxy("hair", id, "hair", 1024, true)] = label;
+  // Eyebrows: MakeHuman's CC0 eyebrow proxies; the first one is shown by default.
+  const BROWS: [string, string][] = [
+    ["eyebrow001", "Natural"],
+    ["eyebrow003", "Thin"],
+    ["eyebrow006", "Arched"],
+    ["eyebrow009", "Bushy"],
+    ["eyebrow011", "Straight"],
+  ];
+  BROWS.forEach(([id, label], i) => (browLabels[addHairProxy("eyebrows", id, "brows", 512, i > 0)] = label));
+  console.log(`Hair: ${HAIRS.length} styles`);
 
   // --- Skin region masks -------------------------------------------------------------
   const tex = join(data, "textures");
@@ -482,15 +578,49 @@ function main() {
     }
   }
 
-  // --- Motion clips (CMU) ---------------------------------------------------------
+  // --- Photo skins (MakeHuman system assets, CC0) -------------------------------------
+  // One per age group x gender x ethnicity; the runtime blends them like the shape targets.
+  const skins: SkinTextureDef[] = [];
+  for (const age of ["young", "middleage", "old"] as const)
+    for (const gender of ["female", "male"] as const)
+      for (const ethnicity of ["african", "asian", "caucasian"] as const) {
+        const dir = `skins/${age}_${ethnicity}_${gender}`;
+        const mhmat = fetchZipText(CACHE, SYSTEM_ASSETS, `${dir}/${age}_${ethnicity}_${gender}.mhmat`);
+        const diffuse = mhmat.match(/^diffuseTexture\s+(\S+)/m)?.[1];
+        if (!diffuse) throw new Error(`${dir}: no diffuse texture`);
+        const file = `textures/skin_${age}_${ethnicity}_${gender}.jpg`;
+        writeJpeg(fetchZipEntry(CACHE, SYSTEM_ASSETS, `${dir}/${diffuse}`), join(out, file));
+        skins.push({ age, gender, ethnicity, file });
+      }
+  console.log(`Skins: ${skins.length}`);
+
+  // --- Motion clips (Quaternius Universal Animation Library, CC0) -------------------
   const clips: ClipDef[] = [];
+  const libraries = new Map<UalArchive, Gltf>();
+  // The source files also go to the viewer (not the pack) for its side-by-side check (`?compare`).
+  const refDir = join(dirname(out), "../reference");
+  mkdirSync(refDir, { recursive: true });
+  const reference: Record<string, { glb: string; animation: string }> = {};
+  const library = (key: UalArchive): Gltf => {
+    if (!libraries.has(key)) {
+      const { url, glb } = UAL_ARCHIVES[key];
+      const entry = readZip(readFileSync(fetchCached(CACHE, url))).get(glb);
+      if (!entry) throw new Error(`${url} has no ${glb}`);
+      const bytes = entry();
+      writeFileSync(join(refDir, `${key}.glb`), bytes);
+      libraries.set(key, parseGlb(bytes));
+    }
+    return libraries.get(key)!;
+  };
   for (const spec of CLIP_SPECS) {
-    const bvhText = fetchText(CACHE, spec.url);
-    const { def, data: clipData } = importClip(spec, bvhText);
+    const name = spec.archive === "ual1" ? "Quaternius Universal Animation Library" : "Quaternius Universal Animation Library 2";
+    const { def, data: clipData } = importClip(spec, library(spec.archive), name);
+    reference[def.name] = { glb: `${spec.archive}.glb`, animation: spec.animation };
     writeFileSync(join(out, def.file), new Uint8Array(clipData.buffer));
     clips.push(def);
-    console.log(`Clip ${def.name}: ${def.frameCount} frames @ ${def.fps} fps`);
+    console.log(`Clip ${def.name}: ${def.frameCount} frames, ${((def.frameCount - 1) / def.fps).toFixed(2)} s`);
   }
+  writeFileSync(join(refDir, "clips.json"), JSON.stringify(reference, null, 2));
 
   // --- Manifest ---------------------------------------------------------------
   const manifest: ActorPackManifest = {
@@ -500,8 +630,8 @@ function main() {
     species: "human",
     units: "meters",
     source: {
-      name: "MakeHuman / MPFB2 (hm08 base mesh, targets, game_engine rig, eyes); CMU Graphics Lab motion capture",
-      license: "CC0-1.0 (MakeHuman assets); CMU mocap free for research and commercial use",
+      name: "MakeHuman / MPFB2 (hm08 base mesh, targets, game_engine rig, eyes); Quaternius Universal Animation Library 1 + 2",
+      license: "CC0-1.0 (MakeHuman assets and Quaternius animations)",
       url: "https://github.com/makehumancommunity/mpfb2",
     },
     blob: "base.bin",
@@ -521,6 +651,9 @@ function main() {
         expressionUnits: [...units],
         garmentLabels,
         anatomy: { genitalsUV: gb },
+        skins,
+        hairLabels,
+        browLabels,
       },
     },
   };

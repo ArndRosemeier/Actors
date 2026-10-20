@@ -61,3 +61,21 @@ describe("expressions", () => {
     expect(Object.keys(EXPRESSIONS)).toContain("smile");
   });
 });
+
+describe("skin textures", () => {
+  it("blends age, gender and ethnicity and keeps at most four textures", async () => {
+    const { skinTextureWeights } = await import("./skins");
+    const { DEFAULT_PARAMS } = await import("./params");
+    const skins = (["young", "middleage", "old"] as const).flatMap((age) =>
+      (["female", "male"] as const).flatMap((gender) => (["african", "asian", "caucasian"] as const).map((ethnicity) => ({ age, gender, ethnicity, file: `${age}_${gender}_${ethnicity}` }))),
+    );
+    const one = skinTextureWeights(skins, { ...DEFAULT_PARAMS, gender: 0, ageYears: 25, african: 0, asian: 0, caucasian: 1 });
+    expect(one).toEqual([{ file: "young_female_caucasian", weight: 1 }]);
+    const mixed = skinTextureWeights(skins, { ...DEFAULT_PARAMS, gender: 0.5, ageYears: 37.5, african: 0.5, asian: 0, caucasian: 0.5 });
+    expect(mixed.length).toBe(4);
+    expect(mixed.reduce((s, x) => s + x.weight, 0)).toBeCloseTo(1, 6);
+    // Adults only: a too-low age is clamped, not extrapolated.
+    const young = skinTextureWeights(skins, { ...DEFAULT_PARAMS, gender: 1, ageYears: 5, african: 1, asian: 0, caucasian: 0 });
+    expect(young).toEqual([{ file: "young_male_african", weight: 1 }]);
+  });
+});

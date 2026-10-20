@@ -5,3 +5,5 @@ dist/
 apps/viewer/public/packs/
 *.log
 .DS_Store
+tools/import-makehuman/scratch/
+apps/viewer/public/reference/
