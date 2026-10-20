@@ -11,7 +11,7 @@ MPFB2 data (CC0) --[tools/import-makehuman]--> actor pack --[@actors/core]--> sh
 
 * `manifest.json`: meshes, proxies (garments), skeleton, skin, target index and species data (`extra.human`).
 * `base.bin`: base positions, render meshes (split at UV seams, with a map back to shape vertices), skin weights, garment bindings.
-* `clips/*.bin`: retargetable motion clips (per bone: world-space rotation change against a reference pose + the reference direction; root motion in hip heights).
+* `clips/*.bin`: retargetable motion clips (per bone: world-space rotation change since the source rig's rest pose + the bone's rest direction; root motion in hip heights). The source rig must have a real rest pose (glTF/Blender rest), never "frame 0 of the take".
 * `textures/`: small data textures (skin region masks, iris).
 * Meshes can be derived at load time (`subdivide: { source }`), so the subdivided body costs no download.
 * `targets/*.bin`: one file per morph target, int16-quantized, sparse or dense, loaded on demand. Only the targets with a non-zero weight are fetched, so the first load is a few MB instead of ~38 MB.
@@ -25,7 +25,7 @@ MPFB2 data (CC0) --[tools/import-makehuman]--> actor pack --[@actors/core]--> sh
 5. `fitProxy`: garments are bound to body triangles (MakeHuman `.mhclo` scheme) and follow every morph.
 6. Subdivided meshes follow via their stencil (each new vertex is a fixed weighted sum of base vertices).
 7. `surfaceDelta`: position/normal deltas for extra targets on top of a shape, used for GPU face morphs.
-8. `Retargeter`: plays a clip on any fitted skeleton (shortest-arc to the reference pose, then the recorded deltas).
+8. `Retargeter`: plays a clip on any fitted skeleton: each bone is first swung (shortest arc) onto the source rest direction, then the recorded world-space change is applied. This is the standard "align rest poses, copy world rotations" retarget.
 
 All of it is synchronous after targets load and has no DOM dependency. `serveRuntime` / `RemoteRuntime` (`packages/core/src/worker.ts`) run it in a Web Worker; the viewer does this by default (`?noworker` turns it off).
 

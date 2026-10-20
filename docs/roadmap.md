@@ -10,7 +10,7 @@ Based on the research in the project (`research/character-base-options.md`, `res
 - **Anatomy**: male geometry from the subdivided MakeHuman genital helper; female detail drawn procedurally in the skin shader. Adult-only, hidden under covering garments.
 - **Detail**: Catmull-Clark subdivision at load time; dual-quaternion skinning.
 - **Clothing**: generated garment library cut from the tights helper with per-pixel hems, plus skirt and fitted `.mhclo` socks; layering.
-- **Animation**: CMU mocap retargeted to any fitted skeleton; nine expression presets from MakeHuman's face units, auto-blink on GPU morphs.
+- **Animation**: Quaternius Universal Animation Library clips (CC0, Unreal-mannequin skeleton with fingers and a stored rest pose) retargeted to any fitted skeleton; nine expression presets from MakeHuman's face units, auto-blink on GPU morphs.
 - **Performance**: shape evaluation in a Web Worker; subdivision computed at load time (base download 6.5 MB → 1.6 MB); targets streamed on demand.
 
 ## Known gaps and next steps
@@ -19,5 +19,5 @@ Based on the research in the project (`research/character-base-options.md`, `res
 3. **Anatomy quality**: the male helper mesh is low-poly even after subdivision; a sculpted, CC0 replacement mesh is the next upgrade. Female detail is shader-only (no geometry).
 4. **Corrective shapes**: DQS fixes volume loss; per-joint corrective morphs (shoulder raise, deep knee bend) would further improve extreme poses.
 5. **Garments**: no cloth simulation; the skirt is a tube that legs can poke through in a wide stride.
-6. **Mocap**: fingers and face are not in the CMU data; some clips (idle) have a forward head tilt from the source actor.
+6. **Animation**: the free Standard editions have ~90 clips between them; only 13 are wired up. No facial animation in the clips (expressions are separate). The first retargeter used CMU BVH files without a real rest pose and broke shoulders and hands; clips now always come from sources with a stored rest pose, and `?compare` in the viewer shows the source next to the actor.
 7. **WebGPU**: the skin, eye, DQS and hem shaders are GLSL patches for WebGL; WebGPU needs TSL ports.

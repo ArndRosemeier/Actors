@@ -362,6 +362,11 @@ export class ThreeActor {
     return new THREE.AnimationClip(clip.name, clip.duration, out);
   }
 
+  /** The running clip's action, if any (for seeking or syncing other mixers). */
+  get currentAction(): THREE.AnimationAction | undefined {
+    return this.action;
+  }
+
   update(dt: number): void {
     this.mixer.update(dt);
   }

@@ -20,11 +20,11 @@ Other scripts: `npm test` (unit tests), `npm run typecheck`, `npm run build` (st
 
 | Path | What it is |
 |---|---|
-| `packages/core` | Renderer-free runtime: pack format, morph blending, normals, Catmull-Clark subdivision, skeleton fitting, garment (proxy) fitting, mocap retargeting, Web Worker evaluation. Runs in a browser, a worker or Node. |
+| `packages/core` | Renderer-free runtime: pack format, morph blending, normals, Catmull-Clark subdivision, skeleton fitting, garment (proxy) fitting, clip retargeting, Web Worker evaluation. Runs in a browser, a worker or Node. |
 | `packages/human` | Human-specific logic: MakeHuman-style macro sliders (gender, age, muscle, …), detail sliders, adult age clamp, facial expressions and blinking, worker entry. |
 | `packages/three` | three.js adapter: skinned meshes sharing one skeleton, skin/eye/lash/cloth materials, dual-quaternion skinning, GPU face morphs, clip playback. |
-| `tools/import-makehuman` | Offline importer: MakeHuman/MPFB2 data, MakeHuman eyes and CMU mocap → actor pack (JSON manifest + binary blob + one streamed file per morph target + clips + textures). |
-| `apps/viewer` | Vite demo: live sliders, skin/eyes/detail, outfit layering, mocap clips, expressions, glTF export. |
+| `tools/import-makehuman` | Offline importer: MakeHuman/MPFB2 data, MakeHuman eyes and Quaternius animations → actor pack (JSON manifest + binary blob + one streamed file per morph target + clips + textures). |
+| `apps/viewer` | Vite demo: live sliders, skin/eyes/detail, outfit layering, animation clips (with `?compare` to show the source animation side by side), expressions, glTF export. |
 
 ## What the human can do
 
@@ -34,7 +34,7 @@ Other scripts: `npm test` (unit tests), `npm run typecheck`, `npm run build` (st
 * **Face**: MakeHuman CC0 eyes with adjustable iris colour, procedural eyelashes, teeth and tongue; nine expression presets built from MakeHuman's 34 face units (mixed by ethnicity) plus automatic blinking, blended on the GPU.
 * **Anatomy** (adults only): male genital mesh (subdivided MakeHuman helper) and procedural female detail in the skin shader; hidden automatically under garments that cover them.
 * **Clothing**: briefs, bra, T-shirt, long-sleeve top, shorts, jeans, tights, skirt and fitted socks, all following every morph; layering by inflate and depth bias, smooth hems cut per pixel, skin under clothes hidden.
-* **Animation**: CMU motion capture (walk, run, idle, dance, wave) retargeted to the fitted rig of any body shape.
+* **Animation**: 13 clips from Quaternius' CC0 Universal Animation Library (idle, talk, arms folded, phone, walk, formal walk, jog, sprint, crouch walk, dance, sit, nod, pick up), including fingers, retargeted to the fitted rig of any body shape.
 
 ## Engine-agnostic by design
 

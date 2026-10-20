@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { ActorShape, Clip } from "@actors/core";
 import { ADULT_MIN_AGE, BLINK, DEFAULT_PARAMS, EXPRESSIONS, Human, type HumanParams, MAX_AGE } from "@actors/human";
 import HumanWorker from "@actors/human/worker?worker";
@@ -232,6 +233,32 @@ function loadClip(name: string) {
 for (const c of human.runtime.manifest.clips ?? []) anim.add(new Option(cap(c.name), c.name, false, c.name === "idle"));
 async function playSelected() {
   actor.play(anim.value ? await loadClip(anim.value) : null);
+  await playReference(anim.value);
+}
+
+// `?compare`: the source animation on its own mannequin next to the actor (dev check for the retarget).
+const compare = new URLSearchParams(location.search).has("compare");
+const refBase = `${import.meta.env.BASE_URL}reference/`;
+const refLibs = new Map<string, Promise<{ scene: THREE.Object3D; animations: THREE.AnimationClip[] }>>();
+let refMixer: THREE.AnimationMixer | undefined;
+let refScene: THREE.Object3D | undefined;
+async function playReference(name: string) {
+  if (!compare) return;
+  if (refScene) scene.remove(refScene);
+  refMixer = refScene = refAction = undefined;
+  const index = (await (await fetch(`${refBase}clips.json`)).json()) as Record<string, { glb: string; animation: string }>;
+  const ref = index[name];
+  if (!ref) return;
+  if (!refLibs.has(ref.glb)) refLibs.set(ref.glb, new GLTFLoader().loadAsync(refBase + ref.glb));
+  const lib = await refLibs.get(ref.glb)!;
+  refScene = lib.scene;
+  refScene.position.set(0.9, 0, 0);
+  scene.add(refScene);
+  refMixer = new THREE.AnimationMixer(refScene);
+  const clip = lib.animations.find((a) => a.name === ref.animation)!;
+  // Same treatment as the actor: in place, so the two stay side by side.
+  refAction = refMixer.clipAction(clip);
+  refAction.play();
 }
 anim.addEventListener("change", playSelected);
 
@@ -308,13 +335,32 @@ document.getElementById("export")!.addEventListener("click", async () => {
 });
 
 // --- Loop -------------------------------------------------------------------
+let paused = false;
+let refAction: THREE.AnimationAction | undefined;
+function syncReference() {
+  const t = actor.currentAction?.time;
+  if (!refAction || t === undefined) return;
+  refAction.time = t % refAction.getClip().duration;
+  refMixer!.update(0);
+}
+/** Test hook: freezes the animation at a time in seconds (null resumes). */
+function seek(t: number | null) {
+  paused = t !== null;
+  const action = actor.currentAction;
+  if (action && t !== null) {
+    action.time = t;
+    actor.mixer.update(0);
+  }
+}
+
 await refresh();
 await playSelected();
 const clock = new THREE.Clock();
 let nextBlink = 2;
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
-  actor.update(dt);
+  if (!paused) actor.update(dt);
+  syncReference();
   // Blink: ~150 ms close/open every 2-6 s.
   const t = clock.elapsedTime;
   if (t > nextBlink + 0.15) nextBlink = t + 2 + Math.random() * 4;
@@ -325,4 +371,4 @@ renderer.setAnimationLoop(() => {
 });
 
 // Test hook (used by the headless smoke test).
-Object.assign(window, { __actors: { human, actor, refresh, view: (p: number[], t: number[]) => { camera.position.fromArray(p); controls.target.fromArray(t); controls.update(); }, face, rebuildFace, loadClip, ready: true } });
+Object.assign(window, { __actors: { human, actor, refresh, view: (p: number[], t: number[]) => { camera.position.fromArray(p); controls.target.fromArray(t); controls.update(); }, face, rebuildFace, loadClip, seek, ready: true } });

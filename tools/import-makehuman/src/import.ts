@@ -1,11 +1,11 @@
 /**
- * Converts MakeHuman/MPFB2 CC0 assets (plus CMU motion capture) into an actor pack.
+ * Converts MakeHuman/MPFB2 CC0 assets (plus Quaternius CC0 animations) into an actor pack.
  *
  *   npm run import:human [-- --mpfb <path to mpfb2 checkout>] [--out <dir>]
  *
  * Without --mpfb, the MPFB2 repository is shallow-cloned into .cache/mpfb2.
  * A few extra CC0 files (eyes) come from the MakeHuman repository and motion
- * clips from a GitHub mirror of the CMU BVH conversion; all are cached in .cache/.
+ * clips from Quaternius' Universal Animation Library (CC0); all are cached in .cache/.
  * Only data is used; no MakeHuman/MPFB code is copied.
  */
 import { execFileSync } from "node:child_process";
@@ -28,7 +28,9 @@ import { GARMENTS, garmentCut, insideFaces, selectGarmentFaces } from "./garment
 import { type Gray, blankGray, blurGray, loadGray, maxGray, rasterizeUV, resizeGray, writeRgbaPng } from "./image";
 import { parseMhclo } from "./mhclo";
 import { type ObjData, type ObjFace, buildRenderMesh, parseObj } from "./obj";
-import { CLIP_SPECS, importClip } from "./clips";
+import { CLIP_SPECS, UAL_ARCHIVES, type UalArchive, importClip } from "./clips";
+import { type Gltf, parseGlb } from "./gltf";
+import { readZip } from "./zip";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const CACHE = join(ROOT, ".cache");
@@ -482,15 +484,33 @@ function main() {
     }
   }
 
-  // --- Motion clips (CMU) ---------------------------------------------------------
+  // --- Motion clips (Quaternius Universal Animation Library, CC0) -------------------
   const clips: ClipDef[] = [];
+  const libraries = new Map<UalArchive, Gltf>();
+  // The source files also go to the viewer (not the pack) for its side-by-side check (`?compare`).
+  const refDir = join(dirname(out), "../reference");
+  mkdirSync(refDir, { recursive: true });
+  const reference: Record<string, { glb: string; animation: string }> = {};
+  const library = (key: UalArchive): Gltf => {
+    if (!libraries.has(key)) {
+      const { url, glb } = UAL_ARCHIVES[key];
+      const entry = readZip(readFileSync(fetchCached(CACHE, url))).get(glb);
+      if (!entry) throw new Error(`${url} has no ${glb}`);
+      const bytes = entry();
+      writeFileSync(join(refDir, `${key}.glb`), bytes);
+      libraries.set(key, parseGlb(bytes));
+    }
+    return libraries.get(key)!;
+  };
   for (const spec of CLIP_SPECS) {
-    const bvhText = fetchText(CACHE, spec.url);
-    const { def, data: clipData } = importClip(spec, bvhText);
+    const name = spec.archive === "ual1" ? "Quaternius Universal Animation Library" : "Quaternius Universal Animation Library 2";
+    const { def, data: clipData } = importClip(spec, library(spec.archive), name);
+    reference[def.name] = { glb: `${spec.archive}.glb`, animation: spec.animation };
     writeFileSync(join(out, def.file), new Uint8Array(clipData.buffer));
     clips.push(def);
-    console.log(`Clip ${def.name}: ${def.frameCount} frames @ ${def.fps} fps`);
+    console.log(`Clip ${def.name}: ${def.frameCount} frames, ${((def.frameCount - 1) / def.fps).toFixed(2)} s`);
   }
+  writeFileSync(join(refDir, "clips.json"), JSON.stringify(reference, null, 2));
 
   // --- Manifest ---------------------------------------------------------------
   const manifest: ActorPackManifest = {
@@ -500,8 +520,8 @@ function main() {
     species: "human",
     units: "meters",
     source: {
-      name: "MakeHuman / MPFB2 (hm08 base mesh, targets, game_engine rig, eyes); CMU Graphics Lab motion capture",
-      license: "CC0-1.0 (MakeHuman assets); CMU mocap free for research and commercial use",
+      name: "MakeHuman / MPFB2 (hm08 base mesh, targets, game_engine rig, eyes); Quaternius Universal Animation Library 1 + 2",
+      license: "CC0-1.0 (MakeHuman assets and Quaternius animations)",
       url: "https://github.com/makehumancommunity/mpfb2",
     },
     blob: "base.bin",
