@@ -237,11 +237,12 @@ export function useClipAttribute<T extends THREE.Material>(material: T): T {
   return material;
 }
 
-export function createClothMaterial(color: THREE.Color, roughness: number, fabric: string, layer: number): THREE.MeshStandardMaterial {
+export function createClothMaterial(color: THREE.Color, roughness: number, fabric: string, layer: number, map: THREE.Texture | null = null): THREE.MeshStandardMaterial {
   const normalMap = fabricNormalMap(fabric).clone();
   normalMap.repeat.set(24, 24);
   const mat = new THREE.MeshStandardMaterial({
-    color,
+    color: map ? new THREE.Color(1, 1, 1) : color,
+    map,
     roughness,
     normalMap,
     normalScale: new THREE.Vector2(0.6, 0.6),

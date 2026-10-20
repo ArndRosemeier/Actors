@@ -26,11 +26,13 @@ import {
   useClipAttribute,
 } from "./materials";
 import { SkinComposer } from "./skincompose";
+import { type ColliderUniforms, MAX_COLLIDERS, createColliderUniforms, useColliders } from "./colliders";
 
 export * from "./materials";
 export * from "./dqs";
 export * from "./procedural";
 export * from "./skincompose";
+export * from "./colliders";
 
 export interface MaterialFactory {
   (mesh: MeshData, actor: ThreeActor): THREE.Material;
@@ -69,8 +71,11 @@ export const defaultMaterials: MaterialFactory = (data, actor) => {
       const fabric = def.tags?.find((t) => t.startsWith("fabric:"))?.slice(7) ?? "smooth";
       // Garments follow their own layer order: proxies (socks) over base garments (tights), outerwear over underwear.
       const layer = (def.source.kind === "proxy" ? 2 : 1) + (def.inflate ?? 0) * 100;
-      const mat = createClothMaterial(color, def.material.roughness ?? 0.7, fabric, layer);
-      return data.clip ? useClipAttribute(mat) : mat;
+      let mat = createClothMaterial(color, def.material.roughness ?? 0.7, fabric, layer, tex("color", true));
+      if (data.clip) mat = useClipAttribute(mat);
+      // Skirt-skinned garments hang between the legs; leg capsules keep the legs from piercing them.
+      const blended = def.source.kind === "proxy" && actor.runtime.manifest.proxies.find((p) => p.name === (def.source as { proxy: string }).proxy)?.legBlend;
+      return blended ? useColliders(mat, actor.colliders) : mat;
     }
     default:
       return new THREE.MeshStandardMaterial({ color, roughness: def.material.roughness ?? 0.6 });
@@ -96,6 +101,9 @@ export class ThreeActor {
   readonly skeleton?: THREE.Skeleton;
   readonly mixer: THREE.AnimationMixer;
   readonly skin: SkinUniforms = createSkinUniforms();
+  /** Leg capsules for skirt-like garments, updated every frame from the bones. */
+  readonly colliders: ColliderUniforms = createColliderUniforms();
+  private legRadii = new Map<string, number>();
   readonly eye: EyeUniforms = { uIrisHue: { value: -1 }, uIrisSat: { value: 1 }, uIrisLight: { value: 1 } };
   /** Morph channels for face animation (GPU-blended every frame). */
   static readonly MORPHS = ["expression", "blink"] as const;
@@ -303,6 +311,62 @@ export class ThreeActor {
     }
     this.updateHiddenSkin();
     if (shape.skeleton && this.skeleton) this.rebind(shape.skeleton);
+    if (shape.skeleton) this.measureLegs(shape);
+  }
+
+  private static readonly LEGS: [string, string][] = [
+    ["thigh_l", "calf_l"],
+    ["calf_l", "foot_l"],
+    ["thigh_r", "calf_r"],
+    ["calf_r", "foot_r"],
+  ];
+
+  /** Capsule radius per leg bone: how far the body surface sits from the bone (80th percentile). */
+  private measureLegs(shape: ActorShape): void {
+    const sk = shape.skeleton!;
+    const body = this.runtime.meshes.find((m) => m.def.role === "body" && !m.stencil && m.joints);
+    if (!body?.joints || !body.weights) return;
+    for (const [bone, child] of ThreeActor.LEGS) {
+      const bi = sk.names.indexOf(bone), ci = sk.names.indexOf(child);
+      if (bi < 0 || ci < 0) continue;
+      const a = new THREE.Vector3(...sk.heads[bi]), b = new THREE.Vector3(...sk.heads[ci]);
+      const seg = new THREE.Line3(a, b), p = new THREE.Vector3(), c = new THREE.Vector3();
+      const d: number[] = [];
+      for (let i = 0; i < body.map.length; i++) {
+        let w = 0;
+        for (let k = 0; k < 4; k++) if (body.joints[i * 4 + k] === bi) w = body.weights[i * 4 + k];
+        if (w < 0.6) continue;
+        const v = body.map[i] * 3;
+        p.set(shape.positions[v], shape.positions[v + 1], shape.positions[v + 2]);
+        seg.closestPointToPoint(p, true, c);
+        d.push(p.distanceTo(c));
+      }
+      d.sort((x, y) => x - y);
+      if (d.length) this.legRadii.set(bone, d[Math.floor(d.length * 0.8)] + 0.012);
+    }
+  }
+
+  private updateColliders(): void {
+    const { uCapA, uCapB } = this.colliders;
+    this.object.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(this.object.matrixWorld).invert();
+    const pos = (name: string, out: THREE.Vector3) => {
+      const bone = this.bones.find((b) => b.name === name);
+      return bone ? out.setFromMatrixPosition(bone.matrixWorld).applyMatrix4(inv) : null;
+    };
+    const a = new THREE.Vector3(), b = new THREE.Vector3();
+    pos("pelvis", this.colliders.uCenter.value);
+    ThreeActor.LEGS.slice(0, MAX_COLLIDERS).forEach(([bone, child], i) => {
+      const r = this.legRadii.get(bone) ?? 0;
+      if (!r || !pos(bone, a) || !pos(child, b)) {
+        uCapA.value[i].w = 0;
+        return;
+      }
+      // Thigh capsules start below the hip joint so the waist and hips keep their shape.
+      if (bone.startsWith("thigh")) a.lerp(b, 0.3);
+      uCapA.value[i].set(a.x, a.y, a.z, r);
+      uCapB.value[i].copy(b);
+    });
   }
 
   private source(shape: ActorShape, data: MeshData) {
@@ -433,6 +497,7 @@ export class ThreeActor {
 
   update(dt: number): void {
     this.mixer.update(dt);
+    this.updateColliders();
   }
 
   /** The lowest point of the current shape (for standing the actor on the ground). */

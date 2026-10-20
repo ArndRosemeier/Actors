@@ -126,6 +126,13 @@ export interface ProxyDef {
   offsets: BufferRef; // f32, 3 per proxy vertex (meters)
   /** Per axis [vertexA, vertexB, restLength in meters]. */
   scaleRefs: [[number, number, number], [number, number, number], [number, number, number]];
+  /**
+   * Skirt-style skinning: weights of lower bones are moved to their upper bone
+   * (`remap`, e.g. calf -> thigh), each left/right pair is averaged, and
+   * `hipShare` of the leg weight goes to `hip`. The garment then hangs between
+   * the legs instead of splitting into two tubes.
+   */
+  legBlend?: { remap: Record<string, string>; pairs: [string, string][]; hip: string; hipShare: number };
 }
 
 /**

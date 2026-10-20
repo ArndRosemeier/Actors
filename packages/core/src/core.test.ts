@@ -55,3 +55,32 @@ describe("proxy fitting", () => {
     expect([...out].map((v) => +v.toFixed(5))).toEqual([1, 0, 0.2]);
   });
 });
+
+describe("skirt skinning", () => {
+  it("moves lower-leg weight to the thighs, averages left/right and shares some with the hip", async () => {
+    const { proxySkin } = await import("./proxy");
+    const names = ["pelvis", "thigh_l", "thigh_r", "calf_l"];
+    const binding = {
+      def: {
+        name: "s",
+        vertexCount: 1,
+        refs: { offset: 0, count: 0, type: "u32" as const },
+        weights: { offset: 0, count: 0, type: "f32" as const },
+        offsets: { offset: 0, count: 0, type: "f32" as const },
+        scaleRefs: [[0, 0, 1], [0, 0, 1], [0, 0, 1]] as [[number, number, number], [number, number, number], [number, number, number]],
+        legBlend: { remap: { calf_l: "thigh_l" }, pairs: [["thigh_l", "thigh_r"]] as [string, string][], hip: "pelvis", hipShare: 0.2 },
+      },
+      refs: new Uint32Array([0, 0, 0]),
+      weights: new Float32Array([1, 0, 0]),
+      offsets: new Float32Array(3),
+    };
+    // Base vertex 0: 60% calf_l, 40% thigh_l.
+    const { joints, weights } = proxySkin(binding, new Uint16Array([3, 1, 0, 0]), new Float32Array([0.6, 0.4, 0, 0]), names);
+    const w = new Map<string, number>();
+    for (let k = 0; k < 4; k++) if (weights[k]) w.set(names[joints[k]], weights[k]);
+    expect(w.get("thigh_l")).toBeCloseTo(0.4, 5);
+    expect(w.get("thigh_r")).toBeCloseTo(0.4, 5);
+    expect(w.get("pelvis")).toBeCloseTo(0.2, 5);
+    expect(w.has("calf_l")).toBe(false);
+  });
+});

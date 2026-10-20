@@ -389,7 +389,7 @@ const clock = new THREE.Clock();
 let nextBlink = 2;
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
-  if (!paused) actor.update(dt);
+  actor.update(paused ? 0 : dt);
   syncReference();
   // Blink: ~150 ms close/open every 2-6 s.
   const t = clock.elapsedTime;

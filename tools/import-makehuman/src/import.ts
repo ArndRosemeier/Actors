@@ -280,7 +280,7 @@ function main() {
   const eyeObj = parseObj(fetchText(CACHE, `${MH_RAW}/eyes/high-poly/high-poly.obj`));
   copyFileSync(fetchCached(CACHE, `${MH_RAW}/eyes/materials/brown_eye.png`), join(out, "textures/eye_brown.png"));
   const proxies: ProxyDef[] = [];
-  const addProxy = (name: string, clo: ReturnType<typeof parseMhclo>, cloObj: ObjData, faces = cloObj.faces) => {
+  const addProxy = (name: string, clo: ReturnType<typeof parseMhclo>, cloObj: ObjData, faces = cloObj.faces, legBlend?: ProxyDef["legBlend"]) => {
     const n = cloObj.positions.length / 3;
     if (clo.refs.length / 3 !== n) throw new Error(`${name}: mhclo/obj vertex count mismatch`);
     if (clo.scale.filter(Boolean).length !== 3) throw new Error(`${name}: needs x/y/z scale references`);
@@ -291,6 +291,7 @@ function main() {
       weights: blob.add("f32", clo.weights),
       offsets: blob.add("f32", clo.offsets.map((v) => v * SCALE)),
       scaleRefs: clo.scale.map(([a, b, l]) => [a, b, l * SCALE]) as ProxyDef["scaleRefs"],
+      ...(legBlend ? { legBlend } : {}),
     });
     return buildRenderMesh(cloObj, faces);
   };
@@ -342,9 +343,7 @@ function main() {
     console.log(`Garment ${spec.name}: ${faces.length} faces`);
   }
   addBaseMesh("tights", tightsFaces, { role: "garment", optional: true, inflate: 0.001, material: { kind: "cloth", color: [0.08, 0.08, 0.1], roughness: 0.6 }, tags: ["fabric:knit", "covers:anatomy"] }, normalizeUV);
-  addBaseMesh("skirt", facesOf("helper-skirt"), { role: "garment", optional: true, inflate: 0.009, material: { kind: "cloth", color: [0.35, 0.12, 0.15], roughness: 0.8 }, tags: ["fabric:smooth"] }, normalizeUV);
   garmentLabels.tights = "Tights";
-  garmentLabels.skirt = "Skirt";
 
   // A real .mhclo garment, fitted by triangle binding (CC0 MPFB test asset).
   const testdata = join(src, "test/testdata");
@@ -366,6 +365,44 @@ function main() {
     hidesBaseVertices: blob.add("u32", coveredBody(sockObj.positions.map((v) => v * SCALE), sockObj.faces.map((f) => f.v), 0.03, 0.03)),
   });
   garmentLabels.socks = "Socks";
+
+  // Skirts: CC0 garments from MakeHuman's skirts01 asset pack. Skirt skinning hangs them
+  // between the legs (averaged thigh weights) so a stride doesn't split or pierce them.
+  const SKIRTS_PACK = `${MH_PACKS}/skirts01/skirts01_cc0.zip`;
+  const SKIRT_BLEND: ProxyDef["legBlend"] = {
+    remap: { calf_l: "thigh_l", calf_r: "thigh_r", foot_l: "thigh_l", foot_r: "thigh_r", ball_l: "thigh_l", ball_r: "thigh_r" },
+    pairs: [["thigh_l", "thigh_r"]],
+    hip: "pelvis",
+    hipShare: 0.35,
+  };
+  const SKIRTS: [string, string, string, number][] = [
+    ["skirt", "toigo_long_full_skirt", "Long skirt", 0.004],
+    ["skirt-mini", "frankyaye_mini_skirt_01", "Mini skirt", 0.004],
+  ];
+  for (const [name, id, label, inflate] of SKIRTS) {
+    const clo = parseMhclo(fetchZipText(CACHE, SKIRTS_PACK, `clothes/${id}/${id}.mhclo`));
+    const cloObj = parseObj(fetchZipText(CACHE, SKIRTS_PACK, `clothes/${id}/${clo.objFile}`));
+    const mhmat = fetchZipText(CACHE, SKIRTS_PACK, `clothes/${id}/${clo.material}`);
+    const diffuse = mhmat.match(/^diffuseTexture\s+(\S+)/m)?.[1];
+    const file = `textures/${name}.png`;
+    const mean = diffuse ? writeRgbaDownsampled(fetchZipEntry(CACHE, SKIRTS_PACK, `clothes/${id}/${diffuse}`), join(out, file), 1024) : [0.4, 0.2, 0.2];
+    const m = addProxy(name, clo, cloObj, cloObj.faces, SKIRT_BLEND);
+    meshes.push({
+      name,
+      source: { kind: "proxy", proxy: name },
+      role: "garment",
+      baseIndex: blob.add("u32", m.map),
+      uv: blob.add("f32", m.uv),
+      indices: blob.add("u32", m.indices),
+      material: { kind: "cloth", color: mean as [number, number, number], roughness: 0.8 },
+      ...(diffuse ? { textures: { color: file } } : {}),
+      optional: true,
+      inflate,
+      slot: "skirt",
+      tags: ["fabric:smooth"],
+    });
+    garmentLabels[name] = label;
+  }
 
   // --- Hair: MakeHuman system hairstyles (CC0 .mhclo proxies with alpha-card textures) ---
   const HAIRS: [string, string][] = [
