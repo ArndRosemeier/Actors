@@ -90,3 +90,26 @@ describe("randomConfig", () => {
     expect(catalog.outfits.some((o) => JSON.stringify(outfitGarments(o, f.body)) === JSON.stringify(f.outfit))).toBe(true);
   });
 });
+
+describe("race looks", () => {
+  const base = defaultConfig(catalog);
+
+  it("rolls race members with race colours, patterns and eyes", () => {
+    for (let s = 0; s < 30; s++) {
+      const orc = randomConfig(catalog, base, { random: seededRandom(s), race: "orc" });
+      expect(orc.race).toBe("orc");
+      expect(orc.skinColor).toMatch(/^#[0-9a-f]{6}$/);
+      expect(orc.body.ageYears).toBeGreaterThanOrEqual(ADULT_MIN_AGE);
+      const drake = randomConfig(catalog, base, { random: seededRandom(s), race: "drakeborn" });
+      expect(drake.pupil).toBe("slit");
+      expect(drake.skinPattern).toBe("scales");
+      expect(drake.eyeGlow).toBeGreaterThan(0.1);
+    }
+  });
+
+  it("keeps humans on the photo skin", () => {
+    const h = randomConfig(catalog, base, { random: seededRandom(3), race: "human" });
+    expect(h.skinColor).toBeNull();
+    expect(h.skinPattern).toBe("none");
+  });
+});

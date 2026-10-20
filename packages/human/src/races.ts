@@ -415,7 +415,7 @@ export const RACE_STYLES: Record<RaceId, RaceStyle> = {
   },
   giantkin: {
     ...BASE,
-    height: [0.8, 1], weight: [0.5, 0.95], muscle: [0.65, 1], proportions: [0.2, 0.6], scale: [1.6, 1.9],
+    height: [0.8, 1], weight: [0.5, 0.95], muscle: [0.65, 1], proportions: [0.2, 0.6], scale: [1.45, 1.7],
     ethnic: [[[0.3, 0.2, 0.5], 2], [[0.6, 0.1, 0.3], 1], [[0.1, 0.3, 0.6], 1]],
     skin: [[[0.58, 0.58, 0.56], 2], [[0.5, 0.56, 0.64], 2], [[0.6, 0.48, 0.38], 2], [[0.82, 0.86, 0.9], 1], [[0.42, 0.42, 0.42], 1], [[0.78, 0.6, 0.48], 2], [[0.55, 0.4, 0.3], 1]],
     pattern: [["none", 3], ["crystals", 2], ["spots", 1], ["tattoos", 1.5], ["stripes", 0.5]],

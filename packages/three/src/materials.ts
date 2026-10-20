@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { useDualQuaternionSkinning } from "./dqs";
+import { GLSL_BIND_VERTEX, GLSL_EYE, GLSL_NOISE, GLSL_PATTERN } from "./racepatterns";
 import { fabricNormalMap, lashAlphaMap, poreNormalMap } from "./procedural";
 
 /**
@@ -23,6 +24,14 @@ export interface SkinUniforms {
   uAlbedo: { value: THREE.Texture | null };
   /** 0 = procedural tone + region tints, 1 = photographic albedo. */
   uAlbedoMix: { value: number };
+  /** Per-channel factor on the photographic albedo (recolours it, e.g. to an orc's green; linear, white = unchanged). */
+  uAlbedoTint: { value: THREE.Color };
+  /** Race skin pattern: x id (see SKIN_PATTERNS), y strength 0..1, z seed, w glow. */
+  uPattern: { value: THREE.Vector4 };
+  /** Pattern colour (linear). */
+  uAccent: { value: THREE.Color };
+  /** x ground offset, y body scale, z/w head joint height and depth (pattern space, see racepatterns.ts). */
+  uBind: { value: THREE.Vector4 };
 }
 
 export function createSkinUniforms(): SkinUniforms {
@@ -39,6 +48,10 @@ export function createSkinUniforms(): SkinUniforms {
     uSSS: { value: 1 },
     uAlbedo: { value: null },
     uAlbedoMix: { value: 0 },
+    uAlbedoTint: { value: new THREE.Color(1, 1, 1) },
+    uPattern: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uAccent: { value: new THREE.Color(0.2, 0.15, 0.1) },
+    uBind: { value: new THREE.Vector4(0.85, 1, 1.55, 0) },
   };
 }
 
@@ -55,7 +68,14 @@ uniform float uFemale;
 uniform float uSSS;
 uniform sampler2D uAlbedo;
 uniform float uAlbedoMix;
+uniform vec3 uAlbedoTint;
+uniform vec4 uPattern;
+uniform vec3 uAccent;
+uniform vec4 uBind;
 varying vec2 vSkinUv;
+varying vec3 vBind;
+${GLSL_NOISE}
+${GLSL_PATTERN}
 
 float skinHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
 float skinNoise( vec2 p ) {
@@ -93,10 +113,12 @@ tone = mix( tone, tone * vec3( 0.86, 0.66, 0.64 ), mB.r * 0.7 );
 tone = mix( tone, tone * vec3( 0.94, 0.88, 0.86 ), mB.g * 0.6 );
 tone = mix( tone, tone * vec3( 1.02, 0.9, 0.88 ), mB.b * 0.5 );
 // Photographic skin already carries lips, areolae, nails and mottling.
-if ( uAlbedoMix > 0.0 ) tone = mix( tone, texture2D( uAlbedo, vSkinUv ).rgb, uAlbedoMix );
+if ( uAlbedoMix > 0.0 ) tone = mix( tone, texture2D( uAlbedo, vSkinUv ).rgb * uAlbedoTint, uAlbedoMix );
 float browHair = smoothstep( 0.3, 0.7, skinNoise( vSkinUv * vec2( 3000.0, 900.0 ) ) );
 float browMask = smoothstep( 0.02, 0.3, mB.a );
 tone = mix( tone, uBrowColor, browMask * uBrowDensity );
+// Fantasy-race pattern (scales, bark, veins...).
+if ( uPattern.x > 0.5 ) tone = skinPattern( tone, mA.r, mA.b );
 // Vulva: deeper, redder inner tissue in the cleft.
 vec2 gl = genitalLocal();
 float inner = exp( -pow( gl.x / 0.11, 2.0 ) ) * smoothstep( 0.95, 0.5, abs( gl.y + 0.08 ) ) * mB.r * uFemale;
@@ -125,6 +147,7 @@ if ( uFemale > 0.0 ) {
   }
 }
 normal = normalize( tbn * mapN );
+if ( sp_height != 0.0 ) normal = h_bumpNormal( -vViewPosition, normal, sp_height, gl_FrontFacing ? 1.0 : -1.0 );
 `;
 
 const SKIN_IRRADIANCE = /* glsl */ `
@@ -150,8 +173,9 @@ export function createSkinMaterial(uniforms: SkinUniforms): THREE.MeshPhysicalMa
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec2 vSkinUv;")
-      .replace("#include <uv_vertex>", "#include <uv_vertex>\nvSkinUv = uv;");
+      .replace("#include <common>", "#include <common>\nvarying vec2 vSkinUv;\nvarying vec3 vBind;\nuniform vec4 uBind;")
+      .replace("#include <uv_vertex>", "#include <uv_vertex>\nvSkinUv = uv;")
+      .replace("#include <morphtarget_vertex>", `#include <morphtarget_vertex>\n${GLSL_BIND_VERTEX}`);
     const physical = THREE.ShaderChunk.lights_physical_pars_fragment.replace(
       /float dotNL = saturate\( dot\( geometryNormal, directLight\.direction \) \);\s*vec3 irradiance = dotNL \* directLight\.color;/,
       SKIN_IRRADIANCE,
@@ -160,7 +184,9 @@ export function createSkinMaterial(uniforms: SkinUniforms): THREE.MeshPhysicalMa
       .replace("#include <common>", `#include <common>\n${SKIN_FRAG_PARS}`)
       .replace("#include <lights_physical_pars_fragment>", physical)
       .replace("#include <map_fragment>", `#include <map_fragment>\n${SKIN_ALBEDO}`)
-      .replace("#include <normal_fragment_maps>", SKIN_NORMAL);
+      .replace("#include <normal_fragment_maps>", SKIN_NORMAL)
+      .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nif ( sp_rough >= 0.0 ) roughnessFactor = sp_rough;")
+      .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += sp_emit;");
   };
   mat.customProgramCacheKey = () => "actors-skin";
   return useDualQuaternionSkinning(mat);
@@ -171,6 +197,8 @@ export interface EyeUniforms {
   uIrisHue: { value: number };
   uIrisSat: { value: number };
   uIrisLight: { value: number };
+  /** x pupil shape (see PUPILS), y dilation 0..1, z iris glow. */
+  uPupil: { value: THREE.Vector4 };
 }
 
 export function createEyeMaterial(map: THREE.Texture | null, uniforms: EyeUniforms): THREE.MeshPhysicalMaterial {
@@ -181,7 +209,7 @@ export function createEyeMaterial(map: THREE.Texture | null, uniforms: EyeUnifor
       .replace(
         "#include <common>",
         `#include <common>
-uniform float uIrisHue; uniform float uIrisSat; uniform float uIrisLight;
+uniform float uIrisHue; uniform float uIrisSat; uniform float uIrisLight; uniform vec4 uPupil;
 vec3 eyeRgb2hsv( vec3 c ) {
   vec4 K = vec4( 0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0 );
   vec4 p = mix( vec4( c.bg, K.wz ), vec4( c.gb, K.xy ), step( c.b, c.g ) );
@@ -192,18 +220,22 @@ vec3 eyeRgb2hsv( vec3 c ) {
 vec3 eyeHsv2rgb( vec3 c ) {
   vec3 p = abs( fract( c.xxx + vec3( 1.0, 2.0 / 3.0, 1.0 / 3.0 ) ) * 6.0 - 3.0 );
   return c.z * mix( vec3( 1.0 ), clamp( p - 1.0, 0.0, 1.0 ), c.y );
+}
+// Iris colour: hue/saturation/lightness shift of the saturated (iris) pixels.
+vec3 eyeShift( vec3 c ) {
+  vec3 hsv = eyeRgb2hsv( c );
+  float iris = smoothstep( 0.18, 0.4, hsv.y );
+  vec3 shifted = eyeHsv2rgb( vec3( uIrisHue, clamp( hsv.y * uIrisSat, 0.0, 1.0 ), clamp( hsv.z * uIrisLight, 0.0, 1.0 ) ) );
+  return mix( c, shifted, iris * step( 0.0, uIrisHue ) );
 }`,
       )
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
-{
-  vec3 hsv = eyeRgb2hsv( diffuseColor.rgb );
-  float iris = smoothstep( 0.18, 0.4, hsv.y );
-  vec3 shifted = eyeHsv2rgb( vec3( uIrisHue, clamp( hsv.y * uIrisSat, 0.0, 1.0 ), clamp( hsv.z * uIrisLight, 0.0, 1.0 ) ) );
-  diffuseColor.rgb = mix( diffuseColor.rgb, shifted, iris * step( 0.0, uIrisHue ) );
-}`,
-      );
+diffuseColor.rgb = eyeShift( diffuseColor.rgb );
+${GLSL_EYE}`,
+      )
+      .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += ey_emit;");
   };
   mat.customProgramCacheKey = () => "actors-eye";
   return useDualQuaternionSkinning(mat);

@@ -1,6 +1,9 @@
 import { ADULT_MIN_AGE, type HumanParams, MAX_AGE } from "@actors/human";
 import { type CharacterConfig, PAINTED_BROWS, outfitGarments } from "./catalog";
 import type { Character } from "./character";
+import { PUPILS, SKIN_PATTERNS } from "@actors/three";
+
+const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 
 const STYLE = `
 .actors-editor { --ae-panel: #1d1f24; --ae-text: #e6e6e6; --ae-muted: #9aa0a6; --ae-accent: #c98b6b; --ae-border: #2c2f36;
@@ -17,6 +20,8 @@ const STYLE = `
 .actors-editor .ae-row output { text-align: right; font-variant-numeric: tabular-nums; color: var(--ae-muted); }
 .actors-editor .ae-row select { grid-column: 2 / 4; }
 .actors-editor input[type="range"] { width: 100%; accent-color: var(--ae-accent); }
+.actors-editor input[type="color"] { width: 100%; height: 24px; padding: 0 2px; background: #272a31; border: 1px solid var(--ae-border); border-radius: 6px; }
+.actors-editor .ae-row button { padding: 1px 0; }
 .actors-editor details { border-top: 1px solid var(--ae-border); padding: 4px 0; }
 .actors-editor summary { cursor: pointer; padding: 3px 0; text-transform: capitalize; }
 .actors-editor .ae-check { display: flex; gap: 6px; align-items: center; margin: 3px 0; }
@@ -153,7 +158,11 @@ export class CharacterEditor {
     // Race
     const raceSec = this.section("Race");
     const raceNames = cat.races.map((r): [string, string] => [r.id, r.label]);
-    this.select(raceSec, "Race", raceNames, (c) => c.race, (v) => set({ race: v as CharacterConfig["race"] }), "race");
+    // Picking a race rolls a typical member of it (shape, skin, eyes, hair), keeping gender, outfit and animation.
+    this.select(raceSec, "Race", raceNames, (c) => c.race, (v) => {
+      this.status.textContent = "…";
+      character.setRace(v as CharacterConfig["race"]).then(() => (this.status.textContent = `${character.lastUpdateMs.toFixed(0)} ms`));
+    }, "race");
     const raceInfo = document.createElement("p");
     raceInfo.className = "ae-note";
     raceSec.appendChild(raceInfo);
@@ -184,7 +193,17 @@ export class CharacterEditor {
     if (cat.photoSkin) detailed(this.select(look, "Skin", [["photo", "Photo (follows ethnicity)"], ["procedural", "Procedural"]], (c) => c.skin, (v) => set({ skin: v as CharacterConfig["skin"] }), "skin"));
     const tone = detailed(this.slider(look, "Skin tone", 0, 1, 0.01, pct, (c) => c.skinTone, (v) => set({ skinTone: v }), "skinTone"));
     this.syncers.push((c) => (tone.hidden = c.skin === "photo"));
-    this.select(look, "Eyes", cat.eyes.map((e) => [e.id, e.label]), (c) => c.eyes, (v) => set({ eyes: v }), "eyes");
+    detailed(this.color(look, "Skin colour", (c) => c.skinColor, (v) => set({ skinColor: v }), "skinColor"));
+    this.select(look, "Eyes", cat.eyes.map((e) => [e.id, e.label]), (c) => c.eyes, (v) => set({ eyes: v, eyeColor: null }), "eyes");
+    detailed(this.color(look, "Eye colour", (c) => c.eyeColor, (v) => set({ eyeColor: v }), "eyeColor"));
+    detailed(this.select(look, "Pupils", Object.keys(PUPILS).map((p): [string, string] => [p, cap(p)]), (c) => c.pupil, (v) => set({ pupil: v as CharacterConfig["pupil"] }), "pupil"));
+    detailed(this.slider(look, "Eye glow", 0, 1, 0.01, pct, (c) => c.eyeGlow, (v) => set({ eyeGlow: v }), "eyeGlow"));
+    detailed(this.select(look, "Skin pattern", Object.keys(SKIN_PATTERNS).map((p): [string, string] => [p, cap(p)]), (c) => c.skinPattern, (v) => set({ skinPattern: v as CharacterConfig["skinPattern"] }), "skinPattern"));
+    const patRows = [
+      detailed(this.slider(look, "Pattern strength", 0, 1, 0.01, pct, (c) => c.patternStrength, (v) => set({ patternStrength: v }), "patternStrength")),
+      detailed(this.color(look, "Pattern colour", (c) => c.patternColor, (v) => set({ patternColor: v }), "patternColor")),
+    ];
+    this.syncers.push((c) => patRows.forEach((row) => (row.hidden = c.skinPattern === "none")));
     this.select(look, "Hair", [["", "None"], ...cat.hair.map((h): [string, string] => [h.id, h.label])], (c) => c.hair ?? "", (v) => set({ hair: v || null }), "hair");
     this.select(look, "Hair colour", [["", "Natural"], ...cat.hairColors.map((h): [string, string] => [h.id, h.label])], (c) => c.hairColor ?? "", (v) => set({ hairColor: v || null }), "hairColor");
     detailed(this.select(look, "Eyebrows", [...cat.brows.map((b): [string, string] => [b.id, b.label]), [PAINTED_BROWS, "Painted"], ["", "None"]], (c) => c.brows ?? "", (v) => set({ brows: v || null }), "brows"));
@@ -456,9 +475,40 @@ export class CharacterEditor {
     if (key) sel.dataset.key = key;
     for (const [v, text] of options) sel.add(new Option(text, v));
     sel.addEventListener("change", () => onChange(sel.value));
-    this.syncers.push((c) => (sel.value = get(c)));
+    this.syncers.push((c) => {
+      const v = get(c);
+      // Values outside the list (e.g. a race's random hair colour) show as "Custom".
+      sel.querySelector("option[data-custom]")?.remove();
+      if (v && ![...sel.options].some((o) => o.value === v)) {
+        const o = new Option("Custom", v);
+        o.dataset.custom = "";
+        sel.add(o);
+      }
+      sel.value = v;
+    });
     parent.appendChild(div);
     return sel;
+  }
+
+  /** A colour picker with a reset button (null = the default colour). */
+  private color(parent: HTMLElement, label: string, get: (c: CharacterConfig) => string | null, onChange: (v: string | null) => void, key?: string): HTMLElement {
+    const div = document.createElement("div");
+    div.className = "ae-row";
+    div.innerHTML = `<label></label><input type="color"><button title="Back to the default">×</button>`;
+    div.querySelector("label")!.textContent = label;
+    const input = div.querySelector("input")!;
+    const reset = div.querySelector("button")!;
+    if (key) input.dataset.key = key;
+    input.addEventListener("input", () => onChange(input.value));
+    reset.addEventListener("click", () => onChange(null));
+    this.syncers.push((c) => {
+      const v = get(c);
+      input.value = v ?? "#808080";
+      input.style.opacity = v ? "1" : "0.35";
+      reset.disabled = !v;
+    });
+    parent.appendChild(div);
+    return div;
   }
 
   private check(parent: HTMLElement, label: string, get: (c: CharacterConfig) => boolean, onChange: (v: boolean) => void, key?: string): HTMLInputElement {

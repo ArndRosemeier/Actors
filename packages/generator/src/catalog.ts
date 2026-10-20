@@ -1,4 +1,5 @@
-import { ADULT_MIN_AGE, DEFAULT_PARAMS, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, RACES, RACE_IDS, type RaceId } from "@actors/human";
+import { randomRaceLook } from "./racelook";
+import { ADULT_MIN_AGE, DEFAULT_PARAMS, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type PupilShape, RACES, RACE_IDS, type RaceId, type SkinPattern } from "@actors/human";
 
 /** One choice in a list: the id the API takes and a display label. */
 export interface Choice {
@@ -82,7 +83,25 @@ export interface CharacterConfig {
   skin: "photo" | "procedural";
   /** 0 = light .. 1 = dark, for the procedural skin. */
   skinTone: number;
+  /**
+   * Skin colour (sRGB hex) for non-human tones (an orc's green, an umbral's grey-violet), or null.
+   * Replaces `skinTone` on the procedural skin and recolours the photo skin.
+   */
+  skinColor: string | null;
   eyes: string;
+  /** Iris colour (sRGB hex) instead of the `eyes` preset's colour, or null. */
+  eyeColor: string | null;
+  /** 0..1 glowing iris (umbral, drakeborn). */
+  eyeGlow: number;
+  pupil: PupilShape;
+  /** Race skin pattern drawn over the skin (scales, bark, veins...). */
+  skinPattern: SkinPattern;
+  /** 0..1 */
+  patternStrength: number;
+  /** Pattern colour (sRGB hex), or null for a darker shade of the skin. */
+  patternColor: string | null;
+  /** 0..1, varies procedural details (pattern layout). */
+  seed: number;
   /** Hair mesh id, or null for none. */
   hair: string | null;
   /** sRGB hex, or null for the hairstyle's own colour. */
@@ -252,6 +271,14 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     details: {},
     skin: catalog.photoSkin ? "photo" : "procedural",
     skinTone: 0.3,
+    skinColor: null,
+    eyeColor: null,
+    eyeGlow: 0,
+    pupil: "round",
+    skinPattern: "none",
+    patternStrength: 0.6,
+    patternColor: null,
+    seed: 0.5,
     eyes: catalog.eyes[0]?.id ?? "brown",
     hair: null,
     hairColor: null,
@@ -276,6 +303,8 @@ export interface RandomOptions {
   animation?: boolean;
   /** Restrict gender: "female", "male" or "any" (default). */
   gender?: "female" | "male" | "any";
+  /** Race of the new character (default: the base's race and mix). */
+  race?: RaceId;
 }
 
 /** Seeded PRNG (mulberry32) for `randomConfig`. */
@@ -325,14 +354,34 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
   // About half the garments get a colour from the palette; the rest keep their own.
   const garmentColors: Record<string, string> = {};
   if (outfitPreset) for (const g of outfit) if (r() < 0.5) garmentColors[g] = pick(catalog.garmentColors)?.id ?? "#808080";
-  return {
-    ...base,
-    body,
-    details,
+  const race = options.race ?? base.race;
+  const race2 = options.race ? null : base.race2;
+  const human = race === "human" && !race2;
+  const look = human ? undefined : randomRaceLook(catalog, race, race2, base.raceMix, body, r);
+  if (look) Object.assign(body, look.body);
+  const humanLook = {
     eyes: pick(catalog.eyes)?.id ?? base.eyes,
     hair: !female && r() < 0.12 ? null : (pick(hairPool)?.id ?? null),
     hairColor: old ? "#9a968f" : r() < 0.4 ? null : (pick(catalog.hairColors)?.id ?? null),
     brows: pick(catalog.brows)?.id ?? base.brows,
+  };
+  return {
+    ...base,
+    race,
+    race2,
+    raceSize: look?.raceSize ?? 0.5,
+    body,
+    details,
+    ...humanLook,
+    skinColor: look?.skinColor ?? null,
+    eyeColor: look?.eyeColor ?? null,
+    eyeGlow: look?.eyeGlow ?? 0,
+    pupil: look?.pupil ?? "round",
+    skinPattern: look?.skinPattern ?? "none",
+    patternStrength: look?.patternStrength ?? base.patternStrength,
+    patternColor: look?.patternColor ?? null,
+    seed: r(),
+    ...(look ? { hair: look.hair, hairColor: look.hairColor, brows: look.brows } : {}),
     outfit,
     garmentColors: outfitPreset ? { ...outfitPreset.colors, ...garmentColors } : base.garmentColors,
     animation: options.animation ? (pick(catalog.animations.filter((a) => !a.library))?.id ?? base.animation) : base.animation,

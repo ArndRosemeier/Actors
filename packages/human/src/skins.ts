@@ -7,6 +7,8 @@ export interface SkinTextureDef {
   ethnicity: "african" | "asian" | "caucasian";
   /** Pack-relative file (body UV layout). */
   file: string;
+  /** Mean sRGB colour of the skin (for recolouring it to a non-human tone). */
+  tone?: [number, number, number];
 }
 
 /** Ages the three texture groups represent (years); weights are linear in between. */

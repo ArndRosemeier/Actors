@@ -169,3 +169,18 @@ export function writeRgbaDownsampled(srcPath: string, dstPath: string, maxSize: 
   if (!n) for (let i = 0; i < img.data.length; i += 4) add(i);
   return mean.map((v) => (n ? v / n : 0.5)) as [number, number, number];
 }
+
+/** Mean sRGB colour (0..1) of an image's non-black pixels (e.g. a skin texture without its empty UV space). */
+export function meanColor(path: string, step = 7): [number, number, number] {
+  const buf = readFileSync(path);
+  const img = path.endsWith(".png") ? PNG.sync.read(buf) : jpeg.decode(buf, { useTArray: true });
+  const sum = [0, 0, 0];
+  let n = 0;
+  for (let i = 0; i < img.width * img.height; i += step) {
+    const r = img.data[i * 4], g = img.data[i * 4 + 1], b = img.data[i * 4 + 2];
+    if (r + g + b < 60) continue;
+    sum[0] += r; sum[1] += g; sum[2] += b;
+    n++;
+  }
+  return sum.map((v) => Math.round((n ? v / n / 255 : 0.5) * 1000) / 1000) as [number, number, number];
+}
