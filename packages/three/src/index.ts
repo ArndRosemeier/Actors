@@ -23,10 +23,12 @@ import {
   createWetMaterial,
   useClipAttribute,
 } from "./materials";
+import { SkinComposer } from "./skincompose";
 
 export * from "./materials";
 export * from "./dqs";
 export * from "./procedural";
+export * from "./skincompose";
 
 export interface MaterialFactory {
   (mesh: MeshData, actor: ThreeActor): THREE.Material;
@@ -198,6 +200,43 @@ export class ThreeActor {
     const covered = [...this.data.values()].some((d) => d.def.tags?.includes("covers:anatomy") && this.meshes.get(d.def.name)!.visible);
     if (covered) for (const d of this.data.values()) if (d.def.tags?.includes("anatomy")) this.meshes.get(d.def.name)!.visible = false;
     this.updateHiddenSkin();
+  }
+
+  private composer?: SkinComposer;
+  private readonly loading = new Map<string, Promise<THREE.Texture>>();
+  private skinKey = "";
+
+  /**
+   * Photographic skin: blends the given pack textures (e.g. `Human.skinTextures()`)
+   * on the GPU and uses the result as the skin's albedo. Null or an empty list
+   * switches back to the procedural tone (`setSkinTone`).
+   */
+  async setSkinTextures(renderer: THREE.WebGLRenderer, layers: { file: string; weight: number }[] | null): Promise<void> {
+    const key = layers?.map((l) => `${l.file}:${l.weight.toFixed(3)}`).join("|") ?? "";
+    if (key === this.skinKey) return;
+    this.skinKey = key;
+    if (!layers?.length) {
+      this.skin.uAlbedoMix.value = 0;
+      return;
+    }
+    const textures = await Promise.all(
+      layers.map((l) => {
+        if (!this.loading.has(l.file))
+          this.loading.set(
+            l.file,
+            this.loader.loadAsync(this.runtime.url + l.file).then((t) => {
+              t.colorSpace = THREE.SRGBColorSpace;
+              return t;
+            }),
+          );
+        return this.loading.get(l.file)!;
+      }),
+    );
+    if (key !== this.skinKey) return; // a newer request won
+    this.composer ??= new SkinComposer();
+    this.composer.compose(renderer, layers.map((l, i) => ({ texture: textures[i], weight: l.weight })));
+    this.skin.uAlbedo.value = this.composer.target.texture;
+    this.skin.uAlbedoMix.value = 1;
   }
 
   /** Skin base colour (linear RGB). */

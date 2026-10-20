@@ -19,6 +19,10 @@ export interface SkinUniforms {
   uGenitalBox: { value: THREE.Vector4 };
   uFemale: { value: number };
   uSSS: { value: number };
+  /** Photographic albedo (body UV layout). Used when uAlbedoMix > 0. */
+  uAlbedo: { value: THREE.Texture | null };
+  /** 0 = procedural tone + region tints, 1 = photographic albedo. */
+  uAlbedoMix: { value: number };
 }
 
 export function createSkinUniforms(): SkinUniforms {
@@ -33,6 +37,8 @@ export function createSkinUniforms(): SkinUniforms {
     uGenitalBox: { value: new THREE.Vector4(0, 0, 0, 0) },
     uFemale: { value: 0 },
     uSSS: { value: 1 },
+    uAlbedo: { value: null },
+    uAlbedoMix: { value: 0 },
   };
 }
 
@@ -47,6 +53,8 @@ uniform float uBrowDensity;
 uniform vec4 uGenitalBox;
 uniform float uFemale;
 uniform float uSSS;
+uniform sampler2D uAlbedo;
+uniform float uAlbedoMix;
 varying vec2 vSkinUv;
 
 float skinHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
@@ -84,6 +92,8 @@ tone = mix( tone, tone * vec3( 0.93, 0.82, 0.82 ), mA.a * 0.6 );
 tone = mix( tone, tone * vec3( 0.86, 0.66, 0.64 ), mB.r * 0.7 );
 tone = mix( tone, tone * vec3( 0.94, 0.88, 0.86 ), mB.g * 0.6 );
 tone = mix( tone, tone * vec3( 1.02, 0.9, 0.88 ), mB.b * 0.5 );
+// Photographic skin already carries lips, areolae, nails and mottling.
+if ( uAlbedoMix > 0.0 ) tone = mix( tone, texture2D( uAlbedo, vSkinUv ).rgb, uAlbedoMix );
 float browHair = smoothstep( 0.3, 0.7, skinNoise( vSkinUv * vec2( 3000.0, 900.0 ) ) );
 float browMask = smoothstep( 0.02, 0.3, mB.a );
 tone = mix( tone, uBrowColor, browMask * uBrowDensity );

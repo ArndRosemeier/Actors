@@ -23,14 +23,15 @@ import {
   encodeTarget,
 } from "@actors/core";
 import { BlobWriter } from "./blob";
-import { fetchCached, fetchText } from "./fetch";
+import { fetchCached, fetchText, fetchZipEntry, fetchZipText } from "./fetch";
 import { GARMENTS, garmentCut, insideFaces, selectGarmentFaces } from "./garments";
-import { type Gray, blankGray, blurGray, loadGray, maxGray, rasterizeUV, resizeGray, writeRgbaPng } from "./image";
+import { type Gray, blankGray, blurGray, loadGray, maxGray, rasterizeUV, resizeGray, writeJpeg, writeRgbaPng } from "./image";
 import { parseMhclo } from "./mhclo";
 import { type ObjData, type ObjFace, buildRenderMesh, parseObj } from "./obj";
 import { CLIP_SPECS, UAL_ARCHIVES, type UalArchive, importClip } from "./clips";
 import { type Gltf, parseGlb } from "./gltf";
 import { readZip } from "./zip";
+import type { SkinTextureDef } from "@actors/human";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const CACHE = join(ROOT, ".cache");
@@ -39,6 +40,9 @@ const RIG = "game_engine";
 const ADULT_MIN_AGE = 18;
 const MASK_SIZE = 2048;
 const MH_RAW = "https://raw.githubusercontent.com/makehumancommunity/makehuman/master/makehuman/data";
+/** MakeHuman's CC0 asset packs; only the files used are fetched (HTTP range requests). */
+const MH_PACKS = "https://files.makehumancommunity.org/asset_packs";
+const SYSTEM_ASSETS = `${MH_PACKS}/makehuman_system_assets/makehuman_system_assets_cc0.zip`;
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -484,6 +488,22 @@ function main() {
     }
   }
 
+  // --- Photo skins (MakeHuman system assets, CC0) -------------------------------------
+  // One per age group x gender x ethnicity; the runtime blends them like the shape targets.
+  const skins: SkinTextureDef[] = [];
+  for (const age of ["young", "middleage", "old"] as const)
+    for (const gender of ["female", "male"] as const)
+      for (const ethnicity of ["african", "asian", "caucasian"] as const) {
+        const dir = `skins/${age}_${ethnicity}_${gender}`;
+        const mhmat = fetchZipText(CACHE, SYSTEM_ASSETS, `${dir}/${age}_${ethnicity}_${gender}.mhmat`);
+        const diffuse = mhmat.match(/^diffuseTexture\s+(\S+)/m)?.[1];
+        if (!diffuse) throw new Error(`${dir}: no diffuse texture`);
+        const file = `textures/skin_${age}_${ethnicity}_${gender}.jpg`;
+        writeJpeg(fetchZipEntry(CACHE, SYSTEM_ASSETS, `${dir}/${diffuse}`), join(out, file));
+        skins.push({ age, gender, ethnicity, file });
+      }
+  console.log(`Skins: ${skins.length}`);
+
   // --- Motion clips (Quaternius Universal Animation Library, CC0) -------------------
   const clips: ClipDef[] = [];
   const libraries = new Map<UalArchive, Gltf>();
@@ -541,6 +561,7 @@ function main() {
         expressionUnits: [...units],
         garmentLabels,
         anatomy: { genitalsUV: gb },
+        skins,
       },
     },
   };

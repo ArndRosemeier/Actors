@@ -77,6 +77,12 @@ async function rebuildFace() {
   actor.setMorphWeight("expression", face.intensity);
 }
 
+// Skin: photographic textures that follow gender, age and ethnicity, or the procedural tone.
+const skinMode = { photo: (human.extra.skins?.length ?? 0) > 0 };
+async function updateSkin() {
+  await actor.setSkinTextures(renderer, skinMode.photo ? human.skinTextures() : null);
+}
+
 // Anatomy: male genital mesh or female detail in the skin shader, adults only (age is clamped in the data path).
 const anatomy = { on: true };
 function updateAnatomy() {
@@ -100,6 +106,7 @@ async function refresh() {
     actor.object.position.y = actor.groundOffset();
     updateAnatomy();
     await rebuildFace();
+    await updateSkin();
     statusEl.textContent = `${(performance.now() - t0).toFixed(0)} ms${useWorker ? " · worker" : ""}`;
   } catch (e) {
     statusEl.textContent = `Error: ${(e as Error).message}`;
@@ -165,7 +172,14 @@ function setSkin(t: number) {
   const i = Math.min(skinTones.length - 2, Math.floor(f));
   actor.setSkinTone(skinTones[i].clone().lerp(skinTones[i + 1], f - i));
 }
+selectRow(lookEl, "Skin", [["photo", "Photo (follows ethnicity)"], ["procedural", "Procedural"]], skinMode.photo ? "photo" : "procedural", (v) => {
+  skinMode.photo = v === "photo";
+  toneRow.hidden = skinMode.photo;
+  updateSkin();
+});
 row(lookEl, "skinTone", "Skin tone", 0, 1, 0.01, 0.3, pct, setSkin);
+const toneRow = lookEl.lastElementChild as HTMLElement;
+toneRow.hidden = skinMode.photo;
 setSkin(0.3);
 row(lookEl, "brows", "Eyebrows", 0, 1, 0.01, actor.skin.uBrowDensity.value, pct, (v) => (actor.skin.uBrowDensity.value = v));
 row(lookEl, "sss", "Subsurface", 0, 2, 0.01, 1, (v) => v.toFixed(2), (v) => (actor.skin.uSSS.value = v));

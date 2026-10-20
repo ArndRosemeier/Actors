@@ -109,3 +109,12 @@ export function writeRgbaPng(path: string, channels: (Gray | null)[]): void {
     }
   writeFileSync(path, PNG.sync.write(png));
 }
+
+/** Re-encodes a PNG/JPEG image as JPEG (alpha dropped). */
+export function writeJpeg(srcPath: string, dstPath: string, quality = 88): void {
+  const buf = readFileSync(srcPath);
+  const img = srcPath.endsWith(".png") ? PNG.sync.read(buf) : jpeg.decode(buf, { useTArray: true });
+  const data = Buffer.from(img.data);
+  for (let i = 3; i < data.length; i += 4) data[i] = 255;
+  writeFileSync(dstPath, jpeg.encode({ data, width: img.width, height: img.height }, quality).data);
+}
