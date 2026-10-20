@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { ActorShape, Clip, Fetcher, MessagePortLike } from "@actors/core";
-import { ADULT_MIN_AGE, BLINK, EXPRESSIONS, Human, type HumanParams, MAX_AGE, sanitizeRace } from "@actors/human";
-import { IRIS_PRESETS, ThreeActor } from "@actors/three";
+import { ADULT_MIN_AGE, BLINK, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type RaceId, raceScale, sanitizeRace } from "@actors/human";
+import { IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
 import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, type RandomOptions, buildCatalog, defaultConfig, outfitGarments, randomConfig, resolveOutfit } from "./catalog";
 
 /** A change to a character. `body` is merged into the current body; every other field replaces the current value. */
@@ -120,6 +120,14 @@ export class Character {
     return this.set({ ...d, animation: this.cfg.animation });
   }
 
+  /**
+   * Turns the character into a typical-looking member of `race` (random within
+   * the race's ranges and palettes); gender, outfit and animation are kept.
+   */
+  async setRace(race: RaceId): Promise<CharacterConfig> {
+    return this.randomize({ race, outfit: false, gender: this.cfg.body.gender < 0.5 ? "female" : "male" });
+  }
+
   /** A random adult character; see `RandomOptions`. Returns the new configuration. */
   async randomize(options: RandomOptions = {}): Promise<CharacterConfig> {
     const next = randomConfig(this.catalog, this.cfg, options);
@@ -217,10 +225,24 @@ export class Character {
     for (const b of this.catalog.brows) a.setVisible(b.id, b.id === c.brows);
     a.skin.uBrowDensity.value = c.brows === PAINTED_BROWS ? 0.92 : 0;
     a.setHairColor(c.hairColor);
-    if (IRIS_PRESETS[c.eyes]) a.setIris(c.eyes);
+    if (c.eyeColor) a.setIris(irisFromColor(c.eyeColor));
+    else if (IRIS_PRESETS[c.eyes]) a.setIris(c.eyes);
     const f = Math.min(1, Math.max(0, c.skinTone)) * (SKIN_TONES.length - 1);
     const i = Math.min(SKIN_TONES.length - 2, Math.floor(f));
-    a.setSkinTone(SKIN_TONES[i].clone().lerp(SKIN_TONES[i + 1], f - i));
+    const custom = c.skinColor ? new THREE.Color(c.skinColor) : null;
+    a.setSkinTone(custom ?? SKIN_TONES[i].clone().lerp(SKIN_TONES[i + 1], f - i));
+    // Photo skin: scale its channels so its mean colour becomes the custom colour.
+    const ref = custom && c.skin === "photo" ? this.human.skinTextureTone(c.body) : null;
+    if (custom && ref) {
+      const lin = new THREE.Color().setRGB(ref[0], ref[1], ref[2], THREE.SRGBColorSpace);
+      a.skin.uAlbedoTint.value.setRGB(custom.r / Math.max(lin.r, 1e-3), custom.g / Math.max(lin.g, 1e-3), custom.b / Math.max(lin.b, 1e-3));
+    } else a.skin.uAlbedoTint.value.setRGB(1, 1, 1);
+    // Race pattern and eyes.
+    const glow = c.skinPattern === "veins" ? 0.6 + c.eyeGlow * 0.6 : c.skinPattern === "crystals" ? 0.4 : 0;
+    a.skin.uPattern.value.set(SKIN_PATTERNS[c.skinPattern] ?? 0, c.patternStrength, c.seed * 97, glow);
+    if (c.patternColor) a.skin.uAccent.value.set(c.patternColor);
+    else a.skin.uAccent.value.copy(a.skin.uTone.value).multiplyScalar(0.3);
+    a.eye.uPupil.value.set(PUPILS[c.pupil] ?? 0, 0.5, c.eyeGlow, 0);
     if (a.meshes.has("body-low")) {
       a.setVisible("body", c.detail === "high");
       a.setVisible("body-low", c.detail === "low");
@@ -263,6 +285,11 @@ export class Character {
       this.actor.applyShape(this.shape);
       this.actor.object.position.y = this.actor.groundOffset();
       this.height = this.actor.height();
+      // Pattern space: feet at 0, body scale, head joint (skin patterns stay sized and placed per body).
+      const sk = this.shape.skeleton;
+      const head = sk ? sk.heads[sk.names.indexOf("head")] : undefined;
+      const ground = this.actor.groundOffset();
+      this.actor.skin.uBind.value.set(ground, raceScale(h.race), head ? head[1] + ground : 1.55, head ? -head[2] : 0);
       this.applied.shape = shapeKey;
       for (const l of this.shapeListeners) l(this.height);
       this.lastUpdateMs = performance.now() - t0;
@@ -282,4 +309,16 @@ export class Character {
       this.actor.play(c.animation ? await this.loadClip(c.animation) : null);
     }
   }
+}
+
+/** Iris shader factors (hue, saturation and lightness gain on the iris texture) for an sRGB colour. */
+export function irisFromColor(hex: string): { hue: number; sat: number; light: number } {
+  const hsl = { h: 0, s: 0, l: 0 };
+  const c = new THREE.Color(hex);
+  const srgb = c.clone().convertLinearToSRGB();
+  const max = Math.max(srgb.r, srgb.g, srgb.b), min = Math.min(srgb.r, srgb.g, srgb.b);
+  c.getHSL(hsl, THREE.SRGBColorSpace);
+  const sat = max > 0 ? (max - min) / max : 0;
+  // The iris texture is a mid brown (value ~0.35, saturation ~0.6).
+  return { hue: hsl.h, sat: Math.min(1.4, Math.max(0.15, sat / 0.6)), light: Math.min(2.6, Math.max(0.4, max / 0.35)) };
 }

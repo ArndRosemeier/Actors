@@ -67,6 +67,18 @@ export class Human {
     return this.extra.skins?.length ? skinTextureWeights(this.extra.skins, this.params, max) : [];
   }
 
+  /** Mean sRGB colour of the blended photo skin (see skinTextures), or null if the pack has no tones. */
+  skinTextureTone(params: HumanParams = this.params, max = 4): [number, number, number] | null {
+    const skins = this.extra.skins ?? [];
+    const out: [number, number, number] = [0, 0, 0];
+    for (const { file, weight } of skins.length ? skinTextureWeights(skins, params, max) : []) {
+      const tone = skins.find((s) => s.file === file)?.tone;
+      if (!tone) return null;
+      for (let c = 0; c < 3; c++) out[c] += tone[c] * weight;
+    }
+    return out[0] + out[1] + out[2] > 0 ? out : null;
+  }
+
   targetWeights(): Map<string, number> {
     const params = sanitizeParams(this.params);
     const weights = macroTargetWeights(this.extra.macroTargets, params);

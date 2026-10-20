@@ -25,7 +25,7 @@ import {
 import { BlobWriter } from "./blob";
 import { fetchCached, fetchText, fetchZipEntry, fetchZipText } from "./fetch";
 import { GARMENTS, garmentCut, insideFaces, selectGarmentFaces } from "./garments";
-import { type Gray, blankGray, blurGray, loadGray, maxGray, rasterizeUV, resizeGray, writeJpeg, writeRgbaDownsampled, writeRgbaPng } from "./image";
+import { type Gray, blankGray, blurGray, loadGray, maxGray, meanColor, rasterizeUV, resizeGray, writeJpeg, writeRgbaDownsampled, writeRgbaPng } from "./image";
 import { parseMhclo } from "./mhclo";
 import { type ObjData, type ObjFace, buildRenderMesh, parseObj } from "./obj";
 import { CLIP_SPECS, UAL_ARCHIVES, type UalArchive, importClip } from "./clips";
@@ -666,7 +666,7 @@ async function main() {
         if (!diffuse) throw new Error(`${dir}: no diffuse texture`);
         const file = `textures/skin_${age}_${ethnicity}_${gender}.jpg`;
         writeJpeg(fetchZipEntry(CACHE, SYSTEM_ASSETS, `${dir}/${diffuse}`), join(out, file));
-        skins.push({ age, gender, ethnicity, file });
+        skins.push({ age, gender, ethnicity, file, tone: meanColor(join(out, file)) });
       }
   console.log(`Skins: ${skins.length}`);
 

@@ -22,7 +22,8 @@ for (const race of races) {
   for (const [g, gender] of [["f", 0.05], ["m", 0.95]]) {
     const h = await page.evaluate(async ([race, gender]) => {
       const { character } = window.__actors;
-      await character.set({ race, race2: null, body: { gender }, animation: null, outfit: ["briefs"], expression: "neutral" });
+      await character.set({ body: { gender }, animation: null, outfit: ["briefs"], expression: "neutral" });
+      await character.setRace(race);
       return character.height;
     }, [race, gender]);
     await page.evaluate((h) => {

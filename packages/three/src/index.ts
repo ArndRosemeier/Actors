@@ -34,6 +34,7 @@ export * from "./dqs";
 export * from "./procedural";
 export * from "./skincompose";
 export * from "./colliders";
+export * from "./racepatterns";
 
 export interface MaterialFactory {
   (mesh: MeshData, actor: ThreeActor): THREE.Material;
@@ -108,7 +109,7 @@ export class ThreeActor {
   /** Leg capsules for skirt-like garments, updated every frame from the bones. */
   readonly colliders: ColliderUniforms = createColliderUniforms();
   private legRadii = new Map<string, number>();
-  readonly eye: EyeUniforms = { uIrisHue: { value: -1 }, uIrisSat: { value: 1 }, uIrisLight: { value: 1 } };
+  readonly eye: EyeUniforms = { uIrisHue: { value: -1 }, uIrisSat: { value: 1 }, uIrisLight: { value: 1 }, uPupil: { value: new THREE.Vector4(0, 0.5, 0, 0) } };
   /** Morph channels for face animation (GPU-blended every frame). */
   static readonly MORPHS = ["expression", "blink"] as const;
   /** Play mocap in place (no root translation) by default, for previews. */
