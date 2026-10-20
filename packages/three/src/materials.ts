@@ -237,21 +237,61 @@ export function useClipAttribute<T extends THREE.Material>(material: T): T {
   return material;
 }
 
-export function createClothMaterial(color: THREE.Color, roughness: number, fabric: string, layer: number, map: THREE.Texture | null = null): THREE.MeshStandardMaterial {
-  const normalMap = fabricNormalMap(fabric).clone();
-  normalMap.repeat.set(24, 24);
+/** Uniforms of a recolourable garment material (see createClothMaterial and ThreeActor.setGarmentColor). */
+export interface ClothTintUniforms {
+  uTint: { value: THREE.Color };
+  uTintMix: { value: number };
+  /** Mean luminance (linear) of the garment's own colour or texture. */
+  uTintMeanLum: { value: number };
+}
+
+/**
+ * Garment material. `uTint`/`uTintMix` (in `userData.tint`) recolour it: the
+ * texture's brightness pattern (folds, seams, weave) is kept and scaled so its
+ * mean matches the chosen colour, the way hair is recoloured.
+ */
+export function createClothMaterial(
+  color: THREE.Color,
+  roughness: number,
+  fabric: string,
+  layer: number,
+  map: THREE.Texture | null = null,
+  normal: THREE.Texture | null = null,
+  meanLum = 0.2,
+): THREE.MeshStandardMaterial {
+  let normalMap = normal;
+  if (!normalMap) {
+    normalMap = fabricNormalMap(fabric).clone();
+    normalMap.repeat.set(24, 24);
+  }
   const mat = new THREE.MeshStandardMaterial({
     color: map ? new THREE.Color(1, 1, 1) : color,
     map,
     roughness,
     normalMap,
-    normalScale: new THREE.Vector2(0.6, 0.6),
+    normalScale: normal ? new THREE.Vector2(1, 1) : new THREE.Vector2(0.6, 0.6),
+    // Textured garments can have transparent parts (lace, fishnet); others stay fully opaque.
+    alphaTest: map ? 0.5 : 0,
     side: THREE.DoubleSide,
     // Garments sit very close to the skin; bias them toward the camera so skin doesn't flicker through.
     polygonOffset: true,
     polygonOffsetFactor: -2 * layer,
     polygonOffsetUnits: -4 * layer,
   });
+  const uniforms: ClothTintUniforms = { uTint: { value: new THREE.Color(1, 1, 1) }, uTintMix: { value: 0 }, uTintMeanLum: { value: Math.max(0.01, meanLum) } };
+  mat.userData.tint = uniforms;
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform vec3 uTint;\nuniform float uTintMix;\nuniform float uTintMeanLum;")
+      .replace(
+        "#include <map_fragment>",
+        `#include <map_fragment>
+float clothLum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+diffuseColor.rgb = mix( diffuseColor.rgb, uTint * clamp( clothLum / uTintMeanLum, 0.0, 3.0 ), uTintMix );`,
+      );
+  };
+  mat.customProgramCacheKey = () => "actors-cloth";
   return useDualQuaternionSkinning(mat);
 }
 

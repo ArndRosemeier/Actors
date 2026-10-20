@@ -11,6 +11,7 @@ import {
   bakeAxisClip,
 } from "@actors/core";
 import {
+  type ClothTintUniforms,
   type EyeUniforms,
   IRIS_PRESETS,
   type SkinUniforms,
@@ -42,7 +43,7 @@ export interface MaterialFactory {
 export const defaultMaterials: MaterialFactory = (data, actor) => {
   const { def } = data;
   const color = new THREE.Color(...(def.material.color ?? [0.8, 0.8, 0.8]));
-  const tex = (key: "color" | "maskA" | "maskB", srgb = false) => {
+  const tex = (key: "color" | "normal" | "maskA" | "maskB", srgb = false) => {
     const file = def.textures?.[key];
     if (!file) return null;
     return actor.texture(file, srgb);
@@ -71,7 +72,10 @@ export const defaultMaterials: MaterialFactory = (data, actor) => {
       const fabric = def.tags?.find((t) => t.startsWith("fabric:"))?.slice(7) ?? "smooth";
       // Garments follow their own layer order: proxies (socks) over base garments (tights), outerwear over underwear.
       const layer = (def.source.kind === "proxy" ? 2 : 1) + (def.inflate ?? 0) * 100;
-      let mat = createClothMaterial(color, def.material.roughness ?? 0.7, fabric, layer, tex("color", true));
+      // Textured garments store their texture's mean colour (sRGB); plain ones their linear colour.
+      const mean = def.textures?.color ? new THREE.Color().setRGB(...(def.material.color ?? [0.5, 0.5, 0.5]), THREE.SRGBColorSpace) : color;
+      const meanLum = 0.2126 * mean.r + 0.7152 * mean.g + 0.0722 * mean.b;
+      let mat = createClothMaterial(color, def.material.roughness ?? 0.7, fabric, layer, tex("color", true), tex("normal"), meanLum);
       if (data.clip) mat = useClipAttribute(mat);
       // Skirt-skinned garments hang between the legs; leg capsules keep the legs from piercing them.
       const blended = def.source.kind === "proxy" && actor.runtime.manifest.proxies.find((p) => p.name === (def.source as { proxy: string }).proxy)?.legBlend;
@@ -118,10 +122,12 @@ export class ThreeActor {
   private readonly data = new Map<string, MeshData>();
   /** Meshes that are drawn (internal helper meshes are skipped). */
   private readonly rendered: MeshData[];
+  private readonly depth = createDepthMaterial();
+  private readonly slotsSeen = new Set<string>();
 
   constructor(
     readonly runtime: ActorRuntime,
-    materials: MaterialFactory = defaultMaterials,
+    private readonly materials: MaterialFactory = defaultMaterials,
   ) {
     this.rendered = runtime.meshes.filter((m) => !m.def.internal);
     const skel = runtime.manifest.skeleton;
@@ -137,9 +143,20 @@ export class ThreeActor {
     const genitals = (runtime.manifest.extra?.human as { anatomy?: { genitalsUV: number[] } } | undefined)?.anatomy?.genitalsUV;
     if (genitals) this.skin.uGenitalBox.value.fromArray(genitals);
 
-    const depth = createDepthMaterial();
-    const slotsSeen = new Set<string>();
-    for (const data of this.rendered) {
+    this.addMeshes(this.rendered.splice(0));
+    this.mixer = new THREE.AnimationMixer(this.object);
+  }
+
+  /**
+   * Creates scene meshes for mesh data loaded after construction (see
+   * `ActorRuntime.loadMeshes`). They start hidden if optional; apply a shape
+   * that includes them (re-evaluate) before showing them.
+   */
+  addMeshes(list: MeshData[]): void {
+    const materials = this.materials;
+    for (const data of list) {
+      if (data.def.internal || this.data.has(data.def.name)) continue;
+      this.rendered.push(data);
       this.data.set(data.def.name, data);
       const n = data.map.length;
       const g = new THREE.BufferGeometry();
@@ -167,17 +184,19 @@ export class ThreeActor {
       mesh.receiveShadow = true;
       const hairMap = (mesh.material as THREE.MeshPhysicalMaterial).userData.hair ? (mesh.material as THREE.MeshPhysicalMaterial).map : null;
       if (hairMap && !transparent) mesh.customDepthMaterial = createAlphaDepthMaterial(hairMap);
-      else if (!transparent) mesh.customDepthMaterial = data.clip ? useClipAttribute(createDepthMaterial()) : depth;
+      else if (!transparent) mesh.customDepthMaterial = data.clip ? useClipAttribute(createDepthMaterial()) : this.depth;
       mesh.frustumCulled = false; // bounds change with morphs and animation
       // Optional meshes start hidden; of several meshes in a slot, the first is shown.
       const slot = data.def.slot;
-      mesh.visible = !data.def.optional && !(slot && slotsSeen.has(slot));
-      if (slot && mesh.visible) slotsSeen.add(slot);
+      mesh.visible = !data.def.optional && !(slot && this.slotsSeen.has(slot));
+      if (slot && mesh.visible) this.slotsSeen.add(slot);
       this.wanted.set(data.def.name, mesh.visible);
       this.object.add(mesh);
       this.meshes.set(data.def.name, mesh);
+      if (this.skeleton) mesh.bind(this.skeleton, new THREE.Matrix4());
+      const tint = this.tints.get(data.def.name);
+      if (tint !== undefined) this.setGarmentColor(data.def.name, tint);
     }
-    this.mixer = new THREE.AnimationMixer(this.object);
   }
 
   /** A texture shipped with the pack (cached). */
@@ -270,6 +289,27 @@ export class ThreeActor {
       if (color !== null) u.uHairTint.value.set(color);
       u.uHairMeanLum.value = Math.max(0.01, 0.2126 * mean.r + 0.7152 * mean.g + 0.0722 * mean.b);
     }
+  }
+
+  private readonly tints = new Map<string, THREE.ColorRepresentation | null>();
+
+  /**
+   * Recolours a garment (sRGB hex or THREE.Color), keeping its texture's
+   * shading pattern; null restores its own colours. Also applies to garments
+   * loaded later.
+   */
+  setGarmentColor(name: string, color: THREE.ColorRepresentation | null): void {
+    this.tints.set(name, color);
+    const mat = this.meshes.get(name)?.material as THREE.Material | undefined;
+    const u = mat?.userData.tint as ClothTintUniforms | undefined;
+    if (!u) return;
+    u.uTintMix.value = color === null ? 0 : 1;
+    if (color !== null) u.uTint.value.set(color);
+  }
+
+  /** Whether a mesh can be recoloured with setGarmentColor. */
+  isTintable(name: string): boolean {
+    return !!(this.meshes.get(name)?.material as THREE.Material | undefined)?.userData.tint;
   }
 
   /** Skin base colour (linear RGB). */

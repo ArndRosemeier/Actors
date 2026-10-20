@@ -5,15 +5,17 @@
  *
  * A pack is a JSON manifest plus one binary blob for the base data and one
  * small binary file per morph target, so targets can be streamed on demand.
+ * Meshes and proxies that are rarely shown (e.g. a large garment library) can
+ * live in their own binary files (`blob`) and are loaded on first use.
  *
  * Conventions: meters, +Y up, character faces +Z (same as glTF).
  */
 
 export type ScalarType = "f32" | "u32" | "u16" | "i16" | "u8";
 
-/** A typed slice of the pack's base binary blob. */
+/** A typed slice of the pack's base binary blob (or of the mesh's / proxy's own `blob`). */
 export interface BufferRef {
-  /** Byte offset into the base blob. Always aligned to 4. */
+  /** Byte offset into the blob. Always aligned to 4. */
   offset: number;
   /** Number of scalars (not bytes). */
   count: number;
@@ -68,9 +70,15 @@ export interface MeshDef {
   /** Mutually exclusive alternatives share a slot (e.g. "body" for low/high detail). */
   slot?: string;
   /** Textures shipped with the pack, relative to the manifest. */
-  textures?: Partial<Record<"color" | "maskA" | "maskB", string>>;
+  textures?: Partial<Record<"color" | "normal" | "maskA" | "maskB", string>>;
   /** Free-form hints for adapters (e.g. which gender a body part belongs to). */
   tags?: string[];
+  /**
+   * Own binary file (relative to the manifest) holding this mesh's buffers;
+   * the mesh is loaded on demand (`ActorRuntime.loadMeshes`). A proxy mesh's
+   * proxy then lives in the same file.
+   */
+  blob?: string;
 }
 
 /** A joint position: the mean of the given base vertices (after morphing). */
@@ -133,6 +141,8 @@ export interface ProxyDef {
    * the legs instead of splitting into two tubes.
    */
   legBlend?: { remap: Record<string, string>; pairs: [string, string][]; hip: string; hipShare: number };
+  /** Own binary file holding this proxy's buffers (see MeshDef.blob). */
+  blob?: string;
 }
 
 /**

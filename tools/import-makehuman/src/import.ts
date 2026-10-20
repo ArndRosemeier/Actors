@@ -32,7 +32,8 @@ import { CLIP_SPECS, UAL_ARCHIVES, type UalArchive, importClip } from "./clips";
 import { type Gltf, parseGlb } from "./gltf";
 import { readZip } from "./zip";
 import { CMU_URL, importCmu } from "./cmu";
-import type { SkinTextureDef } from "@actors/human";
+import type { GarmentInfo, SkinTextureDef } from "@actors/human";
+import { WARDROBE } from "./wardrobe";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const CACHE = join(ROOT, ".cache");
@@ -95,7 +96,7 @@ async function main() {
   const data = join(src, "src/mpfb/data");
   const out = resolve(arg("out") ?? join(ROOT, "apps/viewer/public/packs/human"));
   // Clear generated subfolders but keep the folder itself (a running dev server keeps watching it).
-  for (const d of ["targets", "textures", "clips"]) {
+  for (const d of ["targets", "textures", "clips", "garments"]) {
     rmSync(join(out, d), { recursive: true, force: true });
     mkdirSync(join(out, d), { recursive: true });
   }
@@ -281,18 +282,20 @@ async function main() {
   const eyeObj = parseObj(fetchText(CACHE, `${MH_RAW}/eyes/high-poly/high-poly.obj`));
   copyFileSync(fetchCached(CACHE, `${MH_RAW}/eyes/materials/brown_eye.png`), join(out, "textures/eye_brown.png"));
   const proxies: ProxyDef[] = [];
-  const addProxy = (name: string, clo: ReturnType<typeof parseMhclo>, cloObj: ObjData, faces = cloObj.faces, legBlend?: ProxyDef["legBlend"]) => {
+  const addProxy = (name: string, clo: ReturnType<typeof parseMhclo>, cloObj: ObjData, faces = cloObj.faces, legBlend?: ProxyDef["legBlend"], own?: { writer: BlobWriter; file: string }) => {
     const n = cloObj.positions.length / 3;
     if (clo.refs.length / 3 !== n) throw new Error(`${name}: mhclo/obj vertex count mismatch`);
     if (clo.scale.filter(Boolean).length !== 3) throw new Error(`${name}: needs x/y/z scale references`);
+    const w = own?.writer ?? blob;
     proxies.push({
       name,
       vertexCount: n,
-      refs: blob.add("u32", clo.refs),
-      weights: blob.add("f32", clo.weights),
-      offsets: blob.add("f32", clo.offsets.map((v) => v * SCALE)),
+      refs: w.add("u32", clo.refs),
+      weights: w.add("f32", clo.weights),
+      offsets: w.add("f32", clo.offsets.map((v) => v * SCALE)),
       scaleRefs: clo.scale.map(([a, b, l]) => [a, b, l * SCALE]) as ProxyDef["scaleRefs"],
       ...(legBlend ? { legBlend } : {}),
+      ...(own ? { blob: own.file } : {}),
     });
     return buildRenderMesh(cloObj, faces);
   };
@@ -404,6 +407,78 @@ async function main() {
     });
     garmentLabels[name] = label;
   }
+
+  // Body layers and UI groups of the garments above (the wardrobe below brings its own).
+  const garmentInfo: Record<string, GarmentInfo> = {
+    briefs: { category: "Underwear", occupies: ["briefs"] },
+    bra: { category: "Underwear", occupies: ["bra"], gender: "female" },
+    tshirt: { category: "Tops", occupies: ["top"] },
+    longsleeve: { category: "Tops", occupies: ["top"] },
+    shorts: { category: "Bottoms", occupies: ["bottom"] },
+    jeans: { category: "Bottoms", occupies: ["bottom"] },
+    tights: { category: "Socks & hosiery", occupies: ["legwear"] },
+    socks: { category: "Socks & hosiery", occupies: ["socks"] },
+    skirt: { category: "Bottoms", occupies: ["bottom"], gender: "female" },
+    "skirt-mini": { category: "Bottoms", occupies: ["bottom"], gender: "female" },
+  };
+
+  // --- Wardrobe: CC0 garments from MakeHuman asset packs, each in its own file, loaded when worn ---
+  mkdirSync(join(out, "garments"), { recursive: true });
+  let wardrobeBytes = 0;
+  for (const item of WARDROBE) {
+    const pack = `${MH_PACKS}/${item.pack}/${item.pack}_cc0.zip`;
+    const dir = `clothes/${item.id}`;
+    const clo = parseMhclo(fetchZipText(CACHE, pack, `${dir}/${item.id}.mhclo`));
+    const cloObj = parseObj(fetchZipText(CACHE, pack, `${dir}/${clo.objFile}`));
+    let mhmat = "";
+    try {
+      mhmat = fetchZipText(CACHE, pack, `${dir}/${clo.material ?? `${item.id}.mhmat`}`);
+    } catch {
+      console.warn(`${item.name}: no material, using a plain colour`);
+    }
+    const writer = new BlobWriter();
+    const file = `garments/${item.name}.bin`;
+    const m = addProxy(item.name, clo, cloObj, cloObj.faces, item.skirt ? SKIRT_BLEND : undefined, { writer, file });
+    // Mean texture colour over the texels the garment uses (vertex UVs + triangle centres).
+    const samples = [...m.uv];
+    for (let t = 0; t < m.indices.length; t += 3) for (const c of [0, 1]) samples.push((m.uv[m.indices[t] * 2 + c] + m.uv[m.indices[t + 1] * 2 + c] + m.uv[m.indices[t + 2] * 2 + c]) / 3);
+    const textures: MeshDef["textures"] = {};
+    const size = item.texSize ?? 1024;
+    const diffuse = mhmat.match(/^diffuseTexture\s+(\S+)/m)?.[1];
+    let color: [number, number, number] = [0.45, 0.45, 0.47];
+    if (diffuse) {
+      textures.color = `textures/garment_${item.name}.png`;
+      color = writeRgbaDownsampled(fetchZipEntry(CACHE, pack, `${dir}/${diffuse}`), join(out, textures.color), size, samples);
+    }
+    const normal = mhmat.match(/^normalmapTexture\s+(\S+)/m)?.[1];
+    if (normal) {
+      textures.normal = `textures/garment_${item.name}_normal.png`;
+      writeRgbaDownsampled(fetchZipEntry(CACHE, pack, `${dir}/${normal}`), join(out, textures.normal), Math.min(size, 512));
+    }
+    const gPos = cloObj.positions.map((v) => v * SCALE);
+    meshes.push({
+      name: item.name,
+      source: { kind: "proxy", proxy: item.name },
+      role: "garment",
+      blob: file,
+      baseIndex: writer.add("u32", m.map),
+      uv: writer.add("f32", m.uv),
+      indices: writer.add("u32", m.indices),
+      material: { kind: "cloth", color, roughness: 0.8 },
+      ...(Object.keys(textures).length ? { textures } : {}),
+      optional: true,
+      // MakeHuman clothes already sit off the skin; a little extra keeps them above the base garments.
+      inflate: 0.002,
+      tags: [`fabric:${item.fabric ?? "smooth"}`, ...(item.coversAnatomy ? ["covers:anatomy"] : [])],
+      hidesBaseVertices: writer.add("u32", coveredBody(gPos, cloObj.faces.map((f) => f.v), item.hideRadius ?? 0.015)),
+    });
+    const bin = writer.toBuffer();
+    writeFileSync(join(out, file), bin);
+    wardrobeBytes += bin.byteLength;
+    garmentLabels[item.name] = item.label;
+    garmentInfo[item.name] = { label: item.label, category: item.category, occupies: item.occupies, ...(item.gender ? { gender: item.gender } : {}), credit: `${item.id} (MakeHuman ${item.pack} pack, CC0)` };
+  }
+  console.log(`Wardrobe: ${WARDROBE.length} garments, ${(wardrobeBytes / 1e6).toFixed(1)} MB of mesh data (loaded when worn)`);
 
   // --- Hair: MakeHuman system hairstyles (CC0 .mhclo proxies with alpha-card textures) ---
   const HAIRS: [string, string][] = [
@@ -657,6 +732,7 @@ async function main() {
         adultMinAge: ADULT_MIN_AGE,
         expressionUnits: [...units],
         garmentLabels,
+        garments: garmentInfo,
         anatomy: { genitalsUV: gb },
         skins,
         hairLabels,

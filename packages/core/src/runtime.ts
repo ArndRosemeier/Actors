@@ -1,4 +1,4 @@
-import { type ActorPackManifest, type ClipDef, type ClipLibrary, type MeshDef, readBuffer } from "./format";
+import { type ActorPackManifest, type ClipDef, type ClipLibrary, type MeshDef, type ProxyDef, readBuffer } from "./format";
 import type { Clip } from "./retarget";
 import { computeNormals } from "./normals";
 import { subdivideQuadMesh } from "./subdivide";
@@ -79,83 +79,128 @@ export interface SurfaceDelta {
 export class ActorRuntime {
   readonly targets = new Map<string, MorphTarget>();
   private readonly pending = new Map<string, Promise<MorphTarget>>();
-  readonly meshes: MeshData[];
+  /** Loaded meshes. Meshes with their own `blob` join this list once `loadMeshes` has loaded them. */
+  readonly meshes: MeshData[] = [];
+  /** Loaded proxies (see `meshes`). */
   readonly proxies = new Map<string, ProxyBinding>();
   readonly basePositions: Float32Array;
+  private readonly baseJoints?: Uint16Array;
+  private readonly baseWeights?: Float32Array;
+  private readonly proxySkins = new Map<string, { joints: Uint16Array; weights: Float32Array }>();
+  private readonly loadingMeshes = new Map<string, Promise<MeshData>>();
 
   private constructor(
     readonly manifestUrl: string,
     readonly manifest: ActorPackManifest,
-    private readonly blob: ArrayBuffer,
+    blob: ArrayBuffer,
     private readonly baseUrl: string,
     private readonly fetcher: Fetcher,
   ) {
     this.basePositions = readBuffer(blob, { ...manifest.basePositions, type: "f32" });
-    for (const p of manifest.proxies) {
-      this.proxies.set(p.name, {
-        def: p,
-        refs: readBuffer(blob, { ...p.refs, type: "u32" }),
-        weights: readBuffer(blob, { ...p.weights, type: "f32" }),
-        offsets: readBuffer(blob, { ...p.offsets, type: "f32" }),
-      });
-    }
-    const baseJoints = manifest.skin ? readBuffer(blob, { ...manifest.skin.joints, type: "u16" }) : undefined;
-    const baseWeights = manifest.skin ? readBuffer(blob, { ...manifest.skin.weights, type: "f32" }) : undefined;
-    const proxySkins = new Map<string, { joints: Uint16Array; weights: Float32Array }>();
+    for (const p of manifest.proxies) if (!p.blob) this.bindProxy(p, blob);
+    this.baseJoints = manifest.skin ? readBuffer(blob, { ...manifest.skin.joints, type: "u16" }) : undefined;
+    this.baseWeights = manifest.skin ? readBuffer(blob, { ...manifest.skin.weights, type: "f32" }) : undefined;
+    for (const def of manifest.meshes) if (!def.blob) this.meshes.push(this.buildMesh(def, blob));
+  }
 
-    const built: MeshData[] = [];
-    this.meshes = built;
-    for (const def of manifest.meshes) {
-      let map: Uint32Array, uv: Float32Array, indices: Uint32Array;
-      let stencil: MeshData["stencil"];
-      if (def.subdivide) {
-        const src = built.find((m) => m.def.name === def.subdivide!.source);
-        if (!src) throw new Error(`${def.name}: subdivision source ${def.subdivide.source} must come first`);
-        ({ map, uv, indices, stencil } = subdivideQuadMesh(src));
-      } else {
-        map = readBuffer(blob, { ...def.baseIndex!, type: "u32" });
-        uv = readBuffer(blob, { ...def.uv!, type: "f32" });
-        indices = readBuffer(blob, { ...def.indices!, type: "u32" });
-      }
-      const mesh: MeshData = {
-        def,
-        map,
-        uv,
-        indices,
-        hidesBaseVertices: def.hidesBaseVertices ? readBuffer(blob, { ...def.hidesBaseVertices, type: "u32" }) : undefined,
-        clip: def.clip ? readBuffer(blob, { ...def.clip, type: "f32" }) : undefined,
-      };
-      if (stencil) {
-        mesh.stencil = stencil;
-        mesh.dominant = dominantColumns(stencil);
-      } else if (def.stencil) {
-        const st = {
-          rows: def.stencil.rows,
-          rowPtr: readBuffer(blob, { ...def.stencil.rowPtr, type: "u32" }),
-          cols: readBuffer(blob, { ...def.stencil.cols, type: "u32" }),
-          weights: readBuffer(blob, { ...def.stencil.weights, type: "f32" }),
-        };
-        mesh.stencil = st;
-        mesh.dominant = dominantColumns(st);
-      }
-      if (baseJoints && baseWeights) {
-        let srcJ = baseJoints;
-        let srcW = baseWeights;
-        if (mesh.stencil) ({ joints: srcJ, weights: srcW } = stencilSkin(mesh.stencil, baseJoints, baseWeights));
-        else if (def.source.kind === "proxy") {
-          const name = def.source.proxy;
-          if (!proxySkins.has(name)) proxySkins.set(name, proxySkin(this.proxies.get(name)!, baseJoints, baseWeights, manifest.skeleton?.bones.map((b) => b.name)));
-          ({ joints: srcJ, weights: srcW } = proxySkins.get(name)!);
-        }
-        mesh.joints = new Uint16Array(map.length * 4);
-        mesh.weights = new Float32Array(map.length * 4);
-        for (let i = 0; i < map.length; i++) {
-          mesh.joints.set(srcJ.subarray(map[i] * 4, map[i] * 4 + 4), i * 4);
-          mesh.weights.set(srcW.subarray(map[i] * 4, map[i] * 4 + 4), i * 4);
-        }
-      }
-      built.push(mesh);
+  private bindProxy(p: ProxyDef, blob: ArrayBuffer): void {
+    this.proxies.set(p.name, {
+      def: p,
+      refs: readBuffer(blob, { ...p.refs, type: "u32" }),
+      weights: readBuffer(blob, { ...p.weights, type: "f32" }),
+      offsets: readBuffer(blob, { ...p.offsets, type: "f32" }),
+    });
+  }
+
+  private buildMesh(def: MeshDef, blob: ArrayBuffer): MeshData {
+    const { baseJoints, baseWeights, manifest } = this;
+    let map: Uint32Array, uv: Float32Array, indices: Uint32Array;
+    let stencil: MeshData["stencil"];
+    if (def.subdivide) {
+      const src = this.meshes.find((m) => m.def.name === def.subdivide!.source);
+      if (!src) throw new Error(`${def.name}: subdivision source ${def.subdivide.source} must come first`);
+      ({ map, uv, indices, stencil } = subdivideQuadMesh(src));
+    } else {
+      map = readBuffer(blob, { ...def.baseIndex!, type: "u32" });
+      uv = readBuffer(blob, { ...def.uv!, type: "f32" });
+      indices = readBuffer(blob, { ...def.indices!, type: "u32" });
     }
+    const mesh: MeshData = {
+      def,
+      map,
+      uv,
+      indices,
+      hidesBaseVertices: def.hidesBaseVertices ? readBuffer(blob, { ...def.hidesBaseVertices, type: "u32" }) : undefined,
+      clip: def.clip ? readBuffer(blob, { ...def.clip, type: "f32" }) : undefined,
+    };
+    if (stencil) {
+      mesh.stencil = stencil;
+      mesh.dominant = dominantColumns(stencil);
+    } else if (def.stencil) {
+      const st = {
+        rows: def.stencil.rows,
+        rowPtr: readBuffer(blob, { ...def.stencil.rowPtr, type: "u32" }),
+        cols: readBuffer(blob, { ...def.stencil.cols, type: "u32" }),
+        weights: readBuffer(blob, { ...def.stencil.weights, type: "f32" }),
+      };
+      mesh.stencil = st;
+      mesh.dominant = dominantColumns(st);
+    }
+    if (baseJoints && baseWeights) {
+      let srcJ = baseJoints;
+      let srcW = baseWeights;
+      if (mesh.stencil) ({ joints: srcJ, weights: srcW } = stencilSkin(mesh.stencil, baseJoints, baseWeights));
+      else if (def.source.kind === "proxy") {
+        const name = def.source.proxy;
+        if (!this.proxySkins.has(name)) this.proxySkins.set(name, proxySkin(this.proxies.get(name)!, baseJoints, baseWeights, manifest.skeleton?.bones.map((b) => b.name)));
+        ({ joints: srcJ, weights: srcW } = this.proxySkins.get(name)!);
+      }
+      mesh.joints = new Uint16Array(map.length * 4);
+      mesh.weights = new Float32Array(map.length * 4);
+      for (let i = 0; i < map.length; i++) {
+        mesh.joints.set(srcJ.subarray(map[i] * 4, map[i] * 4 + 4), i * 4);
+        mesh.weights.set(srcW.subarray(map[i] * 4, map[i] * 4 + 4), i * 4);
+      }
+    }
+    return mesh;
+  }
+
+  /** Whether a mesh's data is loaded (always true for meshes without their own `blob`). */
+  isLoaded(name: string): boolean {
+    return this.meshes.some((m) => m.def.name === name);
+  }
+
+  /**
+   * Loads meshes that live in their own binary file (`MeshDef.blob`), with
+   * their proxies. Already loaded meshes are skipped. Resolves to the meshes
+   * this call (or a concurrent one) loaded; shapes evaluated afterwards
+   * include their proxies.
+   */
+  async loadMeshes(names: Iterable<string>): Promise<MeshData[]> {
+    const jobs: Promise<MeshData>[] = [];
+    for (const name of new Set(names)) {
+      if (this.isLoaded(name)) continue;
+      let job = this.loadingMeshes.get(name);
+      if (!job) {
+        const def = this.manifest.meshes.find((m) => m.name === name);
+        if (!def) throw new Error(`Unknown mesh ${name}`);
+        if (!def.blob) throw new Error(`${name}: not a lazily loaded mesh`);
+        job = this.fetcher(this.baseUrl + def.blob).then((blob) => {
+          if (def.source.kind === "proxy" && !this.proxies.has(def.source.proxy)) {
+            const proxy = this.manifest.proxies.find((p) => p.name === (def.source as { proxy: string }).proxy);
+            if (!proxy) throw new Error(`${name}: unknown proxy`);
+            this.bindProxy(proxy, blob);
+          }
+          const mesh = this.buildMesh(def, blob);
+          this.meshes.push(mesh);
+          this.loadingMeshes.delete(name);
+          return mesh;
+        });
+        this.loadingMeshes.set(name, job);
+      }
+      jobs.push(job);
+    }
+    return Promise.all(jobs);
   }
 
   private readonly libraryClips = new Map<string, ClipDef[]>();

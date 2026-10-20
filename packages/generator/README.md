@@ -40,6 +40,7 @@ renderer.setAnimationLoop(() => {
 await character.set({ body: { gender: 1, ageYears: 40, muscle: 0.7 }, hair: "hair-short04", hairColor: "#3b2417" });
 await character.wear("casual");             // outfit preset; "nude" undresses
 await character.set({ outfit: ["briefs", "jeans"] }); // or any garment list
+await character.set({ garmentColors: { jeans: "#1f2a44" } }); // recolour any garment (sRGB hex)
 await character.play("walk");               // any id from character.catalog.animations; null = bind pose
 character.rootMotion = true;                // move through the scene instead of walking in place
 await character.randomize({ gender: "female", outfit: true });
@@ -48,7 +49,7 @@ const saved = JSON.stringify(character.config); // restore with character.set(JS
 const glb = await character.exportGlb("all");   // mesh, rig, visible clothes/hair, every clip
 ```
 
-`character.catalog` lists every choice the pack offers (ids and labels): `animations`, `garments` (with slots and whether they cover the anatomy), `outfits` (presets), `hair`, `hairColors`, `brows`, `eyes`, `expressions` and the detail sliders. Build your own UI from it, or use `CharacterEditor`.
+`character.catalog` lists every choice the pack offers (ids and labels): `animations`, `garments` (with category, body layers, slots and whether they cover the anatomy), `garmentColors` (a suggested palette; any hex colour works), `outfits` (presets), `hair`, `hairColors`, `brows`, `eyes`, `expressions` and the detail sliders. Build your own UI from it, or use `CharacterEditor`.
 
 Large clip libraries in the pack (the 2,548 CMU motions) are listed in `catalog.animations` too, with `library: "cmu"`, a `category` (the capture session) and a `description`; only their index is loaded up front, each clip on first play. Pass `clipLibraries: false` to `Character.load` to skip them.
 
@@ -56,6 +57,8 @@ Large clip libraries in the pack (the 2,548 CMU motions) are listed in `catalog.
 
 Notes:
 * `set()` merges `body` and replaces every other field. It resolves once the change is visible; rapid calls (slider drags) are merged.
-* Garments in the same slot replace each other (the long and the mini skirt).
+* Garments in the same slot or on the same body layer replace each other: a dress (top + bottom) takes off a T-shirt and jeans, new shoes replace old ones.
+* Every garment can be recoloured; the texture's shading (folds, seams, weave) is kept. `null`/missing keeps its own colours.
+* The wardrobe (about 90 MakeHuman CC0 garments) loads lazily: a garment's mesh and textures are fetched the first time it is worn.
 * Age is clamped to adults (18+) in `set()` and again in `@actors/human`.
 * The materials are tuned for ACES tone mapping and an environment map; `CharacterStage` shows the settings.

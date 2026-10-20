@@ -23,6 +23,14 @@ const STYLE = `
 .actors-editor select, .actors-editor button { background: #272a31; color: var(--ae-text); border: 1px solid var(--ae-border); border-radius: 6px; padding: 5px 9px; font: inherit; }
 .actors-editor button { cursor: pointer; }
 .actors-editor button:hover { border-color: var(--ae-accent); }
+.actors-editor .ae-colors { margin-top: 8px; }
+.actors-editor .ae-color-row { display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; margin: 4px 0; }
+.actors-editor .ae-color-row > span { color: var(--ae-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actors-editor .ae-swatches { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+.actors-editor .ae-swatch { width: 16px; height: 16px; padding: 0; border-radius: 50%; border: 1px solid #0006; }
+.actors-editor .ae-swatch.ae-on { outline: 2px solid var(--ae-text); outline-offset: 1px; }
+.actors-editor .ae-original { background: conic-gradient(#c33, #cc3, #3c3, #3cc, #33c, #c3c, #c33); }
+.actors-editor input[type="color"] { width: 26px; height: 20px; padding: 0; border: 1px solid var(--ae-border); border-radius: 4px; background: none; cursor: pointer; }
 .actors-editor footer { display: flex; gap: 6px; margin-top: 18px; flex-wrap: wrap; }
 .actors-editor .ae-modes { display: flex; gap: 0; margin: 2px 0 4px; }
 .actors-editor .ae-modes button { flex: 1; border-radius: 0; }
@@ -175,17 +183,85 @@ export class CharacterEditor {
       return match?.id ?? "";
     }, (v) => v && character.wear(v).catch(() => {}), "outfit");
     presetSel.dataset.role = "outfit-preset";
-    const grid = document.createElement("div");
-    grid.className = "ae-grid";
-    detailed(grid);
-    outfit.appendChild(grid);
+    // Single garments, grouped by category.
+    const groups = new Map<string, HTMLElement>();
     for (const g of cat.garments) {
+      let grid = groups.get(g.category);
+      if (!grid) {
+        const box = document.createElement("details");
+        box.innerHTML = `<summary></summary><div class="ae-grid"></div>`;
+        box.querySelector("summary")!.textContent = g.category;
+        box.dataset.category = g.category;
+        detailed(box);
+        outfit.appendChild(box);
+        grid = box.querySelector<HTMLElement>(".ae-grid")!;
+        groups.set(g.category, grid);
+      }
       const box = this.check(grid, g.label, (c) => c.outfit.includes(g.id), (on) => {
         const cur = character.config.outfit.filter((x) => x !== g.id);
         set({ outfit: on ? [...cur, g.id] : cur });
       });
       box.dataset.garment = g.id;
     }
+
+    // Colours of the worn garments: palette swatches, a free colour picker and "original".
+    const colors = document.createElement("div");
+    colors.className = "ae-colors";
+    outfit.appendChild(colors);
+    let shownOutfit = "";
+    const recolor = (id: string, color: string | null) => {
+      const next = { ...character.config.garmentColors };
+      if (color) next[id] = color;
+      else delete next[id];
+      set({ garmentColors: next });
+    };
+    this.syncers.push((c) => {
+      const key = c.outfit.join("|");
+      if (key !== shownOutfit) {
+        shownOutfit = key;
+        colors.replaceChildren();
+        for (const id of c.outfit) {
+          const g = cat.garments.find((x) => x.id === id);
+          if (!g) continue;
+          const row = document.createElement("div");
+          row.className = "ae-color-row";
+          row.dataset.garmentColor = id;
+          const name = document.createElement("span");
+          name.textContent = g.label;
+          const swatches = document.createElement("div");
+          swatches.className = "ae-swatches";
+          const orig = document.createElement("button");
+          orig.className = "ae-swatch ae-original";
+          orig.title = "Original colours";
+          orig.addEventListener("click", () => recolor(id, null));
+          swatches.appendChild(orig);
+          for (const col of cat.garmentColors) {
+            const b = document.createElement("button");
+            b.className = "ae-swatch";
+            b.title = col.label;
+            b.style.background = col.id;
+            b.dataset.color = col.id;
+            b.addEventListener("click", () => recolor(id, col.id));
+            swatches.appendChild(b);
+          }
+          const picker = document.createElement("input");
+          picker.type = "color";
+          picker.title = "Any colour";
+          picker.addEventListener("input", () => recolor(id, picker.value));
+          swatches.appendChild(picker);
+          row.append(name, swatches);
+          colors.appendChild(row);
+        }
+      }
+      for (const row of colors.querySelectorAll<HTMLElement>(".ae-color-row")) {
+        const cur = c.garmentColors[row.dataset.garmentColor!] ?? null;
+        for (const b of row.querySelectorAll<HTMLElement>(".ae-swatch")) b.classList.toggle("ae-on", (b.dataset.color ?? null) === cur);
+        const picker = row.querySelector<HTMLInputElement>('input[type="color"]')!;
+        if (cur) picker.value = cur;
+      }
+      // Open the groups that have something worn.
+      for (const [category, grid] of groups) if (c.outfit.some((id) => cat.garments.find((x) => x.id === id)?.category === category)) (grid.parentElement as HTMLDetailsElement).open = true;
+    });
 
     // Animation and face
     const motion = this.section("Animation");
