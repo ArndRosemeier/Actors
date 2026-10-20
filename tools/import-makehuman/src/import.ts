@@ -25,7 +25,7 @@ import {
 import { BlobWriter } from "./blob";
 import { fetchCached, fetchText, fetchZipEntry, fetchZipText } from "./fetch";
 import { GARMENTS, garmentCut, insideFaces, selectGarmentFaces } from "./garments";
-import { type Gray, blankGray, blurGray, loadGray, maxGray, rasterizeUV, resizeGray, writeJpeg, writeRgbaPng } from "./image";
+import { type Gray, blankGray, blurGray, loadGray, maxGray, rasterizeUV, resizeGray, writeJpeg, writeRgbaDownsampled, writeRgbaPng } from "./image";
 import { parseMhclo } from "./mhclo";
 import { type ObjData, type ObjFace, buildRenderMesh, parseObj } from "./obj";
 import { CLIP_SPECS, UAL_ARCHIVES, type UalArchive, importClip } from "./clips";
@@ -367,6 +367,59 @@ function main() {
   });
   garmentLabels.socks = "Socks";
 
+  // --- Hair: MakeHuman system hairstyles (CC0 .mhclo proxies with alpha-card textures) ---
+  const HAIRS: [string, string][] = [
+    ["short02", "Short"],
+    ["short03", "Short, side part"],
+    ["short04", "Buzz cut"],
+    ["bob01", "Bob"],
+    ["bob02", "Bob, curled"],
+    ["long01", "Long"],
+    ["ponytail01", "Ponytail"],
+    ["braid01", "Braid"],
+    ["afro01", "Afro"],
+  ];
+  const hairLabels: Record<string, string> = {};
+  const browLabels: Record<string, string> = {};
+  /** A MakeHuman hair-like proxy (hair, eyebrows) with its alpha texture. */
+  const addHairProxy = (dir: string, id: string, slot: string, texSize: number, optional: boolean) => {
+    const clo = parseMhclo(fetchZipText(CACHE, SYSTEM_ASSETS, `${dir}/${id}/${id}.mhclo`));
+    const cloObj = parseObj(fetchZipText(CACHE, SYSTEM_ASSETS, `${dir}/${id}/${clo.objFile}`));
+    const mhmat = fetchZipText(CACHE, SYSTEM_ASSETS, `${dir}/${id}/${clo.material ?? `${id}.mhmat`}`);
+    const diffuse = mhmat.match(/^diffuseTexture\s+(\S+)/m)?.[1];
+    if (!diffuse) throw new Error(`${dir}/${id}: no diffuse texture`);
+    const file = `textures/${slot}_${id}.png`;
+    const mean = writeRgbaDownsampled(fetchZipEntry(CACHE, SYSTEM_ASSETS, `${dir}/${id}/${diffuse}`), join(out, file), texSize);
+    const name = `${slot}-${id}`;
+    const m = addProxy(name, clo, cloObj);
+    meshes.push({
+      name,
+      source: { kind: "proxy", proxy: name },
+      role: "hair",
+      slot,
+      optional,
+      baseIndex: blob.add("u32", m.map),
+      uv: blob.add("f32", m.uv),
+      indices: blob.add("u32", m.indices),
+      // Mean colour of the texture, so adapters can recolour it.
+      material: { kind: "hair", color: mean, roughness: 0.45 },
+      textures: { color: file },
+      tags: [slot === "hair" ? "scalp" : "brows"],
+    });
+    return name;
+  };
+  for (const [id, label] of HAIRS) hairLabels[addHairProxy("hair", id, "hair", 1024, true)] = label;
+  // Eyebrows: MakeHuman's CC0 eyebrow proxies; the first one is shown by default.
+  const BROWS: [string, string][] = [
+    ["eyebrow001", "Natural"],
+    ["eyebrow003", "Thin"],
+    ["eyebrow006", "Arched"],
+    ["eyebrow009", "Bushy"],
+    ["eyebrow011", "Straight"],
+  ];
+  BROWS.forEach(([id, label], i) => (browLabels[addHairProxy("eyebrows", id, "brows", 512, i > 0)] = label));
+  console.log(`Hair: ${HAIRS.length} styles`);
+
   // --- Skin region masks -------------------------------------------------------------
   const tex = join(data, "textures");
   const mask = (n: string) => resizeGray(loadGray(join(tex, `mpfb_${n}.jpg`)), MASK_SIZE);
@@ -562,6 +615,8 @@ function main() {
         garmentLabels,
         anatomy: { genitalsUV: gb },
         skins,
+        hairLabels,
+        browLabels,
       },
     },
   };

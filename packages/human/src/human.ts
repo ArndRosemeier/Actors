@@ -15,6 +15,10 @@ export interface HumanExtra {
   anatomy?: { genitalsUV: [number, number, number, number] };
   /** Photographic skin textures, blended by gender, age and ethnicity (see skinTextureWeights). */
   skins?: SkinTextureDef[];
+  /** Display names of the hair meshes. */
+  hairLabels?: Record<string, string>;
+  /** Display names of the eyebrow meshes (slot "brows"). */
+  browLabels?: Record<string, string>;
 }
 
 /** A human actor: parameters + detail sliders -> target weights -> shape. */

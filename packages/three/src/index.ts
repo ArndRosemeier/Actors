@@ -18,6 +18,8 @@ import {
   createDepthMaterial,
   createEyeMaterial,
   createLashMaterial,
+  createHairMaterial,
+  createAlphaDepthMaterial,
   createSkinMaterial,
   createSkinUniforms,
   createWetMaterial,
@@ -57,6 +59,11 @@ export const defaultMaterials: MaterialFactory = (data, actor) => {
     case "mouth":
       return createWetMaterial(new THREE.Color(0.75, 0.38, 0.38), 0.4);
     case "hair":
+      if (def.textures?.color) {
+        const mat = createHairMaterial(tex("color", true), def.tags?.includes("brows"));
+        mat.userData.meanColor = new THREE.Color().setRGB(...(def.material.color ?? [0.3, 0.2, 0.1]), THREE.SRGBColorSpace);
+        return mat;
+      }
       return createLashMaterial(new THREE.Color(0.05, 0.035, 0.03));
     case "cloth": {
       const fabric = def.tags?.find((t) => t.startsWith("fabric:"))?.slice(7) ?? "smooth";
@@ -150,7 +157,9 @@ export class ThreeActor {
       const transparent = (mesh.material as THREE.Material).transparent;
       mesh.castShadow = !transparent;
       mesh.receiveShadow = true;
-      if (!transparent) mesh.customDepthMaterial = data.clip ? useClipAttribute(createDepthMaterial()) : depth;
+      const hairMap = (mesh.material as THREE.MeshPhysicalMaterial).userData.hair ? (mesh.material as THREE.MeshPhysicalMaterial).map : null;
+      if (hairMap && !transparent) mesh.customDepthMaterial = createAlphaDepthMaterial(hairMap);
+      else if (!transparent) mesh.customDepthMaterial = data.clip ? useClipAttribute(createDepthMaterial()) : depth;
       mesh.frustumCulled = false; // bounds change with morphs and animation
       // Optional meshes start hidden; of several meshes in a slot, the first is shown.
       const slot = data.def.slot;
@@ -237,6 +246,22 @@ export class ThreeActor {
     this.composer.compose(renderer, layers.map((l, i) => ({ texture: textures[i], weight: l.weight })));
     this.skin.uAlbedo.value = this.composer.target.texture;
     this.skin.uAlbedoMix.value = 1;
+  }
+
+  /**
+   * Hair colour (sRGB hex or THREE.Color), applied to every hair mesh relative
+   * to its texture's own colour; null restores the texture's colour.
+   */
+  setHairColor(color: THREE.ColorRepresentation | null): void {
+    for (const mesh of this.meshes.values()) {
+      const mat = mesh.material as THREE.Material;
+      const u = mat.userData.hair as { uHairTint: { value: THREE.Color }; uHairMix: { value: number }; uHairMeanLum: { value: number } } | undefined;
+      const mean = mat.userData.meanColor as THREE.Color | undefined;
+      if (!u || !mean) continue;
+      u.uHairMix.value = color === null ? 0 : 1;
+      if (color !== null) u.uHairTint.value.set(color);
+      u.uHairMeanLum.value = Math.max(0.01, 0.2126 * mean.r + 0.7152 * mean.g + 0.0722 * mean.b);
+    }
   }
 
   /** Skin base colour (linear RGB). */

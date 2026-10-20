@@ -266,6 +266,46 @@ export function createLashMaterial(color: THREE.Color): THREE.MeshLambertMateria
   return useDualQuaternionSkinning(mat);
 }
 
+/**
+ * Hair cards (MakeHuman hair proxies): alpha-tested texture with alpha to
+ * coverage for soft edges under MSAA, two-sided, slight sheen. `uHairTint`
+ * and `uHairMix` recolour it: the texture's brightness pattern is kept and
+ * scaled so its mean matches the chosen colour (see ThreeActor.setHairColor).
+ */
+export function createHairMaterial(map: THREE.Texture | null, blended = false): THREE.MeshPhysicalMaterial {
+  // Blended mode suits soft, flat strands on the skin (eyebrows); cards with volume use alpha to coverage.
+  const mat = new THREE.MeshPhysicalMaterial({
+    map,
+    ...(blended ? { transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 } : { alphaTest: 0.35, alphaToCoverage: true }),
+    side: THREE.DoubleSide,
+    roughness: 0.55,
+    sheen: 0.6,
+    sheenRoughness: 0.35,
+    sheenColor: new THREE.Color(0.35, 0.3, 0.25),
+    specularIntensity: 0.35,
+  });
+  const uniforms = { uHairTint: { value: new THREE.Color(1, 1, 1) }, uHairMix: { value: 0 }, uHairMeanLum: { value: 0.2 } };
+  mat.userData.hair = uniforms;
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform vec3 uHairTint;\nuniform float uHairMix;\nuniform float uHairMeanLum;")
+      .replace(
+        "#include <map_fragment>",
+        `#include <map_fragment>
+float hairLum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+diffuseColor.rgb = mix( diffuseColor.rgb, uHairTint * clamp( hairLum / uHairMeanLum, 0.0, 2.5 ), uHairMix );`,
+      );
+  };
+  mat.customProgramCacheKey = () => "actors-hair";
+  return useDualQuaternionSkinning(mat);
+}
+
+/** Shadow-map material for alpha-tested hair cards. */
+export function createAlphaDepthMaterial(map: THREE.Texture | null): THREE.MeshDepthMaterial {
+  return useDualQuaternionSkinning(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map, alphaTest: 0.35 }));
+}
+
 export function createWetMaterial(color: THREE.Color, roughness: number): THREE.MeshPhysicalMaterial {
   return useDualQuaternionSkinning(new THREE.MeshPhysicalMaterial({ color, roughness, clearcoat: 0.6, clearcoatRoughness: 0.2 }));
 }

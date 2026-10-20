@@ -181,7 +181,16 @@ row(lookEl, "skinTone", "Skin tone", 0, 1, 0.01, 0.3, pct, setSkin);
 const toneRow = lookEl.lastElementChild as HTMLElement;
 toneRow.hidden = skinMode.photo;
 setSkin(0.3);
-row(lookEl, "brows", "Eyebrows", 0, 1, 0.01, actor.skin.uBrowDensity.value, pct, (v) => (actor.skin.uBrowDensity.value = v));
+// Eyebrows: MakeHuman's eyebrow proxies, or the shader-drawn ones.
+const browLabels = human.extra.browLabels ?? {};
+const browNames = Object.keys(browLabels);
+const PAINTED = "painted";
+function setBrows(v: string) {
+  for (const n of browNames) actor.setVisible(n, n === v);
+  actor.skin.uBrowDensity.value = v === PAINTED ? 0.92 : 0;
+}
+selectRow(lookEl, "Eyebrows", [...Object.entries(browLabels), [PAINTED, "Painted"], ["", "None"]], browNames[0] ?? PAINTED, setBrows);
+setBrows(browNames[0] ?? PAINTED);
 row(lookEl, "sss", "Subsurface", 0, 2, 0.01, 1, (v) => v.toFixed(2), (v) => (actor.skin.uSSS.value = v));
 
 function selectRow(parent: HTMLElement, label: string, options: [string, string][], value: string, onChange: (v: string) => void) {
@@ -198,6 +207,13 @@ const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 selectRow(lookEl, "Eyes", Object.keys(IRIS_PRESETS).map((k) => [k, cap(k)]), "brown", (v) => actor.setIris(v));
 actor.setIris("brown");
 selectRow(lookEl, "Detail", [["body", "High (subdivided)"], ["body-low", "Low"]], "body", (v) => actor.setVisible(v, true));
+const hairLabels = human.extra.hairLabels ?? {};
+const HAIR_COLORS: [string, string][] = [["", "Natural"], ["#1b1512", "Black"], ["#3b2417", "Dark brown"], ["#6a4528", "Brown"], ["#b38a55", "Blonde"], ["#e0c48f", "Light blonde"], ["#8a3a1c", "Red"], ["#9a968f", "Grey"]];
+selectRow(lookEl, "Hair", [["", "None"], ...Object.entries(hairLabels)], "", (v) => {
+  for (const name of Object.keys(hairLabels)) actor.setVisible(name, false);
+  if (v) actor.setVisible(v, true);
+});
+selectRow(lookEl, "Hair colour", HAIR_COLORS, "", (v) => actor.setHairColor(v || null));
 const anatomyBox = document.createElement("label");
 anatomyBox.className = "check";
 anatomyBox.innerHTML = `<input type="checkbox" checked> Anatomical detail`;
