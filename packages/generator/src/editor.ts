@@ -208,6 +208,18 @@ export class CharacterEditor {
     ];
     this.syncers.push((c) => patRows.forEach((row) => (row.hidden = c.skinPattern === "none")));
     this.select(look, "Hair", [["", "None"], ...cat.hair.map((h): [string, string] => [h.id, h.label])], (c) => c.hair ?? "", (v) => set({ hair: v || null }), "hair");
+    // CC-BY hairstyles name their author.
+    const hairCredit = document.createElement("p");
+    hairCredit.className = "ae-note";
+    hairCredit.dataset.role = "hair-credit";
+    look.appendChild(hairCredit);
+    this.syncers.push((c) => {
+      const credit = cat.hair.find((h) => h.id === c.hair)?.credit;
+      const author = credit?.match(/ by (.+?) \(/)?.[1];
+      hairCredit.hidden = !credit;
+      hairCredit.textContent = credit ? `CC-BY${author ? ` · ${author}` : ""}` : "";
+      hairCredit.title = credit ?? "";
+    });
     this.select(look, "Hair colour", [["", "Natural"], ...cat.hairColors.map((h): [string, string] => [h.id, h.label])], (c) => c.hairColor ?? "", (v) => set({ hairColor: v || null }), "hairColor");
     const opts = (list: string[]): [string, string][] => list.map((v) => [v, cap(v)]);
     this.select(look, "Beard", opts(BEARD_STYLES), (c) => c.beard, (v) => set({ beard: v as CharacterConfig["beard"] }), "beard");

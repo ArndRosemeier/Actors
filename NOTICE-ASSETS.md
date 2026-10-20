@@ -7,10 +7,50 @@
 | Skin region masks (`mpfb_*.jpg`), face expression units | MPFB2 `src/mpfb/data` | CC0 1.0 |
 | High-poly eyes (`eyes/high-poly`) and `brown_eye.png` | [MakeHuman system assets](https://github.com/makehumancommunity/makehuman) (`makehuman/data/eyes`) | CC0 1.0 |
 | Skins (18 photo skins), hairstyles (9), eyebrows (5) | [MakeHuman system assets pack](https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html) | CC0 1.0 |
+| Hairstyles (24, loaded when shown) by Cortu, culturalibre, Elvaerwyn, Faydaen, littleright, punkduck, RehmanPolanski, sonntag78 and Margaret Toigo (list with sources in `tools/import-makehuman/src/hairstyles.ts`) | [MakeHuman Hair 01 asset pack](https://static.makehumancommunity.org/assets/assetpacks/hair01.html) | CC0 1.0 |
+| Hairstyles (31, loaded when shown) by Elvaerwyn, culturalibre, grinsegold and punkduck (each listed under "CC-BY assets" below) | MakeHuman [Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) and [Hair 03](https://static.makehumancommunity.org/assets/assetpacks/hair03.html) asset packs | CC-BY (credit required) |
 | Long full skirt (Toigo), mini skirt 01 (frankyaye) | [MakeHuman skirts01 asset pack](https://static.makehumancommunity.org/assets/assetpacks/skirts01.html) | CC0 1.0 |
 | Wardrobe: tops, trousers, skirts, dresses, suits, outfits, underwear, hosiery, shoes, hats, glasses, gloves, mask (about 100 CC0 garments by Margaret Toigo, culturalibre, Cortu, JoePal, Wolgade, Mindfront and other MakeHuman community authors; the list with sources is in `tools/import-makehuman/src/wardrobe.ts`) | MakeHuman [system assets](https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html) and the CC0 asset packs Shirts 01, Pants 01, Dress 01, Skirts 01, Suits 01, Suits 02, Shoes 01, Underwear 01, Underwear 04, Gloves 01, Hats 01, Hats 02, Glasses 01, Masks 01 ([list](https://static.makehumancommunity.org/assets/assetpacks.html)) | CC0 1.0 |
 | Motion capture library (2,548 motions, loaded on demand) | [CMU Graphics Lab Motion Capture Database](http://mocap.cs.cmu.edu), BVH conversion by Bruce Hahne ([mirror](https://github.com/una-dinosauria/cmu-mocap)). "The data used in this project was obtained from mocap.cs.cmu.edu. The database was created with funding from NSF EIA-0196217." | Free for any use, including commercial products; the data itself may not be resold |
 | Body animations (84 clips: idles, walks, runs, jumps, swimming, sitting, work, combat, reactions, …) | Quaternius [Universal Animation Library](https://quaternius.com/packs/universalanimationlibrary.html) and [Universal Animation Library 2](https://opengameart.org/content/universal-animation-library-2), Standard editions, via OpenGameArt | CC0 1.0 |
+
+## CC-BY assets
+
+These assets are licensed under [Creative Commons Attribution](https://creativecommons.org/licenses/by/4.0/) (the MakeHuman asset repository lists them as "CC-BY"). Apps that ship them must keep this credit. The editor shows the author next to each one.
+
+| Asset | Author | Pack | Source |
+|---|---|---|---|
+| Hairstyle "1950s updo" (`elvs_50s_updo`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/2001 |
+| Hairstyle "Long, side part" (`elvs_adrienne_hair`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/1862 |
+| Hairstyle "Feathered, shoulder length" (`elvs_ashley_may_hair`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/1861 |
+| Hairstyle "Braided high bun" (`elvs_braid_bun`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/2177 |
+| Hairstyle "Cornrows" (`elvs_braided_rows`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/1659 |
+| Hairstyle "Long, soft" (`elvs_daisy_hair`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/1859 |
+| Hairstyle "Short, combed" (`elvs_grump_hair`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/2796 |
+| Hairstyle "Long, straight" (`elvs_hazel_hair`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/2816 |
+| Hairstyle "Curly, shoulder length" (`elvs_inverted_curly_bob`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/2683 |
+| Hairstyle "Long, half up" (`elvs_island_princess_hair`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/1811 |
+| Hairstyle "Shoulder length, bangs" (`elvs_katherine_hair`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/1863 |
+| Hairstyle "Long, half ponytail" (`elvs_keylth_hair`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/2173 |
+| Hairstyle "Long, side swept" (`elvs_lady_hippy_hair`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/1812 |
+| Hairstyle "Long braid" (`elvs_lara_hair`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/2634 |
+| Hairstyle "Short, spiky" (`elvs_maxwell_hair`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/1639 |
+| Hairstyle "Afro puffs" (`elvs_micky_afro`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/2817 |
+| Hairstyle "Bob, side part" (`elvs_short_daisy_hair`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/1860 |
+| Hairstyle "1980s volume" (`elvs_that_80s_babe_hair`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/2174 |
+| Hairstyle "1920s finger waves" (`elvs_wavy_bob`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/1551 |
+| Hairstyle "Bob, bangs" (`elvs_witchy_lil_bob`) | Elvaerwyn | [MakeHuman Hair 02](https://static.makehumancommunity.org/assets/assetpacks/hair02.html) | http://www.makehumancommunity.org/node/1710 |
+| Hairstyle "Shaggy, layered" (`culturalibre_hair_13`) | culturalibre | [MakeHuman Hair 03](https://static.makehumancommunity.org/assets/assetpacks/hair03.html) | http://www.makehumancommunity.org/node/2421 |
+| Hairstyle "Short, slicked" (`culturalibre_hair_14`) | culturalibre | [MakeHuman Hair 03](https://static.makehumancommunity.org/assets/assetpacks/hair03.html) | http://www.makehumancommunity.org/node/2428 |
+| Hairstyle "Long, waves" (`culturalibre_hair_17`) | culturalibre | [MakeHuman Hair 03](https://static.makehumancommunity.org/assets/assetpacks/hair03.html) | http://www.makehumancommunity.org/node/2481 |
+| Hairstyle "Bob, full bangs" (`culturalibre_hair_18`) | culturalibre | [MakeHuman Hair 03](https://static.makehumancommunity.org/assets/assetpacks/hair03.html) | http://www.makehumancommunity.org/node/2482 |
+| Hairstyle "Wavy, with bow" (`grinsegold_wig_bow_tie`) | grinsegold | [MakeHuman Hair 03](https://static.makehumancommunity.org/assets/assetpacks/hair03.html) | http://www.makehumancommunity.org/node/173 |
+| Hairstyle "Bun with braids" (`grinsegold_wig_bun_blonde_braids`) | grinsegold | [MakeHuman Hair 03](https://static.makehumancommunity.org/assets/assetpacks/hair03.html) | http://www.makehumancommunity.org/node/172 |
+| Hairstyle "Layered, side bangs" (`o4saken_chinesebob01`) | punkduck | [MakeHuman Hair 03](https://static.makehumancommunity.org/assets/assetpacks/hair03.html) | http://www.makehumancommunity.org/node/1474 |
+| Hairstyle "Long, curly" (`punkduck_alpha7_curly`) | punkduck | [MakeHuman Hair 03](https://static.makehumancommunity.org/assets/assetpacks/hair03.html) | http://www.makehumancommunity.org/node/480 |
+| Hairstyle "Long, wild curls" (`punkduck_alpha7_curly2`) | punkduck | [MakeHuman Hair 03](https://static.makehumancommunity.org/assets/assetpacks/hair03.html) | http://www.makehumancommunity.org/node/477 |
+| Hairstyle "Long, centre part" (`punkduck_alpha7_long`) | punkduck | [MakeHuman Hair 03](https://static.makehumancommunity.org/assets/assetpacks/hair03.html) | http://www.makehumancommunity.org/node/482 |
+| Hairstyle "Long, shaggy" (`punkduck_alpha7_long2`) | punkduck | [MakeHuman Hair 03](https://static.makehumancommunity.org/assets/assetpacks/hair03.html) | http://www.makehumancommunity.org/node/492 |
 
 Painted eyebrows (optional), eyelashes, pores, fabric weaves and female genital detail are generated procedurally by this project's code (MIT).
 

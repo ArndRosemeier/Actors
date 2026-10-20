@@ -22,6 +22,8 @@ export interface HumanExtra {
   skins?: SkinTextureDef[];
   /** Display names of the hair meshes. */
   hairLabels?: Record<string, string>;
+  /** Author, pack and licence of the community hairstyles (CC-BY ones must be credited). */
+  hairCredits?: Record<string, string>;
   /** Display names of the eyebrow meshes (slot "brows"). */
   browLabels?: Record<string, string>;
 }

@@ -5,6 +5,8 @@ import { ADULT_MIN_AGE, DEFAULT_PARAMS, EXPRESSIONS, type Human, type HumanParam
 export interface Choice {
   id: string;
   label: string;
+  /** Author, pack and licence, for assets whose licence asks for credit (CC-BY). */
+  credit?: string;
 }
 
 export interface GarmentChoice extends Choice {
@@ -251,6 +253,7 @@ export function buildCatalog(human: Human, irisPresets: string[]): CharacterCata
     });
   const have = new Set(garments.map((g) => g.id));
   const outfits = OUTFITS.filter((o) => o.garments.every((g) => have.has(g))).map((o) => ({ ...o, female: o.female?.filter((g) => have.has(g)) }));
+  const ccBy = new Set(m.meshes.filter((d) => d.tags?.includes("license:CC-BY")).map((d) => d.name));
   const choices = (r: Record<string, string> | undefined) => Object.entries(r ?? {}).map(([id, label]) => ({ id, label }));
   return {
     races: RACE_IDS.map((id) => ({ id, label: RACES[id].name, description: RACES[id].description })),
@@ -262,7 +265,10 @@ export function buildCatalog(human: Human, irisPresets: string[]): CharacterCata
     libraries: [{ id: "", label: `Animations (${(m.clips ?? []).length})` }, ...(m.clipLibraries ?? []).map((l) => ({ id: l.name, label: `${l.name === "cmu" ? "CMU motion capture" : l.name} (${l.count})` }))],
     garments,
     outfits,
-    hair: [...choices(human.extra.hairLabels), ...choices(PROCEDURAL_HAIR)],
+    hair: [
+      ...choices(human.extra.hairLabels).map((h) => (ccBy.has(h.id) && human.extra.hairCredits?.[h.id] ? { ...h, credit: human.extra.hairCredits[h.id] } : h)),
+      ...choices(PROCEDURAL_HAIR),
+    ],
     hairColors: HAIR_COLORS,
     garmentColors: GARMENT_COLORS,
     brows: choices(human.extra.browLabels),

@@ -25,7 +25,7 @@ import {
 import { BlobWriter } from "./blob";
 import { fetchCached, fetchText, fetchZipEntry, fetchZipText } from "./fetch";
 import { GARMENTS, garmentCut, insideFaces, selectGarmentFaces } from "./garments";
-import { type Gray, blankGray, blurGray, loadGray, maxGray, meanColor, rasterizeUV, resizeGray, writeJpeg, writeRgbaDownsampled, writeRgbaPng } from "./image";
+import { type Gray, blankGray, blurGray, loadGray, maxGray, meanColor, rasterizeUV, resizeGray, writeJpeg, writeRgbaDownsampled, writeRgbaPng, tintPng } from "./image";
 import { parseMhclo } from "./mhclo";
 import { type ObjData, type ObjFace, buildRenderMesh, parseObj } from "./obj";
 import { CLIP_SPECS, UAL_ARCHIVES, type UalArchive, importClip } from "./clips";
@@ -35,6 +35,7 @@ import { CMU_URL, importCmu } from "./cmu";
 import type { GarmentInfo, SkinTextureDef } from "@actors/human";
 import { WARDROBE } from "./wardrobe";
 import { type Vec3, closestOnTriangle } from "./geometry";
+import { HAIRSTYLES, PACK_LICENCE } from "./hairstyles";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const CACHE = join(ROOT, ".cache");
@@ -560,6 +561,55 @@ async function main() {
     return name;
   };
   for (const [id, label] of HAIRS) hairLabels[addHairProxy("hair", id, "hair", 1024, true)] = label;
+  // Community hair packs: each style in its own file, loaded the first time it is shown.
+  const hairCredits: Record<string, string> = {};
+  mkdirSync(join(out, "hair"), { recursive: true });
+  let hairBytes = 0;
+  const HEAD_SCALE: [number, number, number][] = [[5399, 11998, 1.398], [791, 881, 2.2028], [962, 5320, 1.8441]];
+  const packInfo = new Map<string, Record<string, { source?: string }>>();
+  for (const style of HAIRSTYLES) {
+    const licence = PACK_LICENCE[style.pack];
+    const pack = `${MH_PACKS}/${style.pack}/${style.pack}_${licence}.zip`;
+    if (!packInfo.has(pack)) packInfo.set(pack, JSON.parse(fetchZipText(CACHE, pack, `packs/${style.pack}.json`)));
+    const source = packInfo.get(pack)![style.id]?.source;
+    const licenceName = licence === "cc0" ? "CC0" : "CC-BY";
+    const dir = `hair/${style.id}`;
+    const clo = parseMhclo(fetchZipText(CACHE, pack, `${dir}/${style.id}.mhclo`));
+    // A few styles have no scale references; use the head box most hair proxies use.
+    HEAD_SCALE.forEach((ref, k) => (clo.scale[k] ??= ref));
+    const cloObj = parseObj(fetchZipText(CACHE, pack, `${dir}/${clo.objFile}`));
+    const mhmat = fetchZipText(CACHE, pack, `${dir}/${clo.material ?? `${style.id}.mhmat`}`);
+    const diffuse = mhmat.match(/^diffuseTexture\s+(\S+)/m)?.[1];
+    if (!diffuse) throw new Error(`${style.name}: no diffuse texture`);
+    const writer = new BlobWriter();
+    const file = `hair/${style.name}.bin`;
+    const m = addProxy(style.name, clo, cloObj, cloObj.faces, undefined, { writer, file });
+    const tex = `textures/${style.name}.png`;
+    let mean = writeRgbaDownsampled(fetchZipEntry(CACHE, pack, `${dir}/${diffuse}`), join(out, tex), 1024, m.uv);
+    if (style.tint) {
+      mean = [1, 3, 5].map((k) => parseInt(style.tint!.slice(k, k + 2), 16) / 255) as [number, number, number];
+      tintPng(join(out, tex), mean);
+    }
+    meshes.push({
+      name: style.name,
+      source: { kind: "proxy", proxy: style.name },
+      role: "hair",
+      slot: "hair",
+      optional: true,
+      blob: file,
+      baseIndex: writer.add("u32", m.map),
+      uv: writer.add("f32", m.uv),
+      indices: writer.add("u32", m.indices),
+      material: { kind: "hair", color: mean, roughness: 0.45 },
+      textures: { color: tex },
+      tags: ["scalp", `license:${licenceName}`],
+    });
+    const bin = writer.toBuffer();
+    writeFileSync(join(out, file), bin);
+    hairBytes += bin.byteLength;
+    hairLabels[style.name] = style.label;
+    hairCredits[style.name] = `${style.id} by ${style.author} (MakeHuman ${style.pack} pack, ${licenceName}${source ? `, ${source}` : ""})`;
+  }
   // Eyebrows: MakeHuman's CC0 eyebrow proxies; the first one is shown by default.
   const BROWS: [string, string][] = [
     ["eyebrow001", "Natural"],
@@ -569,7 +619,7 @@ async function main() {
     ["eyebrow011", "Straight"],
   ];
   BROWS.forEach(([id, label], i) => (browLabels[addHairProxy("eyebrows", id, "brows", 512, i > 0)] = label));
-  console.log(`Hair: ${HAIRS.length} styles`);
+  console.log(`Hair: ${HAIRS.length + HAIRSTYLES.length} styles (${(hairBytes / 1e6).toFixed(1)} MB of community hair, loaded when shown)`);
 
   // --- Skin region masks -------------------------------------------------------------
   const tex = join(data, "textures");
@@ -774,6 +824,7 @@ async function main() {
         anatomy: { genitalsUV: gb },
         skins,
         hairLabels,
+        hairCredits,
         browLabels,
       },
     },

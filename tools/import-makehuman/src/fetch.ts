@@ -66,3 +66,8 @@ export function fetchZipEntry(cacheDir: string, url: string, entry: string): str
 export function fetchZipText(cacheDir: string, url: string, entry: string): string {
   return readFileSync(fetchZipEntry(cacheDir, url, entry), "utf8");
 }
+
+/** Names of the files in a remote ZIP (reads only its central directory). */
+export function listZip(url: string): string[] {
+  return directory(url).map((e) => e.name);
+}
