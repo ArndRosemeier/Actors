@@ -7,6 +7,10 @@
  * file and loaded the first time it is worn, so the library can grow without
  * slowing down the first load.
  *
+ * Left out on purpose: high-heeled shoes (they need a foot pose we don't
+ * have yet, so toes poke through), Pantyhose 01 (doesn't fit the hm08 base),
+ * the tube top (stray pieces), anything trademarked or religious.
+ *
  * `occupies` names the body layers a garment takes; putting on a garment
  * takes off the others sharing a layer (a dress replaces top and bottom).
  */
@@ -45,7 +49,6 @@ export const WARDROBE: WardrobeItem[] = [
   { name: "underwear-top", pack: "underwear01", id: "wolgade_female_top_01", label: "Underwear top", category: "Underwear", occupies: ["bra"], gender: "female", texSize: 512 },
 
   // --- Socks and hosiery ---
-  { name: "pantyhose", pack: "underwear01", id: "kwnet_at_pantyhose01", label: "Pantyhose", category: "Socks & hosiery", occupies: ["legwear"], gender: "female", coversAnatomy: true, texSize: 512 },
   { name: "stockings", pack: "underwear01", id: "marco_105_stocking01", label: "Stockings", category: "Socks & hosiery", occupies: ["legwear"], gender: "female", texSize: 512 },
   { name: "fishnet-stockings", pack: "underwear01", id: "v0rt3x_stockings_black_fishnet_medium", label: "Fishnet stockings", category: "Socks & hosiery", occupies: ["legwear"], gender: "female", texSize: 512, fabric: "lace" },
   { name: "high-socks", pack: "underwear04", id: "joepal_crude_high_socks", label: "Knee socks", category: "Socks & hosiery", occupies: ["socks"], texSize: 512, hideRadius: 0.03 },
@@ -62,7 +65,6 @@ export const WARDROBE: WardrobeItem[] = [
   { name: "tank-top", pack: "shirts01", id: "toigo_keyhole_tank_top", label: "Tank top", category: "Tops", occupies: TOP, gender: "female", fabric: "knit" },
   { name: "camisole", pack: "shirts01", id: "toigo_camisole_top", label: "Camisole", category: "Tops", occupies: TOP, gender: "female" },
   { name: "turtleneck-halter", pack: "shirts01", id: "toigo_turtleneck_halter_top", label: "Turtleneck halter", category: "Tops", occupies: TOP, gender: "female", fabric: "knit" },
-  { name: "tube-top", pack: "shirts01", id: "skalldyrssuppe_tube_top_funky_colors", label: "Tube top", category: "Tops", occupies: TOP, gender: "female" },
   { name: "bodice", pack: "shirts01", id: "toigo_bodice-style_top", label: "Bodice top", category: "Tops", occupies: TOP, gender: "female" },
   { name: "viking-tunic", pack: "suits02", id: "rehmanpolanski_viking_tunic", label: "Viking tunic", category: "Tops", occupies: TOP, gender: "male" },
 
@@ -127,10 +129,7 @@ export const WARDROBE: WardrobeItem[] = [
   { name: "ballet-flats", pack: "shoes01", id: "toigo_ballet_flats", label: "Ballet flats", category: "Shoes", occupies: SHOES, gender: "female", hideRadius: 0.03, texSize: 512 },
   { name: "t-bar-shoes", pack: "shoes01", id: "cortu_t-bar", label: "T-bar shoes", category: "Shoes", occupies: SHOES, gender: "female", hideRadius: 0.03, texSize: 512 },
   { name: "ankle-boots", pack: "shoes01", id: "toigo_ankle_boots_male", label: "Ankle boots", category: "Shoes", occupies: SHOES, hideRadius: 0.03, texSize: 512 },
-  { name: "ankle-boots-heeled", pack: "shoes01", id: "toigo_ankle_boots_female", label: "Heeled ankle boots", category: "Shoes", occupies: SHOES, gender: "female", hideRadius: 0.03, texSize: 512 },
-  { name: "stiletto-booties", pack: "shoes01", id: "toigo_stiletto_booties", label: "Stiletto booties", category: "Shoes", occupies: SHOES, gender: "female", hideRadius: 0.03, texSize: 512 },
   { name: "biker-boots", pack: "shoes01", id: "culturalibre_male_boots", label: "Biker boots", category: "Shoes", occupies: SHOES, hideRadius: 0.03, texSize: 512 },
-  { name: "gogo-boots", pack: "shoes01", id: "scailman_gogo_platform_boots", label: "Platform boots", category: "Shoes", occupies: SHOES, gender: "female", hideRadius: 0.03, texSize: 512 },
   { name: "overknee-boots", pack: "shoes01", id: "cortu_floppy_overknee_shoes", label: "Over-knee boots", category: "Shoes", occupies: SHOES, gender: "female", hideRadius: 0.03, texSize: 512 },
   { name: "viking-boots", pack: "suits02", id: "rehmanpolanski_viking_boots", label: "Fur boots", category: "Shoes", occupies: SHOES, hideRadius: 0.03, texSize: 512 },
 
