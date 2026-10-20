@@ -406,7 +406,7 @@ function buildCrest(ctx: Ctx, b: Builder) {
   const n = 9;
   for (let i = 0; i < n; i++) {
     const a = -0.35 + (i / (n - 1)) * 2.1; // forehead -> nape
-    const base = add(C, mul([0, Math.cos(a), -Math.sin(a)], R));
+    const base = onSkull(ctx, [0, Math.cos(a), -Math.sin(a)], 0);
     const h = R * (0.35 + 0.35 * Math.sin((i / (n - 1)) * Math.PI)) * rng.range(0.85, 1.15);
     const out = norm(sub(base, C));
     const tip = add(add(base, mul(out, h)), mul(BACK, h * 0.6));
@@ -536,8 +536,9 @@ function buildHorns(ctx: Ctx, style: HornStyle, hornSize: number, scale: number,
   for (const s of [-1, 1]) {
     const curve: V3[] = [];
     const steps = 18;
-    // Root on the upper forehead / temple, slightly sunk into the skin.
-    const root = add(C, mul(norm([s * 0.55, 0.62, 0.45]), R * 0.94));
+    // Root on the upper forehead / temple, sunk into the skull so the horn grows out of it.
+    const base = R * (0.12 + size * 0.08);
+    const root = onSkull(ctx, [s * 0.55, 0.62, 0.45], base * 0.9);
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
       let p: V3;
@@ -565,8 +566,8 @@ function buildHorns(ctx: Ctx, style: HornStyle, hornSize: number, scale: number,
       }
       curve.push(p);
     }
-    const base = R * (0.12 + size * 0.08);
-    tube(b, curve, (t) => base * Math.pow(1 - t, 0.75) + 0.0015, 12, headW, style === "ram" ? 9 : style === "straight" ? 6 : 4, shade);
+    // A flared base where the horn meets the skin.
+    tube(b, curve, (t) => base * (1 + 0.35 * Math.max(0, 1 - t * 8)) * Math.pow(1 - t, 0.75) + 0.0015, 12, headW, style === "ram" ? 9 : style === "straight" ? 6 : 4, shade);
     if (style === "antler") {
       // Two forward tines.
       for (const ft of [0.45, 0.72]) {
@@ -582,8 +583,9 @@ function buildHorns(ctx: Ctx, style: HornStyle, hornSize: number, scale: number,
     for (let k = -3; k <= 3; k++) {
       if (k === 0) continue;
       const ang = k * 0.32;
-      const root = add(C, mul(norm([Math.sin(ang), 0.7, Math.cos(ang) * 0.75]), R * 0.95));
-      const tip = add(root, mul(norm(sub(root, C)), R * 0.3 * size + 0.01));
+      const dir = norm([Math.sin(ang), 0.7, Math.cos(ang) * 0.75]);
+      const root = onSkull(ctx, dir, R * 0.05);
+      const tip = add(root, mul(dir, R * 0.3 * size + 0.01 + R * 0.05));
       tube(b, [root, lerp3(root, tip, 0.5), tip], (t) => R * 0.06 * (1 - t) + 0.001, 8, headW, 0, shade);
     }
   }
@@ -603,18 +605,49 @@ function frontSurface(ctx: Ctx, x: number, y: number, z0: number): number {
 function buildTusks(ctx: Ctx, tusks: number, scale: number, b: Builder) {
   if (tusks < 0.05) return;
   const mouth = ctx.body.mouth;
-  const k = (0.022 + tusks * 0.03) * (scale > 1.3 ? 1.2 : 1);
+  const k = (0.018 + tusks * 0.026) * (scale > 1.3 ? 1.2 : 1);
   for (const s of [-1, 1]) {
-    // Rooted in the lower lip near the mouth corners, just under the skin.
-    const x = mouth[0] + s * ctx.ipd * 0.4, y = mouth[1] - 0.014;
-    const root: V3 = [x, y, frontSurface(ctx, x, y, mouth[2]) - 0.004];
-    const pts: V3[] = [];
+    // Rooted in the lower lip near the mouth corners, so they rest in front of the upper lip.
+    const x = mouth[0] + s * ctx.ipd * 0.38, y = mouth[1] - 0.009;
+    // Deep enough that the whole base sits in the lip; the first point is inside the jaw.
+    const r0 = k * 0.23;
+    const root: V3 = [x, y, frontSurface(ctx, x, y, mouth[2]) - r0 * 1.2];
+    const pts: V3[] = [add(root, [0, -r0 * 1.5, -r0 * 0.5])];
     for (let i = 0; i <= 8; i++) {
       const t = i / 8;
-      pts.push(add(root, [s * k * 0.12 * t, k * t, k * 0.25 * t + k * 0.2 * t * t]));
+      pts.push(add(root, [s * k * 0.16 * t, k * t, k * 0.12 * t + k * 0.18 * t * t]));
     }
-    tube(b, pts, (t) => k * 0.19 * Math.pow(1 - t, 0.8) + 0.0008, 10, () => [[ctx.bone("head"), 1]], 0, (t) => 0.85 + 0.2 * t);
+    tube(b, pts, (t) => r0 * Math.pow(1 - t, 0.8) + 0.0008, 10, () => [[ctx.bone("head"), 1]], 0, (t) => 0.85 + 0.2 * t);
   }
+}
+
+/** Distance from the head centre to the skin along `dir` (the head is not a sphere). */
+function skullRadius(ctx: Ctx, dir: V3): number {
+  const { positions: pos } = ctx.body;
+  const d = norm(dir);
+  let sum = 0, n = 0, best = 0, bestDot = -1;
+  for (let v = 0; v < pos.length / 3; v++) {
+    if (!ctx.body.isBody[v]) continue;
+    const rel: V3 = [pos[v * 3] - ctx.C[0], pos[v * 3 + 1] - ctx.C[1], pos[v * 3 + 2] - ctx.C[2]];
+    const l = len(rel);
+    if (l < ctx.R * 0.5 || l > ctx.R * 2) continue;
+    const c = dot(rel, d) / l;
+    if (c > bestDot) {
+      bestDot = c;
+      best = l;
+    }
+    if (c > 0.996) {
+      sum += l;
+      n++;
+    }
+  }
+  return n ? sum / n : best || ctx.R;
+}
+
+/** A point on the skull surface in direction `dir`, sunk `sink` meters into the head. */
+function onSkull(ctx: Ctx, dir: V3, sink: number): V3 {
+  const d = norm(dir);
+  return add(ctx.C, mul(d, skullRadius(ctx, d) - sink));
 }
 
 /** Tail root: on the lower back, just above the buttocks. */
