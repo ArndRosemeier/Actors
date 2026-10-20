@@ -1,6 +1,6 @@
 # Actors – notes for Claude
 
-- npm workspaces monorepo, TypeScript, ESM. Packages export `src/index.ts` directly (no build step yet).
+- npm workspaces monorepo, TypeScript, ESM. Inside the repo, packages export `src/index.ts` directly. Other projects install release tarballs built by `scripts/release/build.mjs` (dist JS + .d.ts); see docs/using-actors.md. Keep all package versions equal; bumping them makes CI publish a new GitHub release on main. Don't publish to the public npm registry without Arnd's OK.
 - Keep `@actors/core` renderer-free (no `three`, no DOM). Renderer code goes in adapters (`packages/three`).
 - Units: meters, +Y up, +Z forward (glTF). Bone rolls follow Blender's convention.
 - Adult-only: never lower `ADULT_MIN_AGE` or ship baby/child-only targets.

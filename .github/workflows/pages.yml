@@ -1,5 +1,7 @@
 # Builds the character generator (importer -> pack -> Vite build) and deploys it to GitHub Pages.
 # Pull requests only build and test; pushes to main (or a manual run) also deploy.
+# It also builds the installable packages and, on main, publishes them as GitHub release
+# v<version> when that release doesn't exist yet (bump the package versions to cut a new one).
 name: Pages
 
 on:
@@ -20,6 +22,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # creates the package release on main
     # The first run downloads the CMU mocap (~6 GB) once; later runs reuse the converted clips from the cache.
     timeout-minutes: 120
     steps:
@@ -39,6 +43,23 @@ jobs:
           restore-keys: import-cache-
       - run: npm run import:human
       - run: npm run build
+      # A fresh Vite + TypeScript app installs the package tarballs, typechecks and builds.
+      - run: npm run check:consumer
+      # Release tarballs (dependencies point at the release URLs) plus the asset packs archive.
+      - run: npm run build:packages
+      - name: Publish GitHub release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./packages/generator/package.json').version")
+          if gh release view "v$version" > /dev/null 2>&1; then
+            echo "release v$version exists; bump the package versions to publish a new one"
+          else
+            gh release create "v$version" release/*.tgz release/actors-packs-*.tar.gz \
+              --target "$GITHUB_SHA" --title "Actors $version" \
+              --notes "Install: \`npm install https://github.com/${GITHUB_REPOSITORY}/releases/download/v$version/actors-generator-$version.tgz three\`. Assets: \`npx actors-packs\` or the hosted packs. See docs/using-actors.md."
+          fi
       - uses: actions/upload-pages-artifact@v3
         with:
           path: apps/viewer/dist
