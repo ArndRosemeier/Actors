@@ -540,6 +540,19 @@ export class ThreeActor {
     this.updateColliders();
   }
 
+  /** Height of the current body shape (lowest to highest point), in meters. */
+  height(): number {
+    const p = this.lastShape?.positions;
+    const body = this.runtime.meshes.find((m) => m.def.role === "body" && !m.stencil);
+    if (!p || !body) return 0;
+    let min = Infinity, max = -Infinity;
+    for (const v of body.map) {
+      min = Math.min(min, p[v * 3 + 1]);
+      max = Math.max(max, p[v * 3 + 1]);
+    }
+    return max - min;
+  }
+
   /** The lowest point of the current shape (for standing the actor on the ground). */
   groundOffset(): number {
     const p = this.lastShape?.positions;

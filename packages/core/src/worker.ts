@@ -8,6 +8,7 @@
  *                const shape = await remote.evaluate(weights)
  */
 import { ActorRuntime, type ActorShape } from "./runtime";
+import type { ShapeOptions } from "./deform";
 
 export interface MessagePortLike {
   postMessage(message: unknown, transfer?: unknown[]): void;
@@ -16,7 +17,7 @@ export interface MessagePortLike {
 
 type Request =
   | { id: number; type: "load"; url: string }
-  | { id: number; type: "evaluate"; weights: [string, number][] }
+  | { id: number; type: "evaluate"; weights: [string, number][]; options?: ShapeOptions }
   | { id: number; type: "loadMeshes"; names: string[] };
 
 type Response = { id: number; ok: true; shape?: ActorShape } | { id: number; ok: false; error: string };
@@ -46,7 +47,7 @@ export function serveRuntime(port: MessagePortLike): void {
         } else {
           if (!runtime) throw new Error("No actor pack loaded");
           // Fresh buffers every time: they are transferred (moved) to the main thread.
-          const shape = await runtime.evaluate(new Map(req.weights));
+          const shape = await runtime.evaluate(new Map(req.weights), undefined, req.options);
           port.postMessage({ id: req.id, ok: true, shape } satisfies Response, shapeBuffers(shape));
         }
       } catch (e) {
@@ -92,8 +93,8 @@ export class RemoteRuntime {
     await this.call({ type: "loadMeshes", names } as Request);
   }
 
-  async evaluate(weights: Map<string, number>): Promise<ActorShape> {
-    const res = await this.call({ type: "evaluate", weights: [...weights] } as Request);
+  async evaluate(weights: Map<string, number>, options?: ShapeOptions): Promise<ActorShape> {
+    const res = await this.call({ type: "evaluate", weights: [...weights], options } as Request);
     return (res as { shape: ActorShape }).shape;
   }
 }

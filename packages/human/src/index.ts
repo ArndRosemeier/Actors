@@ -5,3 +5,5 @@ export * from "./clips";
 export * from "./human";
 export * from "./expressions";
 export * from "./skins";
+export * from "./races";
+export * from "./raceshape";

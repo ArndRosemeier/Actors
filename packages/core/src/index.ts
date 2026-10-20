@@ -9,3 +9,4 @@ export * from "./animation";
 export * from "./retarget";
 export * from "./worker";
 export * from "./subdivide";
+export * from "./deform";

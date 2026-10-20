@@ -36,6 +36,13 @@ export async function createCharacterGenerator(options: GeneratorOptions): Promi
   const stage = new CharacterStage(options.view, options);
   const character = await Character.load({ pack: options.pack, renderer: stage.renderer, worker: options.worker, config: options.config });
   const remove = stage.add(character);
+  // Keep very small or very tall characters (goblins, giantkin) in frame.
+  let framed = 1.7;
+  const reframe = (h: number) => {
+    if (h > 0 && Math.abs(Math.log(h / framed)) > Math.log(1.2)) stage.frame((framed = h));
+  };
+  reframe(character.height);
+  const stopFraming = character.onShape(reframe);
   const editor = options.panel ? new CharacterEditor(character, options.panel, options) : undefined;
   return {
     character,
@@ -43,6 +50,7 @@ export async function createCharacterGenerator(options: GeneratorOptions): Promi
     editor,
     dispose() {
       editor?.dispose();
+      stopFraming();
       remove();
       character.dispose();
       stage.dispose();

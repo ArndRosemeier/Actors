@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { ADULT_MIN_AGE } from "@actors/human";
+import { ADULT_MIN_AGE, RACE_IDS } from "@actors/human";
 import { type CharacterCatalog, GARMENT_COLORS, OUTFITS, defaultConfig, outfitGarments, randomConfig, resolveOutfit, seededRandom } from "./catalog";
 
 const IDS = ["briefs", "bra", "tshirt", "jeans", "socks", "skirt", "skirt-mini", "dress", "sneakers"];
 const catalog: CharacterCatalog = {
+  races: RACE_IDS.map((id) => ({ id, label: id, description: "" })),
   animations: [{ id: "idle", label: "Idle", category: "Idle", loop: true, library: "" }, { id: "walk", label: "Walk", category: "Locomotion", loop: true, library: "" }],
   libraries: [{ id: "", label: "Animations" }],
   garments: IDS.map((id) => ({

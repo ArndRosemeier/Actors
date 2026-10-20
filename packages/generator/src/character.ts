@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { ActorShape, Clip, Fetcher, MessagePortLike } from "@actors/core";
-import { ADULT_MIN_AGE, BLINK, EXPRESSIONS, Human, type HumanParams, MAX_AGE } from "@actors/human";
+import { ADULT_MIN_AGE, BLINK, EXPRESSIONS, Human, type HumanParams, MAX_AGE, sanitizeRace } from "@actors/human";
 import { IRIS_PRESETS, ThreeActor } from "@actors/three";
 import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, type RandomOptions, buildCatalog, defaultConfig, outfitGarments, randomConfig, resolveOutfit } from "./catalog";
 
@@ -56,6 +56,9 @@ export class Character {
   paused = false;
   /** Milliseconds the last shape update took. */
   lastUpdateMs = 0;
+  /** Standing height of the current shape in meters (0 before the first shape). */
+  height = 0;
+  private readonly shapeListeners = new Set<(height: number) => void>();
 
   private constructor(
     readonly human: Human,
@@ -91,12 +94,20 @@ export class Character {
     return () => this.listeners.delete(listener);
   }
 
+  /** Called after every new body shape, with the standing height in meters. Returns an unsubscribe function. */
+  onShape(listener: (height: number) => void): () => void {
+    this.shapeListeners.add(listener);
+    return () => this.shapeListeners.delete(listener);
+  }
+
   /** Applies a change. Resolves once the character shows it (shape, skin, clip loaded). */
   set(patch: CharacterPatch): Promise<void> {
     const body = { ...this.cfg.body, ...patch.body };
     body.ageYears = Math.min(MAX_AGE, Math.max(ADULT_MIN_AGE, body.ageYears));
     const defined = Object.fromEntries(Object.entries(structuredClone(patch)).filter(([, v]) => v !== undefined));
     this.cfg = { ...this.cfg, ...defined, body, outfit: this.normalizeOutfit(patch.outfit ?? this.cfg.outfit) };
+    const race = sanitizeRace({ race: this.cfg.race, race2: this.cfg.race2, mix: this.cfg.raceMix, size: this.cfg.raceSize });
+    Object.assign(this.cfg, { race: race.race, race2: race.race2, raceMix: race.race2 ? race.mix : this.cfg.raceMix, raceSize: race.size });
     this.applyLook();
     const done = this.sync();
     for (const l of this.listeners) l(this.config);
@@ -242,15 +253,18 @@ export class Character {
       this.actor.addMeshes(added);
       this.applied.shape = ""; // the next shape must include the new garments
     }
-    const shapeKey = JSON.stringify([c.body, c.details]);
+    const shapeKey = JSON.stringify([c.body, c.details, c.race, c.race2, c.raceMix, c.raceSize]);
     if (shapeKey !== this.applied.shape) {
       const t0 = performance.now();
       h.params = { ...c.body };
+      h.race = sanitizeRace({ race: c.race, race2: c.race2, mix: c.raceMix, size: c.raceSize });
       h.modifierValues = { ...c.details };
       this.shape = await h.evaluate(this.shape);
       this.actor.applyShape(this.shape);
       this.actor.object.position.y = this.actor.groundOffset();
+      this.height = this.actor.height();
       this.applied.shape = shapeKey;
+      for (const l of this.shapeListeners) l(this.height);
       this.lastUpdateMs = performance.now() - t0;
       this.applyLook();
     }
