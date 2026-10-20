@@ -171,7 +171,7 @@ export class ThreeActor {
         g.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(data.joints, 4));
         g.setAttribute("skinWeight", new THREE.BufferAttribute(data.weights, 4));
       }
-      if (data.clip) g.setAttribute("clipValue", new THREE.BufferAttribute(data.clip, 1));
+      if (data.clip) g.setAttribute("clipValue", new THREE.BufferAttribute(data.clip.slice(), 1));
       g.setIndex(new THREE.BufferAttribute(data.indices, 1));
       // Face morph channels only on base-following meshes (body, lashes, teeth...), not garments.
       const morphable = data.def.source.kind === "base" && data.def.role !== "garment";
@@ -262,9 +262,23 @@ export class ThreeActor {
     return this.wanted.get(name) ?? this.meshes.get(name)?.visible ?? false;
   }
 
+  private readonly concealed = new Set<string>();
+
+  /**
+   * Keeps a shown mesh from being drawn, e.g. underwear fully covered by outer
+   * clothes (so it can never peek through). It still counts as worn: a
+   * concealed garment tagged "covers:anatomy" keeps the anatomy hidden.
+   */
+  setConcealed(name: string, concealed: boolean): void {
+    if (concealed === this.concealed.has(name)) return;
+    if (concealed) this.concealed.add(name);
+    else this.concealed.delete(name);
+    this.updateVisibility();
+  }
+
   private updateVisibility(): void {
-    for (const [n, w] of this.wanted) this.meshes.get(n)!.visible = w;
-    const covered = [...this.data.values()].some((d) => d.def.tags?.includes("covers:anatomy") && this.meshes.get(d.def.name)!.visible);
+    for (const [n, w] of this.wanted) this.meshes.get(n)!.visible = w && !this.concealed.has(n);
+    const covered = [...this.data.values()].some((d) => d.def.tags?.includes("covers:anatomy") && this.wanted.get(d.def.name));
     if (covered) for (const d of this.data.values()) if (d.def.tags?.includes("anatomy")) this.meshes.get(d.def.name)!.visible = false;
     this.updateHiddenSkin();
   }
@@ -484,16 +498,44 @@ export class ThreeActor {
     for (const mesh of this.meshes.values()) if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[k] = weight;
   }
 
-  /** Drops skin triangles hidden under visible garments (e.g. feet under socks) to avoid poke-through. */
+  /**
+   * Garment layer order: skin 0, garments cut from the body (underwear, T-shirt,
+   * jeans, by thickness) above it, fitted garments (proxies) on top.
+   */
+  private static layerOf(def: MeshData["def"]): number {
+    if (def.role === "body") return 0;
+    return (def.source.kind === "proxy" ? 2 : 1) + (def.inflate ?? 0) * 100;
+  }
+
+  /**
+   * Drops triangles hidden under visible garments to avoid poke-through: skin
+   * under any garment (e.g. feet under socks), and body-following garments
+   * (briefs, bra, tights, …) under a garment on a higher layer.
+   */
   private updateHiddenSkin(): void {
-    const hide = new Set<number>();
+    const covers: { layer: number; verts: Uint32Array }[] = [];
+    for (const data of this.rendered)
+      if (data.hidesBaseVertices && this.meshes.get(data.def.name)?.visible) covers.push({ layer: ThreeActor.layerOf(data.def), verts: data.hidesBaseVertices });
     for (const data of this.rendered) {
-      if (data.hidesBaseVertices && this.meshes.get(data.def.name)?.visible) for (const v of data.hidesBaseVertices) hide.add(v);
-    }
-    for (const data of this.rendered) {
-      if (data.def.role !== "body") continue;
+      const { def } = data;
+      const isGarment = def.role === "garment" && def.source.kind === "base";
+      if (def.role !== "body" && !isGarment) continue;
+      const mesh = this.meshes.get(def.name)!;
+      // Hidden garments keep their last index list; it is rebuilt when they are shown.
+      if (isGarment && !mesh.visible) continue;
+      const layer = ThreeActor.layerOf(def);
+      const hide = new Set<number>();
+      for (const c of covers) if (c.layer > layer) for (const v of c.verts) hide.add(v);
       const { indices, map, dominant } = data;
       const base = (i: number) => (dominant ? dominant[map[i]] : map[i]);
+      // Garments with a hem cut fade out around covered vertices per pixel instead of losing whole triangles.
+      if (isGarment && data.clip) {
+        const attr = mesh.geometry.getAttribute("clipValue") as THREE.BufferAttribute;
+        const values = attr.array as Float32Array;
+        for (let i = 0; i < map.length; i++) values[i] = hide.has(map[i]) ? -0.03 : data.clip[i];
+        attr.needsUpdate = true;
+        continue;
+      }
       const out = new Uint32Array(indices.length);
       let n = 0;
       for (let t = 0; t < indices.length; t += 3) {
@@ -502,7 +544,7 @@ export class ThreeActor {
         out[n++] = indices[t + 1];
         out[n++] = indices[t + 2];
       }
-      this.meshes.get(data.def.name)!.geometry.setIndex(new THREE.BufferAttribute(out.slice(0, n), 1));
+      mesh.geometry.setIndex(new THREE.BufferAttribute(out.slice(0, n), 1));
     }
   }
 

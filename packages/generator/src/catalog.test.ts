@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ADULT_MIN_AGE, RACE_IDS } from "@actors/human";
-import { type CharacterCatalog, GARMENT_COLORS, OUTFITS, defaultConfig, outfitGarments, randomConfig, resolveOutfit, seededRandom } from "./catalog";
+import { type CharacterCatalog, GARMENT_COLORS, concealedGarments, OUTFITS, defaultConfig, outfitGarments, randomConfig, resolveOutfit, seededRandom } from "./catalog";
 
 const IDS = ["briefs", "bra", "tshirt", "jeans", "socks", "skirt", "skirt-mini", "dress", "sneakers"];
 const catalog: CharacterCatalog = {
@@ -13,7 +13,7 @@ const catalog: CharacterCatalog = {
     coversAnatomy: id === "briefs",
     slot: id.startsWith("skirt") ? "skirt" : undefined,
     category: "Clothes",
-    occupies: id.startsWith("skirt") || id === "jeans" ? ["bottom"] : id === "tshirt" ? ["top"] : id === "dress" ? ["top", "bottom"] : id === "sneakers" ? ["shoes"] : [],
+    occupies: id === "briefs" ? ["briefs"] : id === "bra" ? ["bra"] : id.startsWith("skirt") || id === "jeans" ? ["bottom"] : id === "tshirt" ? ["top"] : id === "dress" ? ["top", "bottom"] : id === "sneakers" ? ["shoes"] : [],
     ...(id === "dress" || id.startsWith("skirt") ? { gender: "female" as const } : {}),
   })),
   outfits: OUTFITS.filter((o) => o.garments.every((g) => IDS.includes(g))),
@@ -46,6 +46,14 @@ describe("resolveOutfit", () => {
 
   it("keeps every preset intact", () => {
     for (const o of catalog.outfits) for (const gender of [0, 1]) expect(resolveOutfit(catalog, outfitGarments(o, { gender }))).toEqual(outfitGarments(o, { gender }));
+  });
+});
+
+describe("concealedGarments", () => {
+  it("skips underwear that outer clothes cover", () => {
+    expect(concealedGarments(catalog, ["briefs", "bra"])).toEqual([]);
+    expect(concealedGarments(catalog, ["briefs", "bra", "jeans"])).toEqual(["briefs"]);
+    expect(concealedGarments(catalog, ["briefs", "bra", "dress", "sneakers"]).sort()).toEqual(["bra", "briefs"]);
   });
 });
 

@@ -271,6 +271,20 @@ export function resolveOutfit(catalog: Pick<CharacterCatalog, "garments">, outfi
   return out;
 }
 
+/** Underwear layers an outer layer covers completely (a top covers the bra, a bottom the briefs). */
+const UNDER_LAYERS: Record<string, string[]> = { top: ["bra"], bottom: ["briefs"] };
+
+/**
+ * Worn garments that need not be drawn because outer clothes cover them
+ * completely (briefs under trousers, a bra under a top), so they can never
+ * peek through.
+ */
+export function concealedGarments(catalog: Pick<CharacterCatalog, "garments">, outfit: string[]): string[] {
+  const worn = catalog.garments.filter((g) => outfit.includes(g.id));
+  const covered = new Set(worn.flatMap((g) => g.occupies.flatMap((l) => UNDER_LAYERS[l] ?? [])));
+  return worn.filter((g) => g.occupies.length > 0 && g.occupies.every((l) => covered.has(l))).map((g) => g.id);
+}
+
 /** Garment ids of an outfit preset for a body. */
 export function outfitGarments(preset: OutfitPreset, body: Pick<HumanParams, "gender">): string[] {
   return [...preset.garments, ...(body.gender < 0.5 ? (preset.female ?? []) : [])];

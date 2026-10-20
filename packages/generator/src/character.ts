@@ -3,7 +3,7 @@ import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { ActorShape, Clip, Fetcher, MessagePortLike } from "@actors/core";
 import { ADULT_MIN_AGE, BEARD_STYLES, BLINK, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type RaceId, raceScale, sanitizeRace } from "@actors/human";
 import { IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
-import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, type RandomOptions, buildCatalog, defaultConfig, outfitGarments, randomConfig, resolveOutfit } from "./catalog";
+import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, type RandomOptions, buildCatalog, defaultConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit } from "./catalog";
 
 /** A change to a character. `body` is merged into the current body; every other field replaces the current value. */
 export type CharacterPatch = Partial<Omit<CharacterConfig, "body">> & { body?: Partial<HumanParams> };
@@ -222,10 +222,15 @@ export class Character {
   private applyLook(): void {
     const c = this.cfg;
     const a = this.actor;
+    // Underwear under outer clothes is not drawn at all, so it can't peek through them.
+    const concealed = concealedGarments(this.catalog, c.outfit);
     for (const g of this.catalog.garments) {
       a.setVisible(g.id, c.outfit.includes(g.id));
+      a.setConcealed(g.id, concealed.includes(g.id));
       a.setGarmentColor(g.id, c.garmentColors[g.id] ?? null);
     }
+    // Covering underwear that isn't drawn still hides the female detail painted on the skin.
+    const concealedCover = this.catalog.garments.some((g) => g.coversAnatomy && concealed.includes(g.id));
     for (const h of this.catalog.hair) a.setVisible(h.id, h.id === c.hair);
     for (const b of this.catalog.brows) a.setVisible(b.id, b.id === c.brows);
     a.skin.uBrowDensity.value = c.brows === PAINTED_BROWS ? 0.92 : 0;
@@ -259,7 +264,7 @@ export class Character {
     }
     const male = c.body.gender >= 0.5;
     a.setVisible("genitals-male", c.anatomy && male);
-    a.skin.uFemale.value = c.anatomy && !male ? 1 : 0;
+    a.skin.uFemale.value = concealedCover ? 0 : c.anatomy && !male ? 1 : 0;
     a.setMorphWeight("expression", c.expressionIntensity);
   }
 
