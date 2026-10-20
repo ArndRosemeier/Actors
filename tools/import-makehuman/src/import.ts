@@ -459,11 +459,12 @@ async function main() {
     "skirt-mini": { category: "Bottoms", occupies: ["bottom"], gender: "female" },
   };
 
-  // --- Wardrobe: CC0 garments from MakeHuman asset packs, each in its own file, loaded when worn ---
+  // --- Wardrobe: CC0 and CC-BY garments from MakeHuman asset packs, each in its own file, loaded when worn ---
   mkdirSync(join(out, "garments"), { recursive: true });
   let wardrobeBytes = 0;
   for (const item of WARDROBE) {
-    const pack = `${MH_PACKS}/${item.pack}/${item.pack}_cc0.zip`;
+    const cc = item.license === "CC-BY" ? "cc-by" : "cc0";
+    const pack = `${MH_PACKS}/${item.pack}/${item.pack}_${cc}.zip`;
     const dir = `clothes/${item.id}`;
     const clo = parseMhclo(fetchZipText(CACHE, pack, `${dir}/${item.id}.mhclo`));
     const cloObj = parseObj(fetchZipText(CACHE, pack, `${dir}/${clo.objFile}`));
@@ -506,14 +507,14 @@ async function main() {
       optional: true,
       // MakeHuman clothes already sit off the skin; a little extra keeps them above the base garments.
       inflate: 0.002,
-      tags: [`fabric:${item.fabric ?? "smooth"}`, ...(item.coversAnatomy ? ["covers:anatomy"] : [])],
+      tags: [`fabric:${item.fabric ?? "smooth"}`, ...(item.coversAnatomy ? ["covers:anatomy"] : []), ...(item.hidesHair ? ["covers:hair"] : []), `license:${item.license ?? "CC0"}`],
       hidesBaseVertices: writer.add("u32", coveredBody(gPos, cloObj.faces.map((f) => f.v), item.hideRadius ?? 0.015)),
     });
     const bin = writer.toBuffer();
     writeFileSync(join(out, file), bin);
     wardrobeBytes += bin.byteLength;
     garmentLabels[item.name] = item.label;
-    garmentInfo[item.name] = { label: item.label, category: item.category, occupies: item.occupies, ...(item.gender ? { gender: item.gender } : {}), credit: `${item.id} (MakeHuman ${item.pack} pack, CC0)` };
+    garmentInfo[item.name] = { label: item.label, category: item.category, occupies: item.occupies, ...(item.gender ? { gender: item.gender } : {}), ...(item.license === "CC-BY" ? { credit: `${item.id} by ${item.author} (MakeHuman ${item.pack} pack, CC-BY)`, author: item.author } : { credit: `${item.id} (MakeHuman ${item.pack} pack, CC0)` }) };
   }
   console.log(`Wardrobe: ${WARDROBE.length} garments, ${(wardrobeBytes / 1e6).toFixed(1)} MB of mesh data (loaded when worn)`);
 

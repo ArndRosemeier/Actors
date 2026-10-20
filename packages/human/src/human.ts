@@ -37,6 +37,8 @@ export interface GarmentInfo {
   gender?: "female" | "male";
   /** Where the asset came from (author, pack, licence). */
   credit?: string;
+  /** Author to credit, for CC-BY assets. */
+  author?: string;
 }
 
 /** A human actor: parameters + detail sliders -> target weights -> shape. */
