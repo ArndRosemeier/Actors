@@ -20,6 +20,11 @@ export interface GarmentChoice extends Choice {
   category: string;
   /** Hides the genital mesh/detail while worn. */
   coversAnatomy: boolean;
+  /** Hides the hair while worn (closed helmets, hoods). */
+  hidesHair?: boolean;
+  /** Credit line for CC-BY garments (anyone shipping a character wearing it must credit the author). */
+  credit?: string;
+  author?: string;
   /** Typical wearer, for random outfits; absent = anyone. */
   gender?: "female" | "male";
 }
@@ -171,6 +176,19 @@ export const OUTFITS: OutfitPreset[] = [
   { id: "monk", label: "Monk robe", garments: ["briefs", "monk-robe", "monk-hood"] },
   { id: "viking", label: "Viking", garments: ["briefs", "viking-tunic", "viking-pants", "viking-boots"], gender: "male" },
   { id: "antique", label: "Mycenaean tunic", garments: ["briefs", "tunic", "t-bar-shoes"] },
+  // Fantasy
+  { id: "knight", label: "Knight", garments: ["briefs", "viking-tunic", "viking-pants", "cuffed-knee-boots", "gauntlet-gloves", "knight-helmet"], gender: "male", colors: { "cuffed-knee-boots": "#4a3426", "gauntlet-gloves": "#4a3426" } },
+  { id: "warlord", label: "Dark warlord", garments: ["briefs", "viking-tunic", "viking-pants", "viking-boots", "gauntlet-gloves", "dark-horned-helmet"], gender: "male", colors: { "viking-tunic": "#2a2a2e", "gauntlet-gloves": "#1c1c1f" } },
+  { id: "hoplite", label: "Hoplite", garments: ["briefs", "tunic", "cloth-shoes", "corinthian-helmet"], gender: "male", colors: { tunic: "#8c2a24" } },
+  { id: "wizard", label: "Wizard", garments: ["briefs", "wizard-robe", "wizard-hat", "cloth-shoes"], colors: { "wizard-robe": "#2c3570", "wizard-hat": "#2c3570" } },
+  { id: "witch", label: "Witch", garments: ["briefs", "medieval-dress", "witch-hat", "cuffed-boots"], gender: "female", colors: { "medieval-dress": "#2a2433", "cuffed-boots": "#1c1c1f" } },
+  { id: "elven-gown", label: "Elven gown", garments: ["briefs", "elven-gown", "ballet-flats"], gender: "female" },
+  { id: "priestess", label: "Priestess", garments: ["briefs", "priestess-robe", "cloth-shoes"], gender: "female" },
+  { id: "goddess", label: "Goddess", garments: ["briefs", "goddess-dress", "t-bar-shoes"], gender: "female" },
+  { id: "medieval", label: "Medieval dress", garments: ["briefs", "medieval-dress", "cloth-shoes"], gender: "female" },
+  { id: "peasant", label: "Peasant", garments: ["briefs", "longsleeve", "skirt", "cloth-shoes"], female: ["bra"], gender: "female", colors: { longsleeve: "#e8e0cc" } },
+  { id: "ranger", label: "Ranger", garments: ["briefs", "longsleeve", "wool-pants", "pirate-boots", "monk-hood", "gloves-short"], female: ["bra"], gender: "female", colors: { longsleeve: "#3f4a2c", "wool-pants": "#4a3426", "monk-hood": "#2f3b26" } },
+  { id: "ninja", label: "Ninja", garments: ["briefs", "ninja"], gender: "female" },
   { id: "office", label: "Blouse and pencil skirt", garments: ["briefs", "blouse-pencil-skirt", "stockings", "black-shoes"], female: ["bra"], gender: "female" },
   { id: "party", label: "Camisole and mini skirt", garments: ["briefs", "camisole", "skirt-tiered-mini", "overknee-boots"], gender: "female" },
   { id: "lingerie", label: "Lingerie", garments: ["lace-thong", "underwear-top", "fishnet-stockings"], gender: "female" },
@@ -226,6 +244,8 @@ export function buildCatalog(human: Human, irisPresets: string[]): CharacterCata
         occupies: g.occupies ?? [],
         category: g.category ?? "Clothes",
         coversAnatomy: !!d.tags?.includes("covers:anatomy"),
+        hidesHair: !!d.tags?.includes("covers:hair"),
+        ...(d.tags?.includes("license:CC-BY") && g.credit ? { credit: g.credit, author: g.author } : {}),
         ...(g.gender ? { gender: g.gender } : {}),
       };
     });

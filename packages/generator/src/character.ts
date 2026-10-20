@@ -219,6 +219,11 @@ export class Character {
   }
 
   /** Everything that needs no new shape: visibility, colours, eyes, morph weights. */
+  /** Whether a worn garment (a closed helmet, a hood) hides the hair. */
+  private hidesHair(): boolean {
+    return this.catalog.garments.some((g) => g.hidesHair && this.cfg.outfit.includes(g.id));
+  }
+
   private applyLook(): void {
     const c = this.cfg;
     const a = this.actor;
@@ -231,7 +236,9 @@ export class Character {
     }
     // Covering underwear that isn't drawn still hides the female detail painted on the skin.
     const concealedCover = this.catalog.garments.some((g) => g.coversAnatomy && concealed.includes(g.id));
-    for (const h of this.catalog.hair) a.setVisible(h.id, h.id === c.hair);
+    // Closed helmets and hoods hide the hair, which would poke through them.
+    const hatHides = this.hidesHair();
+    for (const h of this.catalog.hair) a.setVisible(h.id, h.id === c.hair && !hatHides);
     for (const b of this.catalog.brows) a.setVisible(b.id, b.id === c.brows);
     a.skin.uBrowDensity.value = c.brows === PAINTED_BROWS ? 0.92 : 0;
     a.setHairColor(c.hairColor);
@@ -319,10 +326,10 @@ export class Character {
       this.lastUpdateMs = performance.now() - t0;
       this.applyLook();
     }
-    const partsKey = JSON.stringify([shapeKey, c.hair, c.beard, c.horns, c.hornSize, c.tusks, c.tail, c.tailLength, c.seed]);
+    const partsKey = JSON.stringify([shapeKey, c.hair, this.hidesHair(), c.beard, c.horns, c.hornSize, c.tusks, c.tail, c.tailLength, c.seed]);
     if (partsKey !== this.applied.parts && this.shape) {
       this.applied.parts = partsKey;
-      const hair = c.hair === "leaves" || c.hair === "crest" ? c.hair : "none";
+      const hair = (c.hair === "leaves" || c.hair === "crest") && !this.hidesHair() ? c.hair : "none";
       const rgb = new THREE.Color(c.hornColor ?? "#d9cfb4").convertLinearToSRGB();
       this.actor.setParts(await h.parts(this.shape, { seed: c.seed, horns: c.horns, hornSize: c.hornSize, hornColor: [rgb.r, rgb.g, rgb.b], tusks: c.tusks, tail: c.tail, tailLength: c.tailLength, beard: c.beard, hair }));
       this.applyLook();

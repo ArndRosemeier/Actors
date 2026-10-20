@@ -26,6 +26,9 @@ const STYLE = `
 .actors-editor summary { cursor: pointer; padding: 3px 0; text-transform: capitalize; }
 .actors-editor .ae-check { display: flex; gap: 6px; align-items: center; margin: 3px 0; }
 .actors-editor .ae-grid { display: grid; grid-template-columns: 1fr 1fr; }
+.actors-editor .ae-check { flex-wrap: wrap; }
+.actors-editor .ae-check > span { flex: 1; min-width: 0; }
+.actors-editor .ae-credit { flex-basis: 100%; margin: -2px 0 0 22px; color: var(--ae-muted); font-size: 10px; }
 .actors-editor input[type="search"] { background: #272a31; color: var(--ae-text); border: 1px solid var(--ae-border); border-radius: 6px; padding: 5px 9px; font: inherit; min-width: 0; }
 .actors-editor select, .actors-editor button { background: #272a31; color: var(--ae-text); border: 1px solid var(--ae-border); border-radius: 6px; padding: 5px 9px; font: inherit; }
 .actors-editor button { cursor: pointer; }
@@ -249,6 +252,13 @@ export class CharacterEditor {
         set({ outfit: on ? [...cur, g.id] : cur });
       });
       box.dataset.garment = g.id;
+      if (g.credit) {
+        const credit = document.createElement("small");
+        credit.className = "ae-credit";
+        credit.textContent = `CC-BY · ${g.author ?? ""}`;
+        credit.title = g.credit;
+        box.parentElement!.appendChild(credit);
+      }
     }
 
     // Colours of the worn garments: palette swatches, a free colour picker and "original".
@@ -530,7 +540,9 @@ export class CharacterEditor {
     const box = document.createElement("input");
     box.type = "checkbox";
     if (key) box.dataset.key = key;
-    l.append(box, ` ${label}`);
+    const text = document.createElement("span");
+    text.textContent = label;
+    l.append(box, text);
     box.addEventListener("change", () => onChange(box.checked));
     this.syncers.push((c) => (box.checked = get(c)));
     parent.appendChild(l);
