@@ -7,4 +7,4 @@ apps/viewer/public/packs/
 .DS_Store
 tools/import-makehuman/scratch/
 apps/viewer/public/reference/
-release/
+/release/
