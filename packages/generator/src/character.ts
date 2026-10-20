@@ -20,6 +20,8 @@ export interface CharacterOptions {
   worker?: MessagePortLike;
   /** Starting look; missing fields use the defaults. */
   config?: CharacterPatch;
+  /** Also list the pack's large clip libraries (e.g. 2,548 CMU motions; default true). Only their index is loaded up front. */
+  clipLibraries?: boolean;
   fetcher?: Fetcher;
 }
 
@@ -66,6 +68,7 @@ export class Character {
 
   static async load(options: CharacterOptions): Promise<Character> {
     const human = await Human.load(options.pack, options.fetcher);
+    if (options.clipLibraries !== false) await Promise.all((human.runtime.manifest.clipLibraries ?? []).map((l) => human.runtime.loadClipLibrary(l.name)));
     if (options.worker) await human.useWorker(options.worker);
     const c = new Character(human, options.renderer);
     await c.set(options.config ?? {});

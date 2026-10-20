@@ -3,7 +3,8 @@ import { ADULT_MIN_AGE } from "@actors/human";
 import { type CharacterCatalog, OUTFITS, defaultConfig, outfitGarments, randomConfig, seededRandom } from "./catalog";
 
 const catalog: CharacterCatalog = {
-  animations: [{ id: "idle", label: "Idle" }, { id: "walk", label: "Walk" }],
+  animations: [{ id: "idle", label: "Idle", category: "Idle", loop: true, library: "" }, { id: "walk", label: "Walk", category: "Locomotion", loop: true, library: "" }],
+  libraries: [{ id: "", label: "Animations" }],
   garments: ["briefs", "bra", "tshirt", "jeans", "socks", "skirt", "skirt-mini"].map((id) => ({ id, label: id, coversAnatomy: id === "briefs", slot: id.startsWith("skirt") ? "skirt" : undefined })),
   outfits: OUTFITS.filter((o) => !o.garments.includes("shorts") && !o.garments.includes("longsleeve")),
   hair: [{ id: "hair-short02", label: "Short" }, { id: "hair-long01", label: "Long" }],

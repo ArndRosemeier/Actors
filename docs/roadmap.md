@@ -12,6 +12,7 @@ Based on the research in the project (`research/character-base-options.md`, `res
 - **Detail**: Catmull-Clark subdivision at load time; dual-quaternion skinning.
 - **Clothing**: generated garment library cut from the tights helper with per-pixel hems, fitted `.mhclo` socks, long and mini skirt from MakeHuman's CC0 skirts pack with skirt skinning (averaged thigh weights) and GPU leg colliders; layering.
 - **Animation**: Quaternius Universal Animation Library clips (CC0, Unreal-mannequin skeleton with fingers and a stored rest pose) retargeted to any fitted skeleton (limbs aligned to the source rest pose, torso and clavicles keep the body's own posture); nine expression presets from MakeHuman's face units, auto-blink on GPU morphs.
+- **Animation library**: all 84 usable Quaternius clips with categories; the CMU database (2,548 motions) as an on-demand clip library (BVH rest pose from the offsets, zero-length joints skipped, 16-bit clips, ~100 KB each), searchable in the editor.
 - **Generator**: `@actors/generator` packages everything as a reusable `Character` (JSON config, every clip, outfit presets from nude up, randomize, save/load, glTF export) with an optional stage and editor panel; the viewer is built on it.
 - **Performance**: shape evaluation in a Web Worker; subdivision computed at load time; targets streamed on demand; the importer pulls single files out of MakeHuman's asset-pack zips with HTTP range requests.
 

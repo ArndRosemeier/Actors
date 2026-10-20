@@ -20,8 +20,20 @@ export interface OutfitPreset extends Choice {
 }
 
 /** Everything a pack offers, as plain ids and labels (for UIs and random generation). */
+export interface AnimationChoice extends Choice {
+  /** Menu group, e.g. "Locomotion" or "Combat". */
+  category: string;
+  /** Made to loop (idles, walks); the rest are one-shots, which also repeat when played. */
+  loop: boolean;
+  /** "" for the pack's own clips, else the clip library's name (e.g. "cmu"). */
+  library: string;
+  description?: string;
+}
+
 export interface CharacterCatalog {
-  animations: Choice[];
+  animations: AnimationChoice[];
+  /** Animation sources: "" = the pack's own clips, then each loaded clip library. */
+  libraries: Choice[];
   garments: GarmentChoice[];
   outfits: OutfitPreset[];
   hair: Choice[];
@@ -99,7 +111,12 @@ export function buildCatalog(human: Human, irisPresets: string[]): CharacterCata
   const outfits = OUTFITS.filter((o) => o.garments.every((g) => have.has(g))).map((o) => ({ ...o, female: o.female?.filter((g) => have.has(g)) }));
   const choices = (r: Record<string, string> | undefined) => Object.entries(r ?? {}).map(([id, label]) => ({ id, label }));
   return {
-    animations: (m.clips ?? []).map((c) => ({ id: c.name, label: cap(c.name) })),
+    animations: human.runtime.clipDefs.map((c) => {
+      const library = m.clipLibraries?.find((l) => c.file.startsWith(l.file.slice(0, l.file.lastIndexOf("/") + 1)))?.name ?? "";
+      const label = library && c.description ? `${c.name.replace(/^\S+\s/, "")} · ${c.description}` : cap(c.name);
+      return { id: c.name, label, category: c.category ?? "Other", loop: c.loop, library, description: c.description };
+    }),
+    libraries: [{ id: "", label: `Animations (${(m.clips ?? []).length})` }, ...(m.clipLibraries ?? []).map((l) => ({ id: l.name, label: `${l.name === "cmu" ? "CMU motion capture" : l.name} (${l.count})` }))],
     garments,
     outfits,
     hair: choices(human.extra.hairLabels),
@@ -199,6 +216,6 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
     hairColor: old ? "#9a968f" : r() < 0.4 ? null : (pick(catalog.hairColors)?.id ?? null),
     brows: pick(catalog.brows)?.id ?? base.brows,
     outfit: outfitPreset ? outfitGarments(outfitPreset, body) : base.outfit,
-    animation: options.animation ? (pick(catalog.animations)?.id ?? base.animation) : base.animation,
+    animation: options.animation ? (pick(catalog.animations.filter((a) => !a.library))?.id ?? base.animation) : base.animation,
   };
 }

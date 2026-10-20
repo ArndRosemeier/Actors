@@ -50,6 +50,10 @@ const glb = await character.exportGlb("all");   // mesh, rig, visible clothes/ha
 
 `character.catalog` lists every choice the pack offers (ids and labels): `animations`, `garments` (with slots and whether they cover the anatomy), `outfits` (presets), `hair`, `hairColors`, `brows`, `eyes`, `expressions` and the detail sliders. Build your own UI from it, or use `CharacterEditor`.
 
+Large clip libraries in the pack (the 2,548 CMU motions) are listed in `catalog.animations` too, with `library: "cmu"`, a `category` (the capture session) and a `description`; only their index is loaded up front, each clip on first play. Pass `clipLibraries: false` to `Character.load` to skip them.
+
+`CharacterEditor` has two modes: **Simple** (body basics, ethnicity, hair, eyes, outfit preset, animation, face) for everyday users and **Detailed** (every control, garment by garment, the CMU library with search, detail sliders). Pick one with `mode`, hide the switch with `modeSwitch: false`; the viewer's last choice is remembered.
+
 Notes:
 * `set()` merges `body` and replaces every other field. It resolves once the change is visible; rapid calls (slider drags) are merged.
 * Garments in the same slot replace each other (the long and the mini skirt).

@@ -31,6 +31,7 @@ import { type ObjData, type ObjFace, buildRenderMesh, parseObj } from "./obj";
 import { CLIP_SPECS, UAL_ARCHIVES, type UalArchive, importClip } from "./clips";
 import { type Gltf, parseGlb } from "./gltf";
 import { readZip } from "./zip";
+import { CMU_URL, importCmu } from "./cmu";
 import type { SkinTextureDef } from "@actors/human";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -89,7 +90,7 @@ function normalizeUV(uv: number[]): number[] {
   return uv.map((x, i) => (i % 2 ? (x - v0) / (v1 - v0 || 1) : (x - u0) / (u1 - u0 || 1)));
 }
 
-function main() {
+async function main() {
   const src = mpfbDir();
   const data = join(src, "src/mpfb/data");
   const out = resolve(arg("out") ?? join(ROOT, "apps/viewer/public/packs/human"));
@@ -622,6 +623,11 @@ function main() {
   }
   writeFileSync(join(refDir, "clips.json"), JSON.stringify(reference, null, 2));
 
+  // --- CMU motion capture library (on demand; `--no-cmu` skips it, `--cmu-limit N` for a quick run) ---
+  const clipLibraries = process.argv.includes("--no-cmu")
+    ? []
+    : [await importCmu(CACHE, out, fetchText(CACHE, `${CMU_URL}/cmu-mocap-index-text.txt`), arg("cmu-limit") ? +arg("cmu-limit")! : Infinity)];
+
   // --- Manifest ---------------------------------------------------------------
   const manifest: ActorPackManifest = {
     format: "actors-pack",
@@ -631,7 +637,7 @@ function main() {
     units: "meters",
     source: {
       name: "MakeHuman / MPFB2 (hm08 base mesh, targets, game_engine rig, eyes); Quaternius Universal Animation Library 1 + 2",
-      license: "CC0-1.0 (MakeHuman assets and Quaternius animations)",
+      license: "CC0-1.0 (MakeHuman assets and Quaternius animations); CMU mocap library: see clipLibraries",
       url: "https://github.com/makehumancommunity/mpfb2",
     },
     blob: "base.bin",
@@ -643,6 +649,7 @@ function main() {
     skin,
     targets,
     clips,
+    clipLibraries,
     extra: {
       human: {
         macroTargets,
@@ -667,4 +674,7 @@ function main() {
   );
 }
 
-main();
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

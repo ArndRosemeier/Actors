@@ -1,4 +1,4 @@
-import { type ActorPackManifest, type MeshDef, readBuffer } from "./format";
+import { type ActorPackManifest, type ClipDef, type ClipLibrary, type MeshDef, readBuffer } from "./format";
 import type { Clip } from "./retarget";
 import { computeNormals } from "./normals";
 import { subdivideQuadMesh } from "./subdivide";
@@ -158,11 +158,33 @@ export class ActorRuntime {
     }
   }
 
-  /** Loads a motion clip listed in the manifest. */
+  private readonly libraryClips = new Map<string, ClipDef[]>();
+
+  /** Clips listed in the manifest plus those of every loaded clip library. */
+  get clipDefs(): ClipDef[] {
+    return [...(this.manifest.clips ?? []), ...[...this.libraryClips.values()].flat()];
+  }
+
+  /** Loads a clip library's index (see `manifest.clipLibraries`), so its clips can be played. */
+  async loadClipLibrary(name: string): Promise<ClipDef[]> {
+    const ref = this.manifest.clipLibraries?.find((l) => l.name === name);
+    if (!ref) throw new Error(`Unknown clip library ${name}`);
+    if (!this.libraryClips.has(name)) {
+      const lib = JSON.parse(new TextDecoder().decode(await this.fetcher(this.baseUrl + ref.file))) as ClipLibrary;
+      const dir = ref.file.slice(0, ref.file.lastIndexOf("/") + 1);
+      this.libraryClips.set(
+        name,
+        lib.clips.map(({ rig, ...c }) => ({ ...lib.rigs[rig], ...c, file: dir + c.file })),
+      );
+    }
+    return this.libraryClips.get(name)!;
+  }
+
+  /** Loads a motion clip listed in the manifest or a loaded clip library. */
   async loadClip(name: string): Promise<Clip> {
-    const def = this.manifest.clips?.find((c) => c.name === name);
+    const def = this.clipDefs.find((c) => c.name === name);
     if (!def) throw new Error(`Unknown clip ${name}`);
-    return { def, data: new Float32Array(await this.fetcher(this.baseUrl + def.file)) };
+    return { def, data: decodeClip(def, await this.fetcher(this.baseUrl + def.file)) };
   }
 
   /** Loads a texture file shipped with the pack (as raw bytes). */
@@ -315,4 +337,32 @@ function stencilSkin(st: NonNullable<MeshData["stencil"]>, baseJoints: Uint16Arr
     });
   }
   return { joints, weights };
+}
+
+/** Clip file -> interleaved f32 frames (bones x quat, then root xyz), whatever the stored encoding. */
+export function decodeClip(def: ClipDef, buf: ArrayBuffer): Float32Array {
+  if (def.encoding !== "i16") return new Float32Array(buf);
+  const nb = def.bones.length, n = def.frameCount;
+  const q = new Int16Array(buf, 0, n * nb * 4);
+  const root = new Float32Array(buf, n * nb * 8, n * 3);
+  const stride = nb * 4 + 3;
+  const out = new Float32Array(n * stride);
+  for (let f = 0; f < n; f++) {
+    for (let k = 0; k < nb * 4; k++) out[f * stride + k] = q[f * nb * 4 + k] / 32767;
+    out.set(root.subarray(f * 3, f * 3 + 3), f * stride + nb * 4);
+  }
+  return out;
+}
+
+/** Inverse of decodeClip for "i16": interleaved f32 frames -> stored bytes. */
+export function encodeClipI16(bones: number, frames: number, data: Float32Array): Uint8Array {
+  const stride = bones * 4 + 3;
+  const out = new ArrayBuffer(frames * bones * 8 + frames * 12);
+  const q = new Int16Array(out, 0, frames * bones * 4);
+  const root = new Float32Array(out, frames * bones * 8, frames * 3);
+  for (let f = 0; f < frames; f++) {
+    for (let k = 0; k < bones * 4; k++) q[f * bones * 4 + k] = Math.round(Math.max(-1, Math.min(1, data[f * stride + k])) * 32767);
+    root.set(data.subarray(f * stride + bones * 4, f * stride + stride), f * 3);
+  }
+  return new Uint8Array(out);
 }
