@@ -34,6 +34,7 @@ import { readZip } from "./zip";
 import { CMU_URL, importCmu } from "./cmu";
 import type { GarmentInfo, SkinTextureDef } from "@actors/human";
 import { WARDROBE } from "./wardrobe";
+import { type Vec3, closestOnTriangle } from "./geometry";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const CACHE = join(ROOT, ".cache");
@@ -206,8 +207,11 @@ async function main() {
   };
 
   /**
-   * Body vertices hidden while a garment is worn: close to the garment, and
-   * not near its edges (so no holes show at hems).
+   * Base vertices hidden while a garment is worn: skin and body-cut garments
+   * (tights helper: briefs, bra, …) within `radius` of the garment's surface,
+   * and not near its edges (so no holes show at hems). Renderers hide them
+   * only under garments on a higher layer, so underwear disappears under a
+   * shirt but not the other way round.
    */
   const coveredBody = (gPos: number[], gFaces: number[][], radius = 0.015, margin = 0.035): number[] => {
     const edges = new Map<string, number>();
@@ -219,29 +223,62 @@ async function main() {
       });
     const boundary = new Set<number>();
     for (const [k, n] of edges) if (n === 1) k.split("_").forEach((x) => boundary.add(+x));
-    const used = new Set(gFaces.flat());
     const cell = Math.max(radius, margin);
-    const grid = new Map<string, number[]>();
-    const keyOf = (x: number, y: number, z: number) => `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
-    for (const i of used) {
-      const k = keyOf(gPos[i * 3], gPos[i * 3 + 1], gPos[i * 3 + 2]);
-      if (!grid.has(k)) grid.set(k, []);
-      grid.get(k)!.push(i);
+    const cellOf = (t: number) => Math.floor(t / cell);
+    // Triangles and edge vertices, each in every grid cell it can reach within `cell`.
+    const tris: [number, number, number][] = [];
+    for (const f of gFaces) for (let i = 1; i + 1 < f.length; i++) tris.push([f[0], f[i], f[i + 1]]);
+    const triGrid = new Map<string, number[]>();
+    tris.forEach((t, ti) => {
+      const lo = [0, 1, 2].map((c) => cellOf(Math.min(...t.map((v) => gPos[v * 3 + c])) - cell));
+      const hi = [0, 1, 2].map((c) => cellOf(Math.max(...t.map((v) => gPos[v * 3 + c])) + cell));
+      for (let x = lo[0]; x <= hi[0]; x++)
+        for (let y = lo[1]; y <= hi[1]; y++)
+          for (let z = lo[2]; z <= hi[2]; z++) {
+            const k = `${x},${y},${z}`;
+            if (!triGrid.has(k)) triGrid.set(k, []);
+            triGrid.get(k)!.push(ti);
+          }
+    });
+    const edgeGrid = new Map<string, number[]>();
+    for (const i of boundary) {
+      const k = `${cellOf(gPos[i * 3])},${cellOf(gPos[i * 3 + 1])},${cellOf(gPos[i * 3 + 2])}`;
+      if (!edgeGrid.has(k)) edgeGrid.set(k, []);
+      edgeGrid.get(k)!.push(i);
     }
     const out: number[] = [];
-    for (const v of groupVerts.get("body")!) {
-      const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
-      const cx = Math.floor(x / cell), cy = Math.floor(y / cell), cz = Math.floor(z / cell);
-      let near = Infinity, nearEdge = Infinity;
+    // Body-cut garments (tights helper) need no edge margin: hiding them near a hem only shows the skin
+    // under them, and MakeHuman clothes have many inner boundaries (pockets, collars) that a margin would spare.
+    const tightsVerts = new Set(groupVerts.get("helper-tights") ?? []);
+    for (const v of [...groupVerts.get("body")!, ...tightsVerts]) {
+      const garmentLayer = tightsVerts.has(v);
+      const p: Vec3 = [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]];
+      const [cx, cy, cz] = p.map(cellOf);
+      let near = Infinity;
+      // For body-cut garments: is the closest garment point on its rim? Then the vertex sits beside the
+      // garment (e.g. briefs above low-rise trousers), not under it, and stays visible.
+      let onRim = false;
+      for (const ti of triGrid.get(`${cx},${cy},${cz}`) ?? []) {
+        const t = tris[ti];
+        const hit = closestOnTriangle(p, t.map((i) => [gPos[i * 3], gPos[i * 3 + 1], gPos[i * 3 + 2]] as Vec3) as [Vec3, Vec3, Vec3]);
+        if (hit.distance < near) {
+          near = hit.distance;
+          const f = hit.feature.map((k) => t[k]);
+          onRim = f.length === 1 ? boundary.has(f[0]) : f.length === 2 && edges.get(f[0] < f[1] ? `${f[0]}_${f[1]}` : `${f[1]}_${f[0]}`) === 1;
+        }
+        if (!garmentLayer && near < radius * 0.25) break;
+      }
+      if (near >= (garmentLayer ? Math.max(radius, 0.035) : radius)) continue;
+      if (garmentLayer) {
+        if (!onRim) out.push(v);
+        continue;
+      }
+      let nearEdge = Infinity;
       for (let dx = -1; dx <= 1; dx++)
         for (let dy = -1; dy <= 1; dy++)
           for (let dz = -1; dz <= 1; dz++)
-            for (const i of grid.get(`${cx + dx},${cy + dy},${cz + dz}`) ?? []) {
-              const d = Math.hypot(gPos[i * 3] - x, gPos[i * 3 + 1] - y, gPos[i * 3 + 2] - z);
-              near = Math.min(near, d);
-              if (boundary.has(i)) nearEdge = Math.min(nearEdge, d);
-            }
-      if (near < radius && nearEdge > margin) out.push(v);
+            for (const i of edgeGrid.get(`${cx + dx},${cy + dy},${cz + dz}`) ?? []) nearEdge = Math.min(nearEdge, Math.hypot(gPos[i * 3] - p[0], gPos[i * 3 + 1] - p[1], gPos[i * 3 + 2] - p[2]));
+      if (nearEdge > margin) out.push(v);
     }
     return out;
   };
