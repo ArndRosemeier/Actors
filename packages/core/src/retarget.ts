@@ -58,9 +58,11 @@ export interface RetargetPose {
  * clavicle bones are placed differently per rig (a clavicle may start at the
  * sternum or the spine, a pelvis bone may point up or tilt back), so aligning
  * them would tilt the pelvis and lift the shoulders; they only get the clip's
- * change since its rest pose.
+ * change since its rest pose. Quadruped legs (the animal rig's Front_/Back_Leg
+ * bones below the shoulder blade and pelvis) count as limbs too.
  */
-export const LIMB_BONES = /^((upperarm|lowerarm|hand|thigh|calf|foot|ball)_[lr]|(index|middle|ring|pinky|thumb)_0[1-3]_[lr])$/;
+export const LIMB_BONES =
+  /^((upperarm|lowerarm|hand|thigh|calf|foot|ball)_[lr]|(index|middle|ring|pinky|thumb)_0[1-3]_[lr]|(Front|Back)_Leg_(Upper|Lower|Ankle|Foot|Foot_1)_[LR])$/;
 
 /** Plays a retargetable clip on a fitted skeleton. Rebuild when the skeleton is re-fitted. */
 export class Retargeter {

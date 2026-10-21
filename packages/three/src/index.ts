@@ -49,6 +49,7 @@ export * from "./colliders";
 export * from "./racepatterns";
 export * from "./parts";
 export * from "./crowd";
+export * from "./fur";
 
 export interface MaterialFactory {
   (mesh: MeshData, actor: ThreeActor): THREE.Material;
@@ -254,6 +255,8 @@ export class ThreeActor {
         g.setAttribute("skinWeight", new THREE.BufferAttribute(data.weights, 4));
       }
       if (data.clip) g.setAttribute("clipValue", new THREE.BufferAttribute(data.clip.slice(), 1));
+      // Extra per-vertex data from the pack (e.g. fur flow and coat regions), under its own name.
+      for (const [name, attr] of Object.entries(data.attributes ?? {})) g.setAttribute(name, new THREE.BufferAttribute(attr.array, attr.size));
       g.setIndex(new THREE.BufferAttribute(data.indices, 1));
       // Face morph channels only on base-following meshes (body, lashes, teeth...), not garments.
       const morphable = data.def.source.kind === "base" && data.def.role !== "garment";

@@ -24,7 +24,7 @@ export interface BufferRef {
 
 export interface MaterialHint {
   /** Free-form material kind the renderer adapter maps to its own material. */
-  kind: "skin" | "eye" | "cloth" | "hair" | "teeth" | "mouth" | "other";
+  kind: "skin" | "eye" | "cloth" | "hair" | "teeth" | "mouth" | "fur" | "other";
   color?: [number, number, number];
   roughness?: number;
 }
@@ -92,6 +92,12 @@ export interface MeshDef {
    * level's list.
    */
   simplified?: { level: number; indices: BufferRef }[];
+  /**
+   * Extra per render vertex data for the adapter's material (f32, `size`
+   * values per vertex), e.g. coat-pattern regions and fur direction on an
+   * animal's body. Adapters expose them as vertex attributes of the same name.
+   */
+  attributes?: Record<string, { data: BufferRef; size: 1 | 2 | 3 | 4 }>;
 }
 
 /**

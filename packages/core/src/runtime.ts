@@ -37,6 +37,8 @@ export interface MeshData {
   dominant?: Uint32Array;
   /** Reduced triangle lists by detail level (see MeshDef.simplified and `lodIndices`). */
   simplified?: Map<number, Uint32Array>;
+  /** Extra per render vertex attributes (see MeshDef.attributes). */
+  attributes?: Record<string, { array: Float32Array; size: number }>;
 }
 
 /** Positions of a stencil mesh: out[r] = sum_k w_k * base[col_k]. */
@@ -140,6 +142,8 @@ export class ActorRuntime {
       hidesBaseVertices: def.hidesBaseVertices ? readBuffer(blob, { ...def.hidesBaseVertices, type: "u32" }) : undefined,
       clip: def.clip ? readBuffer(blob, { ...def.clip, type: "f32" }) : undefined,
     };
+    if (def.attributes)
+      mesh.attributes = Object.fromEntries(Object.entries(def.attributes).map(([k, a]) => [k, { array: readBuffer(blob, { ...a.data, type: "f32" }), size: a.size }]));
     if (def.simplified?.length) mesh.simplified = new Map(def.simplified.map((s) => [s.level, readBuffer(blob, { ...s.indices, type: "u32" })]));
     if (stencil) {
       mesh.stencil = stencil;

@@ -35,13 +35,15 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      # Downloads (MPFB2 clone, MakeHuman asset packs, Quaternius animations) are cached between runs.
+      # Downloads (MPFB2 clone, MakeHuman asset packs, Quaternius and Mesh2Motion animations) are cached between runs.
       - uses: actions/cache@v4
         with:
           path: .cache
-          key: import-cache-${{ hashFiles('tools/import-makehuman/src/**') }}
+          key: import-cache-${{ hashFiles('tools/import-makehuman/src/**', 'tools/import-animals/src/**') }}
           restore-keys: import-cache-
       - run: npm run import:human
+      # Dog pack: Mesh2Motion's CC0 quadruped rig and clips plus a generated body.
+      - run: npm run import:animals
       - run: npm run build
       # A fresh Vite + TypeScript app installs the package tarballs, typechecks and builds.
       - run: npm run check:consumer

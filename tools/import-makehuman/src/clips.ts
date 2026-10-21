@@ -152,7 +152,7 @@ function rotate(q: Quat, v: Vec3): Vec3 {
 }
 
 /** World rotation and position of every node for the given local transforms. */
-function worldPose(g: Gltf, local: { t: Vec3; r: Quat }[]) {
+export function worldPose(g: Gltf, local: { t: Vec3; r: Quat }[]) {
   const rot: Quat[] = new Array(g.nodes.length);
   const pos: Vec3[] = new Array(g.nodes.length);
   const visit = (i: number) => {
@@ -172,11 +172,11 @@ function worldPose(g: Gltf, local: { t: Vec3; r: Quat }[]) {
   return { rot, pos };
 }
 
-function restLocals(g: Gltf) {
+export function restLocals(g: Gltf) {
   return g.nodes.map((n) => ({ t: [...n.translation] as Vec3, r: [...n.rotation] as Quat }));
 }
 
-function animLocals(g: Gltf, anim: GltfAnimation, t: number) {
+export function animLocals(g: Gltf, anim: GltfAnimation, t: number) {
   const local = restLocals(g);
   for (const ch of anim.channels) {
     if (ch.path === "rotation") local[ch.node].r = sampleChannel(ch, t) as Quat;
