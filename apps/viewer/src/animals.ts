@@ -18,7 +18,7 @@ const actor = new ThreeActor(animal.runtime, animalMaterials(fur));
 const shells = addFurShells(actor, fur);
 stage.add(actor);
 
-let breed = "germanShepherd";
+let breed = "wolfdog";
 let clipName: string | null = "idle";
 animal.params = breedParams(breed);
 
@@ -51,7 +51,7 @@ async function play(name: string | null): Promise<void> {
 const toHex = (c: RGB) => "#" + c.map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
 const fromHex = (h: string): RGB => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255) as RGB;
 const LABELS: Partial<Record<keyof DogShape, string>> = { earDrop: "ear drop", earFold: "ear fold", muzzleBroad: "muzzle width", muzzleDeep: "muzzle depth", skullDome: "skull dome", chestDeep: "chest depth", bellyTuck: "tuck-up", tailCurl: "tail curl" };
-const COAT_AMOUNTS: (keyof DogCoat)[] = ["saddle", "mask", "points", "belly", "bib", "socks", "blaze", "tailTip", "spots", "spotSize", "shade", "fluff"];
+const COAT_AMOUNTS: (keyof DogCoat)[] = ["saddle", "mask", "points", "belly", "bib", "socks", "blaze", "tailTip", "spots", "spotSize", "shade", "paleMask", "agouti", "tanLegs", "fluff"];
 
 function render(): void {
   const s = animal.shape, c = animal.coat;
@@ -68,7 +68,7 @@ function render(): void {
     <h2>Coat</h2>
     <div class="colors">${(["base", "second", "tan", "white"] as const).map((k) => `<label>${k}<input type="color" value="${toHex(c[k])}" data-color="${k}"></label>`).join("")}</div>
     ${slider("fur length", c.length * 1000, 0, 40, 0.5, `coat="length"`)}
-    ${COAT_AMOUNTS.map((k) => slider(k === "tailTip" ? "tail tip" : k === "spotSize" ? "spot size" : k, c[k] as number, 0, k === "spotSize" ? 2 : 1, 0.01, `coat="${k}"`)).join("")}
+    ${COAT_AMOUNTS.map((k) => slider(k === "tailTip" ? "tail tip" : k === "spotSize" ? "spot size" : k === "paleMask" ? "pale mask" : k === "tanLegs" ? "tan legs" : k, c[k] as number, 0, k === "spotSize" ? 2 : 1, 0.01, `coat="${k}"`)).join("")}
   </div>`;
   for (const b of panel.querySelectorAll<HTMLButtonElement>("[data-clip]")) {
     b.setAttribute("aria-pressed", String(b.dataset.clip === (clipName ?? "")));

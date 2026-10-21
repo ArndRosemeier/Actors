@@ -32,10 +32,30 @@ function rotate(q: Quat, v: Vec3): Vec3 {
   return [p[0], p[1], p[2]];
 }
 
+/** q^t for a unit quaternion (shortest arc), so t scales the rotation angle. */
+function quatPow(q: Quat, t: number): Quat {
+  const w = Math.max(-1, Math.min(1, q[3]));
+  const sign = w < 0 ? -1 : 1;
+  const angle = 2 * Math.acos(Math.abs(w));
+  const s = Math.sin(angle / 2);
+  if (s < 1e-6) return [0, 0, 0, 1];
+  const a = (angle * t) / 2;
+  const k = (Math.sin(a) / s) * sign;
+  return [q[0] * k, q[1] * k, q[2] * k, Math.cos(a)];
+}
+
+/**
+ * Tail bones only keep this share of their motion relative to the hips: the
+ * source fox carries its tail out behind, ours hangs, and the fox's big tail
+ * swings would push a hanging tail through the hind legs.
+ */
+const TAIL_MOTION = 0.3;
+
 export function convertClips(g: Gltf, rig: Rig, source = "Mesh2Motion fox rig (CC0)"): { def: ClipDef; data: Float32Array }[] {
   const nodes = rig.bones.map((b) => b.node);
   const names = rig.bones.map((b) => b.name);
-  const hips = rig.bones[rig.index.get("Hips")!].node;
+  const hipsK = rig.index.get("Hips")!;
+  const hips = rig.bones[hipsK].node;
   const rest = worldPose(g, restLocals(g));
   const refDirs = nodes.flatMap((j) => normalize(rotate(rest.rot[j], [0, 1, 0])));
   const restInv = nodes.map((j) => quatConjugate(rest.rot[j]));
@@ -51,8 +71,10 @@ export function convertClips(g: Gltf, rig: Rig, source = "Mesh2Motion fox rig (C
     const first = worldPose(g, animLocals(g, anim, 0)).pos[hips];
     for (let f = 0; f < frameCount; f++) {
       const pose = worldPose(g, animLocals(g, anim, (f / (frameCount - 1)) * anim.duration));
+      const hipsDelta = quatMul(pose.rot[hips], restInv[hipsK]);
       nodes.forEach((j, k) => {
-        const q = quatMul(pose.rot[j], restInv[k]);
+        let q = quatMul(pose.rot[j], restInv[k]);
+        if (names[k].startsWith("Tail")) q = quatMul(hipsDelta, quatPow(quatMul(quatConjugate(hipsDelta), q), TAIL_MOTION));
         if (f > 0) {
           const o = (f - 1) * stride + k * 4;
           if (q[0] * data[o] + q[1] * data[o + 1] + q[2] * data[o + 2] + q[3] * data[o + 3] < 0) q.forEach((v, c) => (q[c] = -v));

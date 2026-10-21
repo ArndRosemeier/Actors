@@ -35,6 +35,12 @@ export interface FurCoat {
   spots: number;
   spotSize: number;
   shade: number;
+  /** Light mask: cream muzzle sides, cheeks and lower jaw (wolf colouring). */
+  paleMask?: number;
+  /** Dark guard hair tips over a lighter undercoat (wolf grey, sable). */
+  agouti?: number;
+  /** Lower legs in the tan colour (fawn legs of wolves and wolfdogs). */
+  tanLegs?: number;
   /** Guard hair length in meters. */
   length: number;
   fluff: number;
@@ -52,6 +58,8 @@ export interface FurUniforms {
   uMarkB: THREE.IUniform<THREE.Vector4>;
   /** spots, spot size, shade, unused */
   uMarkC: THREE.IUniform<THREE.Vector4>;
+  /** pale mask, agouti, tan legs, unused */
+  uMarkD: THREE.IUniform<THREE.Vector4>;
   /** length (m), fluff, strand spacing (m), actor scale */
   uFur: THREE.IUniform<THREE.Vector4>;
   /** Iris colour of the animal eye material. */
@@ -67,6 +75,7 @@ export function createFurUniforms(): FurUniforms {
     uMarkA: { value: new THREE.Vector4() },
     uMarkB: { value: new THREE.Vector4() },
     uMarkC: { value: new THREE.Vector4(0, 1, 0.3, 0) },
+    uMarkD: { value: new THREE.Vector4() },
     uFur: { value: new THREE.Vector4(0.012, 0.2, 0.0019, 1) },
     uIris: { value: new THREE.Color().setRGB(0.32, 0.18, 0.06, THREE.SRGBColorSpace) },
   };
@@ -81,15 +90,16 @@ export function setFurCoat(u: FurUniforms, coat: FurCoat, scale = 1): void {
   u.uMarkA.value.set(coat.saddle, coat.mask, coat.points, coat.belly);
   u.uMarkB.value.set(coat.bib, coat.socks, coat.blaze, coat.tailTip);
   u.uMarkC.value.set(coat.spots, coat.spotSize, coat.shade, 0);
+  u.uMarkD.value.set(coat.paleMask ?? 0, coat.agouti ?? 0, coat.tanLegs ?? 0, 0);
   // The shape's size scales the whole body (fur included); divide it out so fur length is in meters.
   u.uFur.value.set(coat.length / scale, coat.fluff, 0.0019, scale);
 }
 
 const GLSL_VERT_PARS = /* glsl */ `
-attribute vec4 coatA; attribute vec4 coatB; attribute vec4 coatC; attribute vec4 coatD;
+attribute vec4 coatA; attribute vec4 coatB; attribute vec4 coatC; attribute vec4 coatD; attribute vec4 coatE;
 attribute vec3 coatPos; attribute vec3 furFlow;
-varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoatD;
-varying vec3 vCoatPos; varying float vShell;
+varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoatD; varying vec4 vCoatE;
+varying vec3 vCoatPos; varying vec3 vFlow; varying float vShell;
 uniform vec4 uFur;
 #ifdef FUR_SHELL
 attribute float furShell;
@@ -97,7 +107,7 @@ attribute float furShell;
 `;
 
 const GLSL_VERT_MAIN = /* glsl */ `
-vCoatA = coatA; vCoatB = coatB; vCoatC = coatC; vCoatD = coatD; vCoatPos = coatPos; vShell = 0.0;
+vCoatA = coatA; vCoatB = coatB; vCoatC = coatC; vCoatD = coatD; vCoatE = coatE; vCoatPos = coatPos; vFlow = furFlow; vShell = 0.0;
 #ifdef FUR_SHELL
 {
   vShell = furShell;
@@ -116,10 +126,10 @@ vCoatA = coatA; vCoatB = coatB; vCoatC = coatC; vCoatD = coatD; vCoatPos = coatP
 `;
 
 const GLSL_FRAG_PARS = /* glsl */ `
-varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoatD;
-varying vec3 vCoatPos; varying float vShell;
+varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoatD; varying vec4 vCoatE;
+varying vec3 vCoatPos; varying vec3 vFlow; varying float vShell;
 uniform vec3 uBase; uniform vec3 uSecond; uniform vec3 uTan; uniform vec3 uWhite;
-uniform vec4 uMarkA; uniform vec4 uMarkB; uniform vec4 uMarkC; uniform vec4 uFur;
+uniform vec4 uMarkA; uniform vec4 uMarkB; uniform vec4 uMarkC; uniform vec4 uMarkD; uniform vec4 uFur;
 vec3 furHash( vec3 p ) {
   p = fract( p * vec3( 0.1031, 0.1030, 0.0973 ) );
   p += dot( p, p.yxz + 33.33 );
@@ -131,6 +141,12 @@ float furNoise( vec3 p ) {
   float a = furHash( i ).x, b = furHash( i + vec3( 1, 0, 0 ) ).x, c = furHash( i + vec3( 0, 1, 0 ) ).x, d = furHash( i + vec3( 1, 1, 0 ) ).x;
   float e = furHash( i + vec3( 0, 0, 1 ) ).x, g = furHash( i + vec3( 1, 0, 1 ) ).x, h = furHash( i + vec3( 0, 1, 1 ) ).x, k = furHash( i + vec3( 1, 1, 1 ) ).x;
   return mix( mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y ), mix( mix( e, g, f.x ), mix( h, k, f.x ), f.y ), f.z );
+}
+/** Locks of hair: noise stretched along the fur's direction (about 4 mm across, 3 cm along). */
+float furStreak( vec3 p ) {
+  vec3 f = normalize( vFlow + vec3( 1e-5 ) );
+  vec3 q = p - f * dot( p, f ) * 0.86;
+  return 0.6 * furNoise( q * 230.0 ) + 0.4 * furNoise( q * 520.0 + 3.0 );
 }
 float furFbm( vec3 p ) { return 0.6 * furNoise( p ) + 0.3 * furNoise( p * 2.1 + 7.0 ) + 0.1 * furNoise( p * 4.3 + 13.0 ); }
 // Round spots: distance to the nearest random point in a jittered grid.
@@ -157,12 +173,24 @@ vec3 furCoat() {
   col = mix( col, mix( col, uWhite, 0.5 ), smoothstep( 0.2, 0.8, under ) * uMarkC.z );
   col *= 1.0 - 0.25 * uMarkC.z * smoothstep( 0.6, 1.0, back );
   // Saddle (blanket) and mask in the second colour; ears go dark with them.
-  col = mix( col, uSecond, smoothstep( 0.42, 0.58, back * ( 0.35 + 0.75 * uMarkA.x ) + n * 0.35 ) * step( 0.01, uMarkA.x ) * ( 1.0 - headW ) );
+  // (Agouti coats have a soft-edged saddle that fades into the sides.)
+  float sw = mix( 0.08, 0.3, uMarkD.y );
+  col = mix( col, uSecond, smoothstep( 0.5 - sw, 0.5 + sw, back * ( 0.35 + 0.75 * uMarkA.x ) + n * 0.35 ) * step( 0.01, uMarkA.x ) * ( 1.0 - headW ) );
   col = mix( col, uSecond, smoothstep( 0.35, 0.6, mask + n * 0.25 ) * uMarkA.y );
   col = mix( col, uSecond, smoothstep( 0.3, 0.6, ear ) * max( uMarkA.y, uMarkA.x * 0.85 ) );
   // Tan points: brows, cheeks and muzzle, lower legs, chest.
   float pts = max( max( brow * 1.6, mask * 0.9 * ( 1.0 - smoothstep( 0.2, 0.6, vCoatD.w * 3.0 ) ) ), max( ( 1.0 - legT ) * 1.1, bib * 0.55 ) );
   col = mix( col, uTan, smoothstep( 0.45, 0.6, pts + n * 0.15 ) * uMarkA.z );
+  // Agouti: banded hairs with dark tips give a grizzled, streaky look, strongest on the back.
+  {
+    float where = ( 1.0 - vCoatD.y ) * ( 0.3 + 0.7 * vCoatD.x ) * ( 1.0 - vCoatE.x ) * ( 1.0 - 0.6 * ( 1.0 - vCoatA.x ) );
+    col = mix( col, uSecond * 0.75, smoothstep( 0.42, 0.72, furStreak( p + 0.37 ) ) * where * uMarkD.y * 0.6 );
+  }
+  // Light (wolf) mask: muzzle sides, cheeks and lower jaw; the bridge of the nose keeps the base colour.
+  float pale = smoothstep( 0.3, 0.7, vCoatE.x + n * 0.25 );
+  col = mix( col, uWhite, pale * uMarkD.x );
+  // Tan lower legs.
+  col = mix( col, uTan, smoothstep( 1.0, 0.7, legT + n * 0.15 ) * uMarkD.z );
   // Spots.
   float spot = furSpots( p / ( 0.034 * max( uMarkC.y, 0.2 ) ) ) * uMarkC.x * ( 1.0 - vCoatC.x );
   col = mix( col, uSecond, spot );
@@ -174,11 +202,16 @@ vec3 furCoat() {
   white = max( white, smoothstep( 1.0 - 0.3 * uMarkB.w, 1.0 - 0.24 * uMarkB.w, tailT ) * step( 0.01, uMarkB.w ) );
   col = mix( col, uWhite, white );
   // Bare skin: nose leather, lips, pads, eye rims.
-  col = mix( col, vec3( 0.025, 0.02, 0.02 ), clamp( vCoatC.x + vCoatC.y * 0.8 + vCoatC.z + vCoatC.w, 0.0, 1.0 ) );
-  // Per-strand brightness variation.
-  return col * ( 0.9 + 0.2 * furHash( floor( p / uFur.z ) ).y );
+  col = mix( col, vec3( 0.025, 0.02, 0.02 ), clamp( vCoatC.x + vCoatC.y + vCoatC.z + vCoatC.w, 0.0, 1.0 ) );
+  // Clumps of lighter and darker hair (larger than single strands, so they read from afar).
+  return col * ( 0.86 + 0.28 * furStreak( p ) );
 }
 #ifdef FUR_SHELL
+/** Average strand coverage at shell height h (what the strands below cover when too small to resolve). */
+float furMeanCover( float h ) {
+  float m = 0.785 * pow( max( 0.0, 1.0 - h / 0.78 ), 2.0 );
+  return 1.0 - ( 1.0 - m ) * ( 1.0 - m );
+}
 /** Strand coverage at this shell height: tapered strands of random length on two offset grids. */
 float furStrands() {
   vec3 p = vCoatPos / uFur.z;
@@ -191,7 +224,9 @@ float furStrands() {
     float d = length( fract( q ) - 0.25 - 0.5 * r );
     cov = max( cov, smoothstep( radius, radius - 0.12, d ) * step( vShell, tip ) );
   }
-  return cov;
+  // Strands thinner than a pixel blend into their average coverage (no sparkle at a distance).
+  float px = length( fwidth( p ) );
+  return mix( cov, furMeanCover( vShell ), smoothstep( 0.5, 2.0, px ) );
 }
 #endif
 `;
@@ -203,9 +238,15 @@ float furBare = clamp( vCoatC.x + vCoatC.y + vCoatC.z + vCoatC.w, 0.0, 1.0 );
 #ifdef FUR_SHELL
   diffuseColor.a = furStrands() * ( 1.0 - furBare ) * step( 0.0005, uFur.x * vCoatB.y );
   // Darker near the skin (strands shade each other).
-  diffuseColor.rgb *= mix( 0.55, 1.08, vShell );
+  diffuseColor.rgb *= mix( 0.72, 1.06, vShell );
+  // Agouti: dark guard hair tips, strongest along the back, faint on the underside and legs.
+  {
+    float tipBand = smoothstep( 0.45, 0.8, vShell ) * smoothstep( 0.3, 0.6, furStreak( vCoatPos + 0.37 ) );
+    float where = ( 1.0 - vCoatD.y ) * ( 0.35 + 0.65 * vCoatD.x ) * ( 1.0 - 0.7 * vCoatD.z );
+    diffuseColor.rgb = mix( diffuseColor.rgb, uSecond * 0.6, tipBand * where * uMarkD.y * 0.75 );
+  }
 #else
-  diffuseColor.rgb *= mix( uFur.x > 0.002 ? 0.5 : 0.9, 1.0, furBare );
+  diffuseColor.rgb *= mix( uFur.x > 0.002 ? 0.75 : 0.9, 1.0, furBare );
 #endif
 `;
 
@@ -238,7 +279,8 @@ export function createFurMaterial(uniforms: FurUniforms): THREE.MeshPhysicalMate
 
 /** One draw for all shells (instanced by the `furShell` height). */
 export function createFurShellMaterial(uniforms: FurUniforms): THREE.MeshStandardMaterial {
-  const mat = new THREE.MeshStandardMaterial({ roughness: 1, envMapIntensity: 0.7, alphaTest: 0.5, alphaToCoverage: true });
+  // Blended (inner shells first, as instanced), so thin strands fade instead of flickering.
+  const mat = new THREE.MeshStandardMaterial({ roughness: 1, envMapIntensity: 0.7, transparent: true, depthWrite: false, alphaTest: 0.01 });
   return patchFur(mat, true, uniforms);
 }
 
