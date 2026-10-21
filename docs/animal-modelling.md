@@ -85,9 +85,28 @@ These scratch scripts are not committed. Copies are in the thread's scratchpad; 
 - `cmp.py`: puts the reference and the renders side by side at equal height.
 - The photo-matching camera for the wolfdog was about `[-2.5, 0.5, 1.35] → [0, 0.45, 0.08]` (front-left quarter view).
 
+## The cat (second animal)
+
+The cat (`cat.ts`) followed the workflow above with one Maine Coon photo (a clean side view on white, supplied by Arnd as a reference; the photo itself is not in the repo). What was different or new:
+
+- **Measure the silhouette automatically.** On a white background a threshold plus the largest connected component gives the outline mask. Reading top and under lines per column, and distances perpendicular to the head axis, replaced most hand measuring.
+- **Work in photo pixels.** `ph(x, y)` maps a photo pixel to pack space (ground line, metres per pixel, an origin column). The lofts and parts are written in pixels, so a value can be checked against the photo directly.
+- **Fit the rig to the photo instead of re-posing by angles.** `reachChain` turns and stretches a midline chain so its end lands on a measured point (neck to the back of the skull, head to the stop, nose to the tip, each tail bone along the tail's centre line); `placeBone` puts the jaw between hinge and chin. The bone names stay the same, so all clips still play.
+- **Overlay before importing.** A side-on ray march of `bodyDistance` drawn over the faded photo with the photo outline in red and the bones in green (`tools/import-animals/scratch`, git-ignored) takes about 40 s and showed every proportion problem; the gap between the model and the outline is the fur.
+- **The visible coat is thinner than the fur length.** The outer shells are sparse, so subtracting the full fur length from the outline left thin legs and a thin tail. The cat subtracts about a third of its fur length (`CAT_FUR`), less on the tail.
+- **Eyes need a shaped opening, not a round socket.** Arnd's feedback: "eyes pop too much and should be in an eye-shaped cavity". Sinking the eyeball by 0.86 R and carving the lids with a lens (the intersection of two spheres: pointed corners, half width 1.3 R, half height 0.56 R, slanted) fixed it; an ellipsoid carve always looks round.
+- **The fox's wrist is very low.** A pastern capsule between wrist and toes made a bulge at the back of the paw, and a wide flat paw ellipsoid looked like a hoof. A narrower bun with four toe ellipsoids in an arc, and short fur on them, reads as a paw.
+- **Small parts need a finer grid.** The cat meshes at 2 mm (the dog at 3.5 mm); ear tufts and the mouth slit need walls of at least two cells.
+- **Scale the fixed distances.** `bodymesh.ts` had distances tuned for the dog (membership softness, lip and pad bands, bib and mask extents). `DogBody.size` scales them; the dog is 1, the cat 0.5.
+- **Patterns:** tabby stripes are a shader function of per-vertex stripe coordinates (`coatF`) the importer writes per region (along the trunk, up the legs, across the forehead) plus the tail position, warped and broken by noise. Blending stripe *values* by region weight works; blending the *coordinates* compresses stripes where regions meet.
+- **Tortoiseshell patches are sensitive to the noise threshold.** A shift of 0.05 took them from almost none to almost everywhere; check the coverage on a side shot after every change.
+- **Whiskers sell the face.** Thin tubes (four sides, 0.4 mm at the root, drooping) on the whisker pads and above the eyes, rigid on the nose and head bones.
+
+Tooling traps on this machine: `pkill -f vite` and `pgrep -f` match the shell running them, because the pattern is in the command line, so the shell gets killed. Kill vite by its exact node process instead.
+
 ## Applying this to other animals
 
-- Mesh2Motion's rig and clips also fit cats and foxes. Re-pose the rig toward the species' natural stance (cats: lower head, tail up and curved; squirrels need a different rig).
+- Mesh2Motion's rig and clips also fit cats and foxes. Re-pose or fit the rig toward the species' natural stance (squirrels need a different rig).
 - Keep the per-vertex coat channels generic (regions, back, underside, masks). Species-specific patterns (stripes, rosettes) can be shader functions driven by `coatPos` and the flow.
 - Small animals need shorter fur and a finer strand spacing (`uFur.z`), or strands become blobs.
 - Check every existing preset or animation after a stance change. A screenshot sheet from `apps/viewer/scripts/animals.mjs` is the quickest check.

@@ -1,6 +1,7 @@
-// Headless check of the dog actor: every breed preset side-on, close-ups of
+// Headless check of the animal actors: every breed preset side-on, close-ups of
 // head and coat, and frames of a few clips.
 // Usage: node scripts/animals.mjs [url] [outDir]   (SHOTS=breed-,walk to pick)
+// The cat: node scripts/animals.mjs "http://localhost:5173/animals.html?species=cat" screenshots/cats
 import { chromium } from "playwright-core";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -32,8 +33,8 @@ const shot = async (name, wait = 500) => {
   writeFileSync(`${out}/${name}.png`, Buffer.from(png.split(",")[1], "base64"));
   console.log("saved", name);
 };
-// Frames the dog by its current size.
-const size = () => page.evaluate(() => window.__actors.animal.shape.size);
+// Frames the animal by its current size (the cat is about half the dog's).
+const size = () => page.evaluate(() => window.__actors.animal.shape.size * (window.__actors.species === "cat" ? 0.5 : 1));
 const side = async () => {
   const s = await size();
   await view([2.5 * s, 0.75 * s, 1.55 * s], [0, 0.38 * s, 0.05 * s]);
@@ -60,13 +61,14 @@ for (const id of breeds) {
   await call("setBreed", id);
   await side();
   await shot(`breed-${id}`);
-  if (want(`head-${id}`) && ["wolfdog", "germanShepherd", "labrador", "beagle", "husky"].includes(id)) {
+  if (want(`head-${id}`) && ["wolfdog", "germanShepherd", "labrador", "beagle", "husky", "mainecoon"].includes(id)) {
     await head();
     await shot(`head-${id}`);
   }
 }
-await call("setBreed", "wolfdog");
-for (const clip of ["walk", "run", "sit", "howl"]) {
+const species = await page.evaluate(() => window.__actors.species);
+await call("setBreed", breeds[0]);
+for (const clip of species === "cat" ? ["walk", "run", "sit", "meow"] : ["walk", "run", "sit", "howl"]) {
   if (!want(clip)) continue;
   await call("play", clip);
   await call("pose", 0.3);

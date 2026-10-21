@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { dogShapeOptions, dogTargetWeights } from "./animal";
-import { BREEDS, DEFAULT_SHAPE, SHAPE_RANGES, breedParams, mixParams, sanitizeShape } from "./breeds";
+import { SHAPE_TARGETS, dogShapeOptions, dogTargetWeights } from "./animal";
+import { BREEDS, CAT_BREEDS, DEFAULT_SHAPE, SHAPE_RANGES, breedParams, mixParams, presetsFor, sanitizeShape } from "./breeds";
 
 describe("dog parameters", () => {
   it("every breed preset stays inside the slider ranges", () => {
@@ -56,5 +56,24 @@ describe("dog parameters", () => {
     const m = mixParams(a, b, 0.5);
     expect(m.shape.legs).toBeCloseTo((a.shape.legs + b.shape.legs) / 2);
     expect(m.coat.base[0]).toBeCloseTo((a.coat.base[0] + b.coat.base[0]) / 2);
+  });
+});
+
+describe("cat presets", () => {
+  it("are found by species and don't share ids with the dog breeds", () => {
+    expect(presetsFor("cat")).toBe(CAT_BREEDS);
+    expect(presetsFor("dog")).toBe(BREEDS);
+    for (const id of Object.keys(CAT_BREEDS)) expect(BREEDS[id], id).toBeUndefined();
+    const p = breedParams("mainecoon");
+    expect(p.coat.tabby).toBeGreaterThan(0);
+    expect(p.coat.pupil).toBeGreaterThan(0);
+    expect(p.shape).toEqual(DEFAULT_SHAPE);
+  });
+
+  it("names the morph targets each shape value drives", () => {
+    // Every morph-driven value names targets; dogTargetWeights only emits those names.
+    const all = new Set(Object.values(SHAPE_TARGETS).flat());
+    const w = dogTargetWeights({ ...DEFAULT_SHAPE, earDrop: 0.7, earFold: 0.4, muzzle: 0.5, muzzleBroad: 1, muzzleDeep: 1, stop: 1, skullDome: 1, chestDeep: 1, bellyTuck: 1, tailCurl: 0.7, bulk: 1.2 });
+    for (const name of w.keys()) expect(all.has(name), name).toBe(true);
   });
 });

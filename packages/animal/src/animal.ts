@@ -1,5 +1,5 @@
 import { type ActorShape, ActorRuntime, type BoneScale, type Fetcher, type MessagePortLike, RemoteRuntime, type ShapeOptions } from "@actors/core";
-import { DEFAULT_COAT, DEFAULT_SHAPE, type DogCoat, type DogParams, type DogShape, breedParams, sanitizeShape } from "./breeds";
+import { type BreedPreset, DEFAULT_COAT, DEFAULT_SHAPE, type DogCoat, type DogParams, type DogShape, breedParams, presetsFor, sanitizeShape } from "./breeds";
 
 /** What the animal importer writes into `manifest.extra.animal`. */
 export interface AnimalExtra {
@@ -12,6 +12,21 @@ export interface AnimalExtra {
 
 const SIDES = ["L", "R"];
 const each = (names: string[]) => names.flatMap((n) => SIDES.map((s) => `${n}_${s}`));
+
+/** The morph targets each shape value drives; the other values are bone proportions and work on every pack. */
+export const SHAPE_TARGETS: Partial<Record<keyof DogShape, string[]>> = {
+  earDrop: ["ears-drop", "ears-drop-half"],
+  earFold: ["ears-fold", "ears-fold-half"],
+  muzzle: ["muzzle-short", "muzzle-long"],
+  muzzleBroad: ["muzzle-broad"],
+  muzzleDeep: ["muzzle-deep"],
+  stop: ["stop"],
+  skullDome: ["skull-dome"],
+  chestDeep: ["chest-deep"],
+  bellyTuck: ["belly-tuck"],
+  tailCurl: ["tail-curl", "tail-curl-half"],
+  bulk: ["bulk"],
+};
 
 /** Morph weights for a shape (target name -> weight). */
 export function dogTargetWeights(shape: DogShape): Map<string, number> {
@@ -70,7 +85,7 @@ export function dogShapeOptions(shape: DogShape, boneNames?: string[]): ShapeOpt
   return { bones, scale: s.size };
 }
 
-/** An animal actor (for now: dogs): breed parameters -> target weights and bone scales -> shape. */
+/** An animal actor (dogs, cats): breed parameters -> target weights and bone scales -> shape. */
 export class Animal {
   shape: DogShape = { ...DEFAULT_SHAPE };
   coat: DogCoat = { ...DEFAULT_COAT };
@@ -103,9 +118,22 @@ export class Animal {
     this.coat = { ...p.coat };
   }
 
-  /** Applies a breed preset (see BREEDS). */
+  /** The breed presets for this pack's species (BREEDS for dogs, CAT_BREEDS for cats). */
+  get presets(): Record<string, BreedPreset> {
+    return presetsFor(this.extra.kind);
+  }
+
+  /** Applies a breed preset (see BREEDS and CAT_BREEDS). */
   setBreed(id: string): void {
     this.params = breedParams(id);
+  }
+
+  /** Whether a shape value changes this pack (morph-driven values need the pack's targets). */
+  supports(key: keyof DogShape): boolean {
+    const targets = SHAPE_TARGETS[key];
+    if (!targets) return true;
+    const available = new Set(this.runtime.manifest.targets.map((t) => t.name));
+    return targets.some((t) => available.has(t));
   }
 
   targetWeights(): Map<string, number> {
