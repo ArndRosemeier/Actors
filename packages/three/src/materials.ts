@@ -166,11 +166,16 @@ if ( sp_height != 0.0 ) normal = h_bumpNormal( -vViewPosition, normal, sp_height
 
 const SKIN_IRRADIANCE = /* glsl */ `
 float dotNL = saturate( dot( geometryNormal, directLight.direction ) );
+vec3 irradiance = dotNL * directLight.color;
 // Wrapped, per-channel diffuse: light bleeds further around the terminator in red (subsurface scattering approximation).
+// Diffuse only: fed to the specular and sheen lobes, the wrap lit edges facing away from the sun,
+// where those lobes peak, and they showed as red sparks along sunlit silhouettes.
 float skinNdl = dot( geometryNormal, directLight.direction );
 vec3 skinWrap = vec3( 0.5, 0.22, 0.14 ) * uSSS;
-vec3 irradiance = clamp( ( vec3( skinNdl ) + skinWrap ) / ( 1.0 + skinWrap ), 0.0, 1.0 ) * directLight.color;
+vec3 skinIrradiance = clamp( ( vec3( skinNdl ) + skinWrap ) / ( 1.0 + skinWrap ), 0.0, 1.0 ) * directLight.color;
 `;
+
+const SKIN_DIRECT_DIFFUSE = /reflectedLight\.directDiffuse \+= irradiance \* BRDF_Lambert\(/;
 
 export function createSkinMaterial(uniforms: SkinUniforms): THREE.MeshPhysicalMaterial {
   const mat = new THREE.MeshPhysicalMaterial({
@@ -193,7 +198,7 @@ export function createSkinMaterial(uniforms: SkinUniforms): THREE.MeshPhysicalMa
     const physical = THREE.ShaderChunk.lights_physical_pars_fragment.replace(
       /float dotNL = saturate\( dot\( geometryNormal, directLight\.direction \) \);\s*vec3 irradiance = dotNL \* directLight\.color;/,
       SKIN_IRRADIANCE,
-    );
+    ).replace(SKIN_DIRECT_DIFFUSE, "reflectedLight.directDiffuse += skinIrradiance * BRDF_Lambert(");
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>\n${SKIN_FRAG_PARS}`)
       .replace("#include <lights_physical_pars_fragment>", physical)
