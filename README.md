@@ -47,6 +47,7 @@ await character.play("walk");
 | `packages/human` | Human-specific logic: MakeHuman-style macro sliders (gender, age, muscle, …), detail sliders, adult age clamp, facial expressions and blinking, worker entry. |
 | `packages/three` | three.js adapter: skinned meshes sharing one skeleton, skin/eye/lash/cloth materials, dual-quaternion skinning, GPU face morphs, clip playback. Material kits: `webglMaterials` (WebGLRenderer) and `nodeMaterials` from `@actors/three/webgpu` (WebGPURenderer). |
 | `tools/import-makehuman` | Offline importer: MakeHuman/MPFB2 data, MakeHuman eyes and Quaternius animations → actor pack (JSON manifest + binary blob + one streamed file per morph target + clips + textures). |
+| `packages/drone` | Procedural futuristic drones from building blocks (hull, propulsion, sensors, tools, opt-in weapons, lights, palettes): seeded JSON spec, rigid rig, baked clips; drawn by `ThreeDrone` in `@actors/three`. See [docs/drones.md](docs/drones.md). |
 | `packages/generator` | Reusable character generator on top of the three adapters: `Character` (one JSON config for shape, look, outfit, anatomy, clip, face; randomize, save/load, glTF export), `CharacterStage` (studio scene) and `CharacterEditor` (DOM control panel). |
 | `apps/viewer` | The generator as a Vite app (a few lines on top of `@actors/generator`), with `?compare` to show the source animation side by side. |
 
