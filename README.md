@@ -27,7 +27,7 @@ Every push to `main` builds the pack and the generator and deploys them to GitHu
 Other projects install it from a GitHub release (no npm registry or token needed) and get the asset files from the hosted demo or with `npx actors-packs`; see [docs/using-actors.md](docs/using-actors.md):
 
 ```bash
-npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.3.0/actors-generator-0.3.0.tgz
+npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.4.0/actors-generator-0.4.0.tgz
 npx actors-packs   # asset packs for this version -> public/packs
 ```
 
@@ -57,6 +57,7 @@ await character.play("walk");
 * **Skin**: MakeHuman's 18 CC0 photo skins (young / middle-aged / old × female / male × African / Asian / Caucasian), blended on the GPU to follow the gender, age and ethnicity sliders; own skin shader with pores and wrapped per-channel diffuse as cheap subsurface scattering. A procedural mode (region tints from MPFB's CC0 masks (lips, areolae, nails, eyelids, genitals, ears), skin-tone slider) is still available.
 * **Hair and brows**: 64 MakeHuman hairstyles (9 system styles, 24 CC0 and 31 CC-BY community styles that load when first shown; CC-BY authors are credited in the editor and NOTICE-ASSETS.md) and 5 eyebrow styles as fitted proxies that follow every morph, with recolouring.
 * **Detail**: one Catmull-Clark subdivision level built at load time (55k vertices for the body) with a low-detail option; dual-quaternion skinning on every material so elbows, knees and shoulders keep their volume.
+* **Levels of detail**: three levels built into the actor core, all drawn from the same shape (morphs, fitted clothes and skeleton carry over, switching is instant): full detail; "Medium" (base mesh instead of the subdivided body, garments, hair and eyes with about half their triangles, no lashes, teeth or tongue); "Crowd" (MakeHuman's CC0 741-vertex proxy body with garments merged into one mesh in flat colours, one draw call plus the hair, fingers not animated). `character.setLod(n | "auto")` picks by camera distance; `?crowd=100` in the viewer shows it.
 * **Face**: MakeHuman CC0 eyes with adjustable iris colour, procedural eyelashes, teeth and tongue; nine expression presets built from MakeHuman's 34 face units (mixed by ethnicity) plus automatic blinking, blended on the GPU.
 * **Anatomy** (adults only): male genital mesh (subdivided MakeHuman helper) and procedural female detail in the skin shader; hidden automatically under garments that cover them.
 * **Clothing**: briefs, bra, T-shirt, long-sleeve top, shorts, jeans, tights, fitted socks, plus a long and a mini skirt from MakeHuman's CC0 skirts pack (skirt skinning + leg colliders, so a stride doesn't pierce them), all following every morph; layering by inflate and depth bias, smooth hems cut per pixel, skin under clothes hidden.

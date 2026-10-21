@@ -79,6 +79,38 @@ export interface MeshDef {
    * proxy then lives in the same file.
    */
   blob?: string;
+  /** Detail levels this mesh is drawn at (indices into `ActorPackManifest.lods`). Default: every level. */
+  lods?: number[];
+  /**
+   * Stands in for the named mesh at levels that mesh is not drawn at (e.g. a
+   * low-poly body for the subdivided one): shown there whenever that mesh is.
+   */
+  lodOf?: string;
+  /**
+   * Reduced triangle lists for higher detail levels, over the same render
+   * vertices (u32, like `indices`). A level without one uses the closest lower
+   * level's list.
+   */
+  simplified?: { level: number; indices: BufferRef }[];
+}
+
+/**
+ * A detail level (LOD). Level 0 is full detail; higher levels draw fewer and
+ * simpler meshes (see `MeshDef.lods`, `lodOf`, `simplified`). Every level
+ * follows the same shape: morphs, garment fitting and the skeleton are shared.
+ */
+export interface LodDef {
+  /** Display name, e.g. "Full", "Medium", "Crowd". */
+  name: string;
+  /** Suggested camera distance in meters from which this level is used. */
+  distance: number;
+  /**
+   * Bones that still animate at this level. The skin weights of every other
+   * bone go to its closest kept ancestor. Default: every bone.
+   */
+  bones?: string[];
+  /** Draw this level's opaque body and garments as one merged mesh (one draw call per actor). */
+  merge?: boolean;
 }
 
 /** A joint position: the mean of the given base vertices (after morphing). */
@@ -215,6 +247,8 @@ export interface ActorPackManifest {
   clips?: ClipDef[];
   /** Larger clip collections, loaded on demand. */
   clipLibraries?: ClipLibraryRef[];
+  /** Detail levels, from full detail (level 0) to the coarsest. Absent: one level. */
+  lods?: LodDef[];
   /** Species-specific data (e.g. how sliders map to targets for humans). */
   extra?: Record<string, unknown>;
 }

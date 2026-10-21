@@ -132,6 +132,30 @@ if (hairstyles) {
   }
 }
 
+// Detail levels: the same dressed character at each level, with draw calls and triangles.
+await camera([0.6, 1.2, 4.2], [0, 0.95, 0]);
+await set({ animation: "walk", hair: "hair-bob01", expression: "neutral", body: { gender: 0.1, ageYears: 30 } });
+await page.evaluate(() => window.__actors.character.wear("casual"));
+for (const level of [0, 1, 2]) {
+  await page.evaluate((l) => window.__actors.character.setLod(l), level);
+  await seek(0.3);
+  await shot(`lod-${level}`, 1200);
+  const info = await page.evaluate(() => {
+    const { stage } = window.__actors;
+    const r = stage.renderer;
+    r.info.autoReset = false;
+    r.info.reset();
+    r.render(stage.scene, stage.camera);
+    const out = { calls: r.info.render.calls, triangles: r.info.render.triangles };
+    r.info.autoReset = true;
+    return out;
+  });
+  console.log(`lod ${level}: ${info.calls} draw calls, ${info.triangles} triangles (whole scene)`);
+}
+await page.evaluate(() => window.__actors.character.setLod(0));
+await seek(null);
+await set({ outfit: [] });
+
 await camera([1.2, 1.0, 1.0], [0, 0.9, 0]);
 await set({ animation: null });
 await page.evaluate(() => window.__actors.character.actor.bones.forEach((b) => {

@@ -11,3 +11,4 @@ export * from "./worker";
 export * from "./subdivide";
 export * from "./deform";
 export * from "./parts";
+export * from "./lod";

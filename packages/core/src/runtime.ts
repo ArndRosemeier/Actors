@@ -30,8 +30,13 @@ export interface MeshData {
   clip?: Float32Array;
   /** For meshes with their own vertex space (e.g. subdivided): CSR map from base vertices. */
   stencil?: { rows: number; rowPtr: Uint32Array; cols: Uint32Array; weights: Float32Array };
-  /** Per source vertex: the base vertex with the largest stencil weight (for hiding skin under garments). */
+  /**
+   * Per source vertex: the base vertex that influences it most (largest stencil
+   * or proxy binding weight), for hiding skin under garments.
+   */
   dominant?: Uint32Array;
+  /** Reduced triangle lists by detail level (see MeshDef.simplified and `lodIndices`). */
+  simplified?: Map<number, Uint32Array>;
 }
 
 /** Positions of a stencil mesh: out[r] = sum_k w_k * base[col_k]. */
@@ -135,6 +140,7 @@ export class ActorRuntime {
       hidesBaseVertices: def.hidesBaseVertices ? readBuffer(blob, { ...def.hidesBaseVertices, type: "u32" }) : undefined,
       clip: def.clip ? readBuffer(blob, { ...def.clip, type: "f32" }) : undefined,
     };
+    if (def.simplified?.length) mesh.simplified = new Map(def.simplified.map((s) => [s.level, readBuffer(blob, { ...s.indices, type: "u32" })]));
     if (stencil) {
       mesh.stencil = stencil;
       mesh.dominant = dominantColumns(stencil);
@@ -147,6 +153,9 @@ export class ActorRuntime {
       };
       mesh.stencil = st;
       mesh.dominant = dominantColumns(st);
+    } else if (def.source.kind === "proxy") {
+      const binding = this.proxies.get(def.source.proxy);
+      if (binding) mesh.dominant = dominantRefs(binding);
     }
     if (baseJoints && baseWeights) {
       let srcJ = baseJoints;
@@ -383,6 +392,18 @@ function dominantColumns(st: NonNullable<MeshData["stencil"]>): Uint32Array {
     let best = st.rowPtr[r];
     for (let k = st.rowPtr[r]; k < st.rowPtr[r + 1]; k++) if (st.weights[k] > st.weights[best]) best = k;
     out[r] = st.cols[best];
+  }
+  return out;
+}
+
+/** Per proxy vertex: the bound base vertex with the largest weight. */
+function dominantRefs(b: ProxyBinding): Uint32Array {
+  const out = new Uint32Array(b.def.vertexCount);
+  for (let i = 0; i < out.length; i++) {
+    let k = 0;
+    if (b.weights[i * 3 + 1] > b.weights[i * 3 + k]) k = 1;
+    if (b.weights[i * 3 + 2] > b.weights[i * 3 + k]) k = 2;
+    out[i] = b.refs[i * 3 + k];
   }
   return out;
 }

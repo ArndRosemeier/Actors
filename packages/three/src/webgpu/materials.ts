@@ -405,6 +405,24 @@ export function createNodePartMaterial(part: PartMesh, actor: ThreeActor): THREE
   }
 }
 
+/** Crowd-level merged mesh (see createCrowdMaterial): garment vertex colours, skin tone or photo skin where `crowdSkin` is 1. Linear skinning. */
+export function createNodeCrowdMaterial(actor: ThreeActor): MeshStandardNodeMaterial {
+  const nodes = skinNodes(actor);
+  const { u } = nodes;
+  const mat = new MeshStandardNodeMaterial({ roughness: 0.7, metalness: 0 });
+  const uvS = uv();
+  const w = nodes.weights;
+  const photo = nodes.layers[0].sample(uvS).rgb.mul(w.x)
+    .add(nodes.layers[1].sample(uvS).rgb.mul(w.y))
+    .add(nodes.layers[2].sample(uvS).rgb.mul(w.z))
+    .add(nodes.layers[3].sample(uvS).rgb.mul(w.w));
+  const skin = mix(u.uTone, photo.mul(u.uAlbedoTint), u.uAlbedoMix);
+  mat.colorNode = vec4(mix(attribute("color", "vec3"), skin, attribute("crowdSkin", "float")), 1);
+  // Hems: cut where the interpolated clip value is below 0.
+  (mat as unknown as { maskNode: N }).maskNode = attribute("crowdClip", "float").greaterThanEqual(0);
+  return mat;
+}
+
 /** Node materials for a pack mesh, from the pack's material hints (the twin of `defaultMaterials`). */
 export function nodeMeshMaterial(data: MeshData, actor: ThreeActor): THREE.Material {
   const { def } = data;
@@ -456,6 +474,7 @@ export const nodeMaterials: ActorMaterialKit = {
   mesh: nodeMeshMaterial,
   part: createNodePartMaterial,
   depth: () => null,
+  crowd: createNodeCrowdMaterial,
   blendSkins(actor, layers) {
     const nodes = skinNodes(actor);
     for (let i = 0; i < 4; i++) nodes.layers[i].value = layers[i]?.texture ?? white;

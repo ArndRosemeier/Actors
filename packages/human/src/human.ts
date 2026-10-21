@@ -64,6 +64,13 @@ export class Human {
     return new Human(await ActorRuntime.load(manifestUrl, fetcher));
   }
 
+  /** Another human on the same loaded pack (and worker): for crowds, each actor needs no download of its own. */
+  static share(other: Human): Human {
+    const h = new Human(other.runtime);
+    h.remote = other.remote;
+    return h;
+  }
+
   get modifiers(): ModifierDef[] {
     return this.extra.modifiers;
   }

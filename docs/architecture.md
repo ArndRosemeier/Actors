@@ -33,11 +33,21 @@ All of it is synchronous after targets load and has no DOM dependency. `serveRun
 
 `@actors/generator` sits on top: `Character` reconciles a JSON `CharacterConfig` onto a `Human` + `ThreeActor` (shape changes are merged into one worker job; look changes such as garments or hair are instant), `CharacterStage` is a studio scene and `CharacterEditor` a DOM panel that only uses the public `Character` API.
 
+## Detail levels (`packages/core/src/lod.ts`)
+
+`manifest.lods` lists the levels (name, suggested camera distance, the bones that still animate, whether to merge). Every level draws from the same `ActorShape`, so morphs, garment fitting and the skeleton carry over and switching costs nothing:
+
+* `MeshDef.lods`: the levels a mesh is drawn at (lashes, teeth and tongue only at full detail).
+* `MeshDef.lodOf`: a stand-in drawn where the named mesh is not (the base-mesh body for the subdivided one at "Medium", MakeHuman's 741-vertex proxy body at "Crowd"). The proxy body is bound to the base mesh like a garment, so it follows every slider, and shares the skin UV layout.
+* `MeshDef.simplified`: reduced triangle lists over the same render vertices, computed by the importer with meshoptimizer (UV seams and hem cuts kept). Adapters only swap index buffers.
+* `LodDef.bones`: the crowd level animates no finger bones; `lodBoneMap` / `remapSkin` move their weights to the hand.
+* `LodDef.merge`: `mergeMeshes` / `fillMerged` build one mesh from the body and garments (the adapter colours garments by their tint or mean texture colour and keeps the skin texture), so a crowd actor is one draw call plus its hair.
+
 ## Renderer adapter (`@actors/three`)
 
 One `SkinnedMesh` per pack mesh, sharing one `Skeleton`. When the shape changes, vertex buffers are rewritten and the skeleton is re-bound in place; running animations are re-baked against the new bind pose.
 
-Materials (`materials.ts`) patch three's built-in shaders: hair cards (alpha to coverage, luminance-preserving recolour), leg colliders for skirt-skinned garments (`colliders.ts`), skin (mask tints, brows, pores, wrapped diffuse, procedural vulva detail), eyes (iris recolouring), lashes, cloth (weave or garment normal maps, per-pixel hem cut from the `clip` attribute, luminance-preserving recolour) and dual-quaternion skinning on all of them, including the shadow pass. Two morph channels per face mesh ("expression", "blink") are filled from `surfaceDelta` and blended every frame.
+Materials (`materials.ts`) patch three's built-in shaders: hair cards (alpha to coverage, luminance-preserving recolour), leg colliders for skirt-skinned garments (`colliders.ts`), skin (mask tints, brows, pores, wrapped diffuse, procedural vulva detail), eyes (iris recolouring), lashes, cloth (weave or garment normal maps, per-pixel hem cut from the `clip` attribute, luminance-preserving recolour) and dual-quaternion skinning on all of them, including the shadow pass. `setLod(level)` / `updateLod(camera)` switch the detail level: index buffers per level are cached, stand-ins swap visibility, and the crowd level hides body and garments behind one merged `SkinnedMesh` (`crowd` material in the kit, linear skinning) and drops finger tracks from the playing clip. Two morph channels per face mesh ("expression", "blink") are filled from `surfaceDelta` and blended every frame.
 
 ## Adding another species
 

@@ -33,6 +33,11 @@ export interface CharacterOptions {
   /** Also list the pack's large clip libraries (e.g. 2,548 CMU motions; default true). Only their index is loaded up front. */
   clipLibraries?: boolean;
   fetcher?: Fetcher;
+  /**
+   * Reuse another character's loaded pack (and worker) instead of loading it
+   * again: for crowds. `pack`, `worker`, `fetcher` and `clipLibraries` are then ignored.
+   */
+  shareWith?: Character;
 }
 
 const SKIN_TONES = [new THREE.Color(0.93, 0.76, 0.66), new THREE.Color(0.78, 0.57, 0.43), new THREE.Color(0.5, 0.33, 0.22), new THREE.Color(0.25, 0.15, 0.1)];
@@ -83,6 +88,11 @@ export class Character {
   }
 
   static async load(options: CharacterOptions): Promise<Character> {
+    if (options.shareWith) {
+      const c = new Character(Human.share(options.shareWith.human), options.renderer, options.materials ?? options.shareWith.actor.kit, options.catalog);
+      await c.set(options.config ?? {});
+      return c;
+    }
     const human = await Human.load(options.pack, options.fetcher);
     if (options.clipLibraries !== false) await Promise.all((human.runtime.manifest.clipLibraries ?? []).map((l) => human.runtime.loadClipLibrary(l.name)));
     if (options.worker) await human.useWorker(options.worker);
@@ -165,8 +175,37 @@ export class Character {
     return this.set({ animation });
   }
 
+  /**
+   * Detail level: a fixed level (0 = full detail; see `lods`) or "auto", which
+   * picks the level from the distance to `lodCamera` every frame.
+   */
+  lodMode: number | "auto" = 0;
+  /** Camera for `lodMode` "auto" (the generator sets its stage camera). */
+  lodCamera?: THREE.Camera;
+  /** > 1 keeps detail longer in "auto" mode, < 1 drops it sooner. */
+  lodBias = 1;
+
+  /** The pack's detail levels (name, switch distance, bones kept). */
+  get lods() {
+    return this.actor.lods;
+  }
+
+  /** The level drawn now. */
+  get lod(): number {
+    return this.actor.lod;
+  }
+
+  /** Sets `lodMode`: a fixed detail level, or "auto". Switching is instant. */
+  setLod(mode: number | "auto"): void {
+    this.lodMode = mode;
+    if (mode !== "auto") this.actor.setLod(mode);
+    else if (this.lodCamera) this.actor.updateLod(this.lodCamera, this.lodBias);
+    for (const l of this.listeners) l(this.config);
+  }
+
   /** Advances animation, blinking and cloth colliders. Call once per frame. */
   update(dt: number): void {
+    if (this.lodMode === "auto" && this.lodCamera) this.actor.updateLod(this.lodCamera, this.lodBias);
     this.time += dt;
     this.actor.update(this.paused ? 0 : dt);
     // Blink: ~150 ms close/open every 2-6 s.

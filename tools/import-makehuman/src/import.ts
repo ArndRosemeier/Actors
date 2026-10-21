@@ -36,6 +36,7 @@ import type { GarmentInfo, SkinTextureDef } from "@actors/human";
 import { WARDROBE } from "./wardrobe";
 import { type Vec3, closestOnTriangle } from "./geometry";
 import { HAIRSTYLES, PACK_LICENCE } from "./hairstyles";
+import { GARMENT_LODS, HAIR_LODS, type LodSteps, SMALL_LODS, humanLods, ready as meshoptReady, simplifyLevels } from "./lod";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const CACHE = join(ROOT, ".cache");
@@ -94,6 +95,7 @@ function normalizeUV(uv: number[]): number[] {
 }
 
 async function main() {
+  await meshoptReady;
   const src = mpfbDir();
   const data = join(src, "src/mpfb/data");
   const out = resolve(arg("out") ?? join(ROOT, "apps/viewer/public/packs/human"));
@@ -188,16 +190,20 @@ async function main() {
     def: Omit<MeshDef, "name" | "source" | "baseIndex" | "uv" | "indices">,
     uvTransform?: (uv: number[]) => number[],
     clipOf?: (baseVertex: number) => number,
+    lodSteps?: LodSteps,
   ) => {
     if (!faces.length) throw new Error(`No faces for ${name}`);
     const m = buildRenderMesh(obj, faces);
+    const clip = clipOf ? m.map.map(clipOf) : undefined;
+    const simplified = lodSteps ? simplifyLevels(blob, P, m, lodSteps, clip) : undefined;
     meshes.push({
       name,
       source: { kind: "base" },
       baseIndex: blob.add("u32", m.map),
       uv: blob.add("f32", uvTransform ? uvTransform(m.uv) : m.uv),
       indices: blob.add("u32", m.indices),
-      ...(clipOf ? { clip: blob.add("f32", m.map.map(clipOf)) } : {}),
+      ...(clip ? { clip: blob.add("f32", clip) } : {}),
+      ...(simplified ? { simplified } : {}),
       ...def,
     });
   };
@@ -286,32 +292,46 @@ async function main() {
 
   // --- Body, face parts, anatomy ----------------------------------------------
   const skinMaterial: MeshDef["material"] = { kind: "skin", color: [0.8, 0.62, 0.52], roughness: 0.5 };
+  // Detail levels: the subdivided body at full detail, the base mesh at "Medium" (and as the
+  // low-detail option at full), MakeHuman's 741-vertex proxy body for crowds (below).
   addBaseMesh("body-low", facesOf("body"), {
     role: "body",
     slot: "body",
     optional: true,
+    lods: [0, 1],
+    lodOf: "body",
     material: skinMaterial,
     textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png" },
   });
   addSubdividedMesh("body", "body-low", {
     role: "body",
     slot: "body",
+    lods: [0],
     material: skinMaterial,
     textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png" },
   });
-  addBaseMesh("genitals-male-low", facesOf("helper-genital"), { role: "bodypart", internal: true, material: skinMaterial });
-  addSubdividedMesh("genitals-male", "genitals-male-low", {
+  addBaseMesh("genitals-male-low", facesOf("helper-genital"), {
     role: "bodypart",
+    optional: true,
+    lods: [1],
+    lodOf: "genitals-male",
     material: skinMaterial,
     tags: ["anatomy", "male"],
     textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png" },
   });
-  addBaseMesh("teeth", facesOf("helper-upper-teeth", "helper-lower-teeth"), { role: "bodypart", material: { kind: "teeth", color: [0.92, 0.9, 0.84], roughness: 0.25 } });
-  addBaseMesh("tongue", facesOf("helper-tongue"), { role: "bodypart", material: { kind: "mouth", color: [0.62, 0.3, 0.3], roughness: 0.35 } });
+  addSubdividedMesh("genitals-male", "genitals-male-low", {
+    role: "bodypart",
+    lods: [0],
+    material: skinMaterial,
+    tags: ["anatomy", "male"],
+    textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png" },
+  });
+  addBaseMesh("teeth", facesOf("helper-upper-teeth", "helper-lower-teeth"), { role: "bodypart", lods: [0], material: { kind: "teeth", color: [0.92, 0.9, 0.84], roughness: 0.25 } });
+  addBaseMesh("tongue", facesOf("helper-tongue"), { role: "bodypart", lods: [0], material: { kind: "mouth", color: [0.62, 0.3, 0.3], roughness: 0.35 } });
   addBaseMesh(
     "eyelashes",
     facesOf("helper-l-eyelashes-1", "helper-l-eyelashes-2", "helper-r-eyelashes-1", "helper-r-eyelashes-2"),
-    { role: "hair", material: { kind: "hair", color: [0.05, 0.04, 0.035], roughness: 0.6 }, tags: ["lashes"] },
+    { role: "hair", lods: [0], material: { kind: "hair", color: [0.05, 0.04, 0.035], roughness: 0.6 }, tags: ["lashes"] },
     normalizeUV,
   );
 
@@ -348,9 +368,32 @@ async function main() {
     baseIndex: blob.add("u32", eyes.map),
     uv: blob.add("f32", eyes.uv),
     indices: blob.add("u32", eyes.indices),
+    lods: [0, 1],
+    simplified: simplifyLevels(blob, eyeObj.positions.map((v) => v * SCALE), eyes, SMALL_LODS),
     material: { kind: "eye", color: [1, 1, 1], roughness: 0.05 },
     textures: { color: "textures/eye_brown.png" },
   });
+
+  // Crowd body: MakeHuman's CC0 741-vertex proxy, bound to the base mesh like a garment (so it
+  // follows every morph) and sharing the skin's UV layout (photo skins and masks still apply).
+  const crowdDir = "proxymeshes/proxy741";
+  const crowdClo = parseMhclo(fetchZipText(CACHE, SYSTEM_ASSETS, `${crowdDir}/proxy741.proxy`));
+  const crowdObj = parseObj(fetchZipText(CACHE, SYSTEM_ASSETS, `${crowdDir}/${crowdClo.objFile || "proxy741.obj"}`));
+  const crowd = addProxy("body-crowd", crowdClo, crowdObj);
+  meshes.push({
+    name: "body-crowd",
+    source: { kind: "proxy", proxy: "body-crowd" },
+    role: "body",
+    optional: true,
+    lods: [2],
+    lodOf: "body",
+    baseIndex: blob.add("u32", crowd.map),
+    uv: blob.add("f32", crowd.uv),
+    indices: blob.add("u32", crowd.indices),
+    material: skinMaterial,
+    textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png" },
+  });
+  console.log(`Crowd body: ${crowdObj.positions.length / 3} vertices, ${crowd.indices.length / 3} triangles`);
 
   // --- Garments -------------------------------------------------------------------
   const tightsFaces = facesOf("helper-tights");
@@ -362,6 +405,8 @@ async function main() {
     joint: (bone: string, end: "head" | "tail" = "head") => jointPos(rig[bone][end]),
   };
   const garmentLabels: Record<string, string> = {};
+  // Garments cut from the body already have the base mesh's density, which suits the medium level.
+  const BASE_GARMENT_LODS: LodSteps = [[2, 0.25, 0.03]];
   for (const spec of GARMENTS) {
     const cut = garmentCut(tightsFaces, spec, garmentCtx);
     const faces = selectGarmentFaces(tightsFaces, cut);
@@ -380,11 +425,12 @@ async function main() {
       },
       normalizeUV,
       (v) => cut.get(v)!,
+      BASE_GARMENT_LODS,
     );
     garmentLabels[spec.name] = spec.label;
     console.log(`Garment ${spec.name}: ${faces.length} faces`);
   }
-  addBaseMesh("tights", tightsFaces, { role: "garment", optional: true, inflate: 0.001, material: { kind: "cloth", color: [0.08, 0.08, 0.1], roughness: 0.6 }, tags: ["fabric:knit", "covers:anatomy"] }, normalizeUV);
+  addBaseMesh("tights", tightsFaces, { role: "garment", optional: true, inflate: 0.001, material: { kind: "cloth", color: [0.08, 0.08, 0.1], roughness: 0.6 }, tags: ["fabric:knit", "covers:anatomy"] }, normalizeUV, undefined, BASE_GARMENT_LODS);
   garmentLabels.tights = "Tights";
 
   // A real .mhclo garment, fitted by triangle binding (CC0 MPFB test asset).
@@ -399,6 +445,7 @@ async function main() {
     baseIndex: blob.add("u32", socks.map),
     uv: blob.add("f32", socks.uv),
     indices: blob.add("u32", socks.indices),
+    simplified: simplifyLevels(blob, sockObj.positions.map((v) => v * SCALE), socks, GARMENT_LODS),
     material: { kind: "cloth", color: [0.85, 0.85, 0.82], roughness: 0.9 },
     optional: true,
     inflate: 0.002,
@@ -436,6 +483,7 @@ async function main() {
       baseIndex: blob.add("u32", m.map),
       uv: blob.add("f32", m.uv),
       indices: blob.add("u32", m.indices),
+      simplified: simplifyLevels(blob, cloObj.positions.map((v) => v * SCALE), m, GARMENT_LODS),
       material: { kind: "cloth", color: mean as [number, number, number], roughness: 0.8 },
       ...(diffuse ? { textures: { color: file } } : {}),
       optional: true,
@@ -503,6 +551,7 @@ async function main() {
       baseIndex: writer.add("u32", m.map),
       uv: writer.add("f32", m.uv),
       indices: writer.add("u32", m.indices),
+      simplified: simplifyLevels(writer, gPos, m, GARMENT_LODS),
       material: { kind: "cloth", color, roughness: 0.8 },
       ...(Object.keys(textures).length ? { textures } : {}),
       optional: true,
@@ -553,6 +602,9 @@ async function main() {
       baseIndex: blob.add("u32", m.map),
       uv: blob.add("f32", m.uv),
       indices: blob.add("u32", m.indices),
+      // Brows are too small to see in a crowd; hair keeps the silhouette at every level.
+      ...(slot === "brows" ? { lods: [0, 1] } : {}),
+      simplified: simplifyLevels(blob, cloObj.positions.map((v) => v * SCALE), m, slot === "brows" ? SMALL_LODS : HAIR_LODS),
       // Mean colour of the texture, so adapters can recolour it.
       material: { kind: "hair", color: mean, roughness: 0.45 },
       textures: { color: file },
@@ -600,6 +652,7 @@ async function main() {
       baseIndex: writer.add("u32", m.map),
       uv: writer.add("f32", m.uv),
       indices: writer.add("u32", m.indices),
+      simplified: simplifyLevels(writer, cloObj.positions.map((v) => v * SCALE), m, HAIR_LODS),
       material: { kind: "hair", color: mean, roughness: 0.45 },
       textures: { color: tex },
       tags: ["scalp", `license:${licenceName}`],
@@ -810,6 +863,7 @@ async function main() {
     proxies,
     skeleton: { name: RIG, bones },
     skin,
+    lods: humanLods(order),
     targets,
     clips,
     clipLibraries,

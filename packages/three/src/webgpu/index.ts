@@ -8,5 +8,5 @@
  * const character = await Character.load({ pack, renderer, materials: nodeMaterials });
  * ```
  */
-export { nodeMaterials, nodeMeshMaterial, createNodeSkinMaterial, createNodeEyeMaterial, createNodeClothMaterial, createNodeHairMaterial, createNodeLashMaterial, createNodeWetMaterial, createNodePartMaterial, useNodeClip, useNodeColliders } from "./materials";
+export { nodeMaterials, nodeMeshMaterial, createNodeSkinMaterial, createNodeEyeMaterial, createNodeClothMaterial, createNodeHairMaterial, createNodeLashMaterial, createNodeWetMaterial, createNodePartMaterial, createNodeCrowdMaterial, useNodeClip, useNodeColliders } from "./materials";
 export { useNodeDqs } from "./dqs";

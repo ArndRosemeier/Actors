@@ -5,11 +5,20 @@ import {
   type AxisClip,
   type Clip,
   type FittedSkeleton,
+  type LodDef,
+  type MergedMesh,
   type MeshData,
   type PartMesh,
   Retargeter,
   type SurfaceDelta,
   bakeAxisClip,
+  drawnAt,
+  fillMerged,
+  lodBoneMap,
+  lodForDistance,
+  lodIndices,
+  lodLevels,
+  mergeMeshes,
 } from "@actors/core";
 import {
   type ClothTintUniforms,
@@ -30,6 +39,7 @@ import {
 import { SkinComposer } from "./skincompose";
 import { type ColliderUniforms, MAX_COLLIDERS, createColliderUniforms, useColliders } from "./colliders";
 import { createPartMaterial, createPartMesh } from "./parts";
+import { createCrowdMaterial } from "./crowd";
 
 export * from "./materials";
 export * from "./dqs";
@@ -38,6 +48,7 @@ export * from "./skincompose";
 export * from "./colliders";
 export * from "./racepatterns";
 export * from "./parts";
+export * from "./crowd";
 
 export interface MaterialFactory {
   (mesh: MeshData, actor: ThreeActor): THREE.Material;
@@ -109,6 +120,13 @@ export interface ActorMaterialKit {
   depth(material: THREE.Material, clip: boolean): THREE.Material | null;
   /** Shows a blend of photographic skins (same UV layout; loaded textures, weights summing to 1) as the skin's albedo. */
   blendSkins(actor: ThreeActor, layers: { texture: THREE.Texture; weight: number }[], renderer: unknown): void;
+  /**
+   * Material of a merged crowd mesh (see `LodDef.merge`): vertex colours for
+   * garments (attribute `color`), the skin's tone or photo skin where the
+   * float attribute `crowdSkin` is 1, cut away where the interpolated
+   * `crowdClip` is below 0 (garment hems). Default: the WebGL one (`createCrowdMaterial`).
+   */
+  crowd?(actor: ThreeActor): THREE.Material;
 }
 
 const sharedDepth = new WeakMap<object, THREE.Material>();
@@ -125,6 +143,7 @@ export const webglMaterials: ActorMaterialKit = {
     if (!d) sharedDepth.set(webglMaterials, (d = createDepthMaterial()));
     return d;
   },
+  crowd: (actor) => createCrowdMaterial(actor.skin),
   blendSkins(actor, layers, renderer) {
     const composer = (actor.userData.skinComposer ??= new SkinComposer()) as SkinComposer;
     composer.compose(renderer as THREE.WebGLRenderer, layers);
@@ -180,6 +199,13 @@ export class ThreeActor {
   readonly kit: ActorMaterialKit;
   /** Free for the kit (e.g. the WebGL skin compositor). */
   readonly userData: Record<string, unknown> = {};
+  /** The pack's detail levels (see `setLod`). */
+  readonly lods: LodDef[];
+  private level = 0;
+  /** Crowd level: body and garments merged into one mesh (see LodDef.merge). */
+  private crowd?: { mesh: THREE.SkinnedMesh; merged: MergedMesh };
+  /** Meshes that should be drawn at the current level (before crowd merging). */
+  private readonly shown = new Set<string>();
 
   /** `materials`: a kit (`webglMaterials`, the default, or `nodeMaterials` from `@actors/three/webgpu`), or just a mesh material factory for WebGL. */
   constructor(
@@ -187,6 +213,7 @@ export class ThreeActor {
     materials: MaterialFactory | ActorMaterialKit = webglMaterials,
   ) {
     this.kit = typeof materials === "function" ? { ...webglMaterials, mesh: materials } : materials;
+    this.lods = lodLevels(runtime.manifest);
     this.rendered = runtime.meshes.filter((m) => !m.def.internal);
     const skel = runtime.manifest.skeleton;
     if (skel) {
@@ -249,12 +276,14 @@ export class ThreeActor {
       mesh.visible = !data.def.optional && !(slot && this.slotsSeen.has(slot));
       if (slot && mesh.visible) this.slotsSeen.add(slot);
       this.wanted.set(data.def.name, mesh.visible);
+      if (mesh.visible && drawnAt(data.def, 0)) this.shown.add(data.def.name);
       this.object.add(mesh);
       this.meshes.set(data.def.name, mesh);
       if (this.skeleton) mesh.bind(this.skeleton, new THREE.Matrix4());
       const tint = this.tints.get(data.def.name);
       if (tint !== undefined) this.setGarmentColor(data.def.name, tint);
     }
+    if (this.level > 0) this.updateVisibility();
   }
 
   /** Generated add-ons (horns, beards, tails...; see `Human.parts`), by name. */
@@ -374,10 +403,60 @@ export class ThreeActor {
   }
 
   private updateVisibility(): void {
-    for (const [n, w] of this.wanted) this.meshes.get(n)!.visible = w && !this.concealed.has(n);
+    const level = this.level;
+    const on = (n: string) => !!this.wanted.get(n) && !this.concealed.has(n);
+    this.shown.clear();
+    for (const [n, d] of this.data) {
+      const { def } = d;
+      if (!drawnAt(def, level)) continue;
+      let show = on(n);
+      // A stand-in (e.g. the low-poly body) is drawn where the mesh it stands in for is not.
+      const target = def.lodOf ? this.data.get(def.lodOf) : undefined;
+      if (!show && target && !drawnAt(target.def, level)) {
+        const slot = target.def.slot;
+        show = on(target.def.name) || (!!slot && [...this.data.values()].some((x) => x.def.slot === slot && on(x.def.name)));
+      }
+      if (show) this.shown.add(n);
+    }
     const covered = [...this.data.values()].some((d) => d.def.tags?.includes("covers:anatomy") && this.wanted.get(d.def.name));
-    if (covered) for (const d of this.data.values()) if (d.def.tags?.includes("anatomy")) this.meshes.get(d.def.name)!.visible = false;
+    if (covered) for (const d of this.data.values()) if (d.def.tags?.includes("anatomy")) this.shown.delete(d.def.name);
+    for (const [n, mesh] of this.meshes) mesh.visible = this.shown.has(n);
     this.updateHiddenSkin();
+  }
+
+  /** The current detail level (index into `lods`). */
+  get lod(): number {
+    return this.level;
+  }
+
+  /**
+   * Switches the detail level (0 = full detail, see `lods`). Instant: every
+   * level draws from the shape already applied. Levels with `bones` animate
+   * only those; levels with `merge` draw body and garments as one mesh.
+   */
+  setLod(level: number): void {
+    level = Math.max(0, Math.min(this.lods.length - 1, Math.round(level)));
+    if (level === this.level) return;
+    const bonesBefore = this.lods[this.level].bones;
+    this.level = level;
+    this.updateVisibility();
+    if (this.crowdDirty) this.buildCrowd();
+    if (this.lods[level].bones !== bonesBefore && this.clip) this.play(this.clip);
+  }
+
+  /**
+   * Picks the detail level from the camera's distance (see `LodDef.distance`,
+   * scaled for the camera's field of view).
+   * `bias` > 1 keeps detail longer (e.g. for a narrow field of view). Call once a frame or less.
+   */
+  updateLod(camera: THREE.Camera, bias = 1): number {
+    const a = new THREE.Vector3().setFromMatrixPosition(this.object.matrixWorld);
+    const b = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
+    // Switch distances are meant for a 50° vertical field of view; narrower views keep detail longer.
+    const fov = (camera as THREE.PerspectiveCamera).isPerspectiveCamera ? (camera as THREE.PerspectiveCamera).getEffectiveFOV() : 50;
+    const zoom = Math.tan(THREE.MathUtils.degToRad(25)) / Math.tan(THREE.MathUtils.degToRad(fov / 2));
+    this.setLod(lodForDistance(this.lods, a.distanceTo(b), bias * zoom));
+    return this.level;
   }
 
   private readonly loading = new Map<string, Promise<THREE.Texture>>();
@@ -439,6 +518,7 @@ export class ThreeActor {
    */
   setGarmentColor(name: string, color: THREE.ColorRepresentation | null): void {
     this.tints.set(name, color);
+    if (this.crowd?.merged.parts.some((p) => p.data.def.name === name)) this.colorCrowd();
     const mat = this.meshes.get(name)?.material as THREE.Material | undefined;
     const u = mat?.userData.tint as ClothTintUniforms | undefined;
     if (!u) return;
@@ -491,6 +571,8 @@ export class ThreeActor {
     this.updateHiddenSkin();
     if (shape.skeleton && this.skeleton) this.rebind(shape.skeleton);
     if (shape.skeleton) this.measureLegs(shape);
+    if (this.crowdDirty) this.buildCrowd();
+    else this.fillCrowd();
   }
 
   private static readonly LEGS: [string, string][] = [
@@ -610,23 +692,29 @@ export class ThreeActor {
    * (briefs, bra, tights, …) under a garment on a higher layer.
    */
   private updateHiddenSkin(): void {
+    const level = this.level;
     const covers: { layer: number; verts: Uint32Array }[] = [];
     for (const data of this.rendered)
-      if (data.hidesBaseVertices && this.meshes.get(data.def.name)?.visible) covers.push({ layer: ThreeActor.layerOf(data.def), verts: data.hidesBaseVertices });
+      if (data.hidesBaseVertices && this.shown.has(data.def.name)) covers.push({ layer: ThreeActor.layerOf(data.def), verts: data.hidesBaseVertices });
     for (const data of this.rendered) {
       const { def } = data;
-      const isGarment = def.role === "garment" && def.source.kind === "base";
-      if (def.role !== "body" && !isGarment) continue;
       const mesh = this.meshes.get(def.name)!;
+      const isGarment = def.role === "garment" && def.source.kind === "base";
+      if (def.role !== "body" && !isGarment) {
+        this.useIndices(mesh, data, level);
+        continue;
+      }
       // Hidden garments keep their last index list; it is rebuilt when they are shown.
-      if (isGarment && !mesh.visible) continue;
+      if (isGarment && !this.shown.has(def.name)) continue;
       const layer = ThreeActor.layerOf(def);
       const hide = new Set<number>();
       for (const c of covers) if (c.layer > layer) for (const v of c.verts) hide.add(v);
-      const { indices, map, dominant } = data;
+      const { map, dominant } = data;
+      const indices = lodIndices(data, level);
       const base = (i: number) => (dominant ? dominant[map[i]] : map[i]);
       // Garments with a hem cut fade out around covered vertices per pixel instead of losing whole triangles.
       if (isGarment && data.clip) {
+        this.useIndices(mesh, data, level);
         const attr = mesh.geometry.getAttribute("clipValue") as THREE.BufferAttribute;
         const values = attr.array as Float32Array;
         for (let i = 0; i < map.length; i++) values[i] = hide.has(map[i]) ? -0.03 : data.clip[i];
@@ -643,6 +731,134 @@ export class ThreeActor {
       }
       mesh.geometry.setIndex(new THREE.BufferAttribute(out.slice(0, n), 1));
     }
+    if (this.lods[level].merge) {
+      // Merged into the crowd mesh: hide the parts now, rebuild the merged mesh before the next frame.
+      for (const data of this.rendered) if (this.mergeable(data) && this.shown.has(data.def.name)) this.meshes.get(data.def.name)!.visible = false;
+      this.crowdDirty = true;
+    } else if (this.crowd) this.dropCrowd();
+  }
+
+  private readonly indexCache = new WeakMap<Uint32Array, THREE.BufferAttribute>();
+
+  /** Gives a mesh its triangle list for a level (index attributes are cached, so switching levels uploads nothing new). */
+  private useIndices(mesh: THREE.SkinnedMesh, data: MeshData, level: number): void {
+    const indices = lodIndices(data, level);
+    if (mesh.geometry.index?.array === indices) return;
+    let attr = this.indexCache.get(indices);
+    if (!attr) this.indexCache.set(indices, (attr = new THREE.BufferAttribute(indices, 1)));
+    mesh.geometry.setIndex(attr);
+  }
+
+  /**
+   * Body and garments are merged at crowd levels; hair, eyes and add-ons stay
+   * separate, and so do skirt-skinned garments (they need the leg colliders).
+   */
+  private mergeable(data: MeshData): boolean {
+    return (data.def.role === "body" || data.def.role === "garment") && !this.usesColliders(data);
+  }
+
+  private readonly colliderUse = new WeakMap<MeshData, boolean>();
+
+  private usesColliders(data: MeshData): boolean {
+    let use = this.colliderUse.get(data);
+    if (use === undefined) {
+      const src = data.def.source;
+      use = src.kind === "proxy" && !!this.runtime.manifest.proxies.find((p) => p.name === src.proxy)?.legBlend;
+      this.colliderUse.set(data, use);
+    }
+    return use;
+  }
+
+  private crowdDirty = false;
+
+  /** Builds the crowd level's merged mesh from the shown body and garments (with their current hidden-skin cuts). */
+  private buildCrowd(): void {
+    this.crowdDirty = false;
+    const lod = this.lods[this.level];
+    if (!lod.merge || !this.lastShape) return;
+    const shape = this.lastShape;
+    const parts: { data: MeshData; indices: Uint32Array }[] = [];
+    for (const data of this.rendered) {
+      if (!this.mergeable(data) || !this.shown.has(data.def.name)) continue;
+      // Not fitted yet (loaded after the last shape): joins once the next shape includes it.
+      if (data.def.source.kind === "proxy" && !shape.proxies.has(data.def.source.proxy)) continue;
+      if (data.stencil && !shape.meshes.has(data.def.name)) continue;
+      const g = this.meshes.get(data.def.name)!.geometry;
+      const indices = g.index!.array as Uint32Array;
+      // Hem cuts as they are now (including skin hidden under higher layers), still cut per pixel.
+      const clip = data.clip ? ((g.getAttribute("clipValue") as THREE.BufferAttribute).array as Float32Array) : undefined;
+      parts.push({ data: clip ? { ...data, clip } : data, indices });
+    }
+    const skel = this.runtime.manifest.skeleton;
+    const merged = mergeMeshes(parts, skel ? lodBoneMap(skel, lod) : null);
+    const n = merged.vertexCount;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute("uv", new THREE.BufferAttribute(merged.uv, 2));
+    g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    g.setAttribute("crowdSkin", new THREE.BufferAttribute(new Float32Array(n), 1));
+    g.setAttribute("crowdClip", new THREE.BufferAttribute(merged.clip ?? new Float32Array(n).fill(1), 1));
+    if (merged.joints && merged.weights) {
+      g.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(merged.joints, 4));
+      g.setAttribute("skinWeight", new THREE.BufferAttribute(merged.weights, 4));
+    }
+    g.setIndex(new THREE.BufferAttribute(merged.indices, 1));
+    const material = this.crowd?.mesh.material ?? (this.kit.crowd ?? webglMaterials.crowd!)(this);
+    const mesh = new THREE.SkinnedMesh(g, material);
+    mesh.name = "crowd";
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.frustumCulled = false;
+    if (this.crowd) this.dropCrowd(false);
+    this.object.add(mesh);
+    if (this.skeleton) mesh.bind(this.skeleton, new THREE.Matrix4());
+    this.crowd = { mesh, merged };
+    this.colorCrowd();
+    this.fillCrowd();
+  }
+
+  private dropCrowd(disposeMaterial = true): void {
+    if (!this.crowd) return;
+    this.crowd.mesh.removeFromParent();
+    this.crowd.mesh.geometry.dispose();
+    if (disposeMaterial) (this.crowd.mesh.material as THREE.Material).dispose();
+    this.crowd = undefined;
+  }
+
+  private fillCrowd(): void {
+    if (!this.crowd || !this.lastShape) return;
+    const g = this.crowd.mesh.geometry;
+    const pos = g.getAttribute("position") as THREE.BufferAttribute, nor = g.getAttribute("normal") as THREE.BufferAttribute;
+    fillMerged(this.crowd.merged, this.lastShape, pos.array as Float32Array, nor.array as Float32Array);
+    pos.needsUpdate = true;
+    nor.needsUpdate = true;
+  }
+
+  /** Crowd mesh colours: skin where the body is, each garment's tint (or its texture's mean colour). */
+  private colorCrowd(): void {
+    if (!this.crowd) return;
+    const g = this.crowd.mesh.geometry;
+    const color = g.getAttribute("color") as THREE.BufferAttribute, skin = g.getAttribute("crowdSkin") as THREE.BufferAttribute;
+    const c = new THREE.Color();
+    for (const { data, offset, count } of this.crowd.merged.parts) {
+      const { def } = data;
+      const isSkin = def.role === "body" ? 1 : 0;
+      const tint = this.tints.get(def.name);
+      if (tint !== undefined && tint !== null) c.set(tint);
+      else {
+        const rgb = def.material.color ?? [0.5, 0.5, 0.5];
+        // Textured garments store their texture's mean colour (sRGB), plain ones a linear colour.
+        if (def.textures?.color) c.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
+        else c.setRGB(rgb[0], rgb[1], rgb[2]);
+      }
+      for (let i = offset; i < offset + count; i++) {
+        color.setXYZ(i, c.r, c.g, c.b);
+        skin.setX(i, isSkin);
+      }
+    }
+    color.needsUpdate = true;
+    skin.needsUpdate = true;
   }
 
   private rebind(fitted: FittedSkeleton): void {
@@ -659,6 +875,7 @@ export class ThreeActor {
     this.skeleton!.boneInverses = this.bones.map((b) => new THREE.Matrix4().multiplyMatrices(rootInv, b.matrixWorld).invert());
     for (const mesh of this.meshes.values()) mesh.bind(this.skeleton!, new THREE.Matrix4());
     for (const mesh of this.parts.values()) mesh.bind(this.skeleton!, new THREE.Matrix4());
+    this.crowd?.mesh.bind(this.skeleton!, new THREE.Matrix4());
     // Joint positions moved, so rebuild the clip against the new bind pose.
     if (this.clip) this.play(this.clip);
   }
@@ -675,6 +892,16 @@ export class ThreeActor {
       return;
     }
     const three = this.toThreeClip(clip);
+    // Levels with fewer bones animate only those (the others keep their pose and drive no visible vertex).
+    const keep = this.lods[this.level].bones;
+    if (keep) {
+      const kept = new Set(keep);
+      const pack = new Set(this.bones.slice(0, this.packBones).map((b) => b.name));
+      three.tracks = three.tracks.filter((t) => {
+        const bone = t.name.slice(0, t.name.lastIndexOf("."));
+        return kept.has(bone) || !pack.has(bone);
+      });
+    }
     this.action = this.mixer.clipAction(three);
     this.action.play();
     this.action.time = time % three.duration;
@@ -765,8 +992,10 @@ export class ThreeActor {
   }
 
   update(dt: number): void {
+    if (this.crowdDirty) this.buildCrowd();
     this.mixer.update(dt);
-    this.updateColliders();
+    // Leg colliders only matter while a skirt-skinned garment is drawn.
+    if ([...this.shown].some((n) => this.usesColliders(this.data.get(n)!))) this.updateColliders();
   }
 
   /** Height of the current body shape (lowest to highest point), in meters. */
