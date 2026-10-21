@@ -22,28 +22,52 @@ export interface GaitBones {
 }
 
 /**
- * Measures a looping gait clip on a skeleton: stride and speed from its root motion, and when
- * the left foot strikes (furthest ahead of the hips along the direction of travel; clips that do
- * not travel use +Z, the skeleton's forward).
+ * Measures a looping gait clip on a skeleton: stride and speed from its root motion (in-place
+ * loops: from how fast a planted foot moves back under the hips), and when the left foot strikes
+ * (furthest ahead of the hips along the direction of travel; clips that do not travel use +Z,
+ * the skeleton's forward).
  */
 export function measureGait(skeleton: FittedSkeleton, clip: Clip, bones: GaitBones = {}, samples = 64): GaitMeasure {
   const r = new Retargeter(skeleton, clip, { inPlace: "drift" });
   const [tx, , tz] = new Retargeter(skeleton, clip).travel();
-  const stride = Math.hypot(tx, tz);
+  const travel = Math.hypot(tx, tz);
   const duration = r.duration;
-  const dir = stride > 1e-4 ? [tx / stride, tz / stride] : [0, 1];
-  const foot = skeleton.names.indexOf(bones.foot ?? "foot_l"), hips = skeleton.names.indexOf(bones.hips ?? "pelvis");
-  let strike = 0;
-  if (foot >= 0 && hips >= 0 && duration > 0) {
+  const dir = travel > 1e-3 ? [tx / travel, tz / travel] : [0, 1];
+  const footName = bones.foot ?? "foot_l";
+  const feet = [footName, footName.replace(/_l$/, "_r").replace(/_L$/, "_R").replace(/Left/, "Right")].map((b) => skeleton.names.indexOf(b));
+  const hips = skeleton.names.indexOf(bones.hips ?? "pelvis");
+  let strike = 0, stride = travel;
+  if (feet[0] >= 0 && hips >= 0 && duration > 0) {
     const n = skeleton.names.length;
     const pose = createPose(n), rot = new Float64Array(n * 4), heads = new Float64Array(n * 3);
-    let best = -Infinity;
+    // Per sample and foot: how far ahead of the hips, and how high.
+    const ahead = feet.map(() => new Float64Array(samples)), high = feet.map(() => new Float64Array(samples));
     for (let s = 0; s < samples; s++) {
-      const u = s / samples;
-      r.sampleInto(u * duration, pose);
+      r.sampleInto((s / samples) * duration, pose);
       poseWorld(skeleton, pose, rot, heads);
-      const ahead = (heads[foot * 3] - heads[hips * 3]) * dir[0] + (heads[foot * 3 + 2] - heads[hips * 3 + 2]) * dir[1];
-      if (ahead > best) { best = ahead; strike = u; }
+      feet.forEach((f, k) => {
+        if (f < 0) return;
+        ahead[k][s] = (heads[f * 3] - heads[hips * 3]) * dir[0] + (heads[f * 3 + 2] - heads[hips * 3 + 2]) * dir[1];
+        high[k][s] = heads[f * 3 + 1];
+      });
+    }
+    let best = -Infinity;
+    for (let s = 0; s < samples; s++) if (ahead[0][s] > best) { best = ahead[0][s]; strike = s / samples; }
+    if (travel <= 1e-3) {
+      // An in-place loop: the ground speed is how fast a planted foot slides back under the hips
+      // (feet within 2 cm of their lowest count as planted).
+      const dt = duration / samples;
+      let sum = 0, cnt = 0;
+      feet.forEach((f, k) => {
+        if (f < 0) return;
+        const lo = Math.min(...high[k]);
+        for (let s = 0; s < samples; s++) {
+          if (high[k][s] > lo + 0.02) continue;
+          const v = -(ahead[k][(s + 1) % samples] - ahead[k][(s + samples - 1) % samples]) / (2 * dt);
+          if (v > 0) { sum += v; cnt++; }
+        }
+      });
+      stride = cnt ? (sum / cnt) * duration : 0;
     }
   }
   return { duration, stride, speed: duration > 0 ? stride / duration : 0, strike };

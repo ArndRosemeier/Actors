@@ -108,6 +108,14 @@ describe("locomotion", () => {
     expect(m.strike).toBeCloseTo(0.75, 1);
   });
 
+  it("measures in-place loops by how fast the planted foot moves back", () => {
+    const m = measureGait(skeleton, swingClip("treadmill", 31, 0.5, 0));
+    // Foot 0.5 m below the hip swinging ±0.5 rad once a second: ~0.5 · 0.5 · 2π m/s while low.
+    expect(m.speed).toBeGreaterThan(1.3);
+    expect(m.speed).toBeLessThan(1.6);
+    expect(m.stride).toBeCloseTo(m.speed * m.duration, 6);
+  });
+
   it("weights gaits by speed with plateaus and smooth hand-overs", () => {
     const loco = new Locomotion(skeleton, [{ clip: run, from: 3, to: 6 }, { clip: walk, from: 0, to: 1.5 }]);
     expect(loco.gaits[0].measure.stride).toBeCloseTo(1, 4); // sorted: walk first
