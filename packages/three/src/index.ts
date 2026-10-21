@@ -5,6 +5,7 @@ import {
   type AxisClip,
   type Clip,
   type FittedSkeleton,
+  type Pose,
   type LodDef,
   type MergedMesh,
   type MeshData,
@@ -1103,6 +1104,21 @@ export class ThreeActor {
     const out: THREE.KeyframeTrack[] = [...tracks].map(([bone, values]) => new THREE.QuaternionKeyframeTrack(`${bone}.quaternion`, times, values));
     out.push(...this.swayTracks(clip.duration));
     return new THREE.AnimationClip(clip.name, clip.duration, out);
+  }
+
+  /** The skeleton as fitted to the current shape (bind pose), for sampling clips or blending poses yourself. Replaced on every shape change. */
+  get fittedSkeleton(): FittedSkeleton | undefined {
+    return this.fitted;
+  }
+
+  /**
+   * Puts a pose (from `Retargeter.sampleInto`, a `PoseMixer` or a `Locomotion`) on the pack
+   * bones. Stop any playing clip first (`play(null)`), or the mixer overwrites it next update.
+   */
+  setPose(pose: Pose): void {
+    const n = Math.min(this.packBones, pose.rotations.length / 4);
+    for (let i = 0; i < n; i++) this.bones[i].quaternion.fromArray(pose.rotations, i * 4);
+    this.bones[pose.rootIndex]?.position.fromArray(pose.root);
   }
 
   /** The running clip's action, if any (for seeking or syncing other mixers). */
