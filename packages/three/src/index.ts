@@ -40,6 +40,7 @@ import { SkinComposer } from "./skincompose";
 import { type ColliderUniforms, MAX_COLLIDERS, createColliderUniforms, useColliders } from "./colliders";
 import { createPartMaterial, createPartMesh } from "./parts";
 import { createCrowdMaterial } from "./crowd";
+import { garmentLayer } from "./layers";
 
 export * from "./materials";
 export * from "./dqs";
@@ -88,7 +89,7 @@ export const defaultMaterials: MaterialFactory = (data, actor) => {
     case "cloth": {
       const fabric = def.tags?.find((t) => t.startsWith("fabric:"))?.slice(7) ?? "smooth";
       // Garments follow their own layer order: proxies (socks) over base garments (tights), outerwear over underwear.
-      const layer = (def.source.kind === "proxy" ? 2 : 1) + (def.inflate ?? 0) * 100;
+      const layer = garmentLayer(def);
       // Textured garments store their texture's mean colour (sRGB); plain ones their linear colour.
       const mean = def.textures?.color ? new THREE.Color().setRGB(...(def.material.color ?? [0.5, 0.5, 0.5]), THREE.SRGBColorSpace) : color;
       const meanLum = 0.2126 * mean.r + 0.7152 * mean.g + 0.0722 * mean.b;
@@ -444,6 +445,7 @@ export class ThreeActor {
     if (covered) for (const d of this.data.values()) if (d.def.tags?.includes("anatomy")) this.shown.delete(d.def.name);
     if (this.packHidden) this.shown.clear();
     for (const [n, mesh] of this.meshes) mesh.visible = this.shown.has(n);
+    this.updateLifts();
     this.updateHiddenSkin();
   }
 
@@ -559,6 +561,107 @@ export class ThreeActor {
     this.skin.uTone.value.copy(color);
   }
 
+  /** Writes a mesh's bind-pose positions and normals for a shape (garments pushed out by their thickness). */
+  private writePositions(data: MeshData, shape: ActorShape): void {
+    const mesh = this.meshes.get(data.def.name)!;
+    const src = this.source(shape, data);
+    const pos = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const nor = mesh.geometry.getAttribute("normal") as THREE.BufferAttribute;
+    const p = pos.array as Float32Array, nn = nor.array as Float32Array;
+    const map = data.map;
+    const inflate = data.def.inflate ?? 0;
+    const lift = this.liftOf(data, shape);
+    for (let i = 0; i < map.length; i++) {
+      const s = map[i] * 3;
+      const nx = src.normals[s], ny = src.normals[s + 1], nz = src.normals[s + 2];
+      const d = lift ? inflate + lift[map[i]] : inflate;
+      p[i * 3] = src.positions[s] + nx * d;
+      p[i * 3 + 1] = src.positions[s + 1] + ny * d;
+      p[i * 3 + 2] = src.positions[s + 2] + nz * d;
+      nn[i * 3] = nx;
+      nn[i * 3 + 1] = ny;
+      nn[i * 3 + 2] = nz;
+    }
+    pos.needsUpdate = true;
+    nor.needsUpdate = true;
+  }
+
+  /** Shown garments cut from the body, as a key (fitted garments are lifted over them, see liftOf). */
+  private liftKey = "";
+  private readonly lifts = new Map<string, Float32Array | null>();
+
+  /**
+   * Extra lift per proxy vertex for fitted garments (proxies): where one lies
+   * over a shown body-cut garment (a T-shirt over jeans) closer to the body
+   * than that garment's thickness, it is pushed out to sit on top of it
+   * instead of cutting into it. Parts that hang further out stay put.
+   */
+  private liftOf(data: MeshData, shape: ActorShape): Float32Array | null {
+    const src = data.def.source;
+    if (data.def.role !== "garment" || src.kind !== "proxy" || data.def.tags?.includes("tucked")) return null;
+    let lift = this.lifts.get(data.def.name);
+    if (lift !== undefined) return lift;
+    lift = null;
+    const binding = this.runtime.proxies.get(src.proxy);
+    const fitted = shape.proxies.get(src.proxy);
+    const garmentOf = this.runtime.garmentVertexOf;
+    const under = this.underThickness();
+    if (binding && fitted && garmentOf && under) {
+      const n = binding.def.vertexCount;
+      lift = new Float32Array(n);
+      const { refs, weights } = binding;
+      const P = shape.positions, N = shape.normals;
+      const own = data.def.inflate ?? 0;
+      for (let i = 0; i < n; i++) {
+        // The body-cut garment's outer surface under this vertex (weighted over its body anchors).
+        let wsum = 0;
+        const top = [0, 0, 0];
+        for (let k = 0; k < 3; k++) {
+          const g = garmentOf[refs[i * 3 + k]], w = weights[i * 3 + k];
+          if (g === 0xffffffff || !under[g] || w <= 0) continue;
+          wsum += w;
+          for (let c = 0; c < 3; c++) top[c] += w * (P[g * 3 + c] + N[g * 3 + c] * under[g]);
+        }
+        if (wsum < 0.5) continue;
+        // How far that surface lies outside the garment here, along the garment's normal.
+        let gap = 0;
+        for (let c = 0; c < 3; c++) gap += (top[c] / wsum - fitted.positions[i * 3 + c]) * fitted.normals[i * 3 + c];
+        lift[i] = Math.max(0, gap + 0.003 - own);
+      }
+    }
+    this.lifts.set(data.def.name, lift);
+    return lift;
+  }
+
+  private underCache?: Float32Array | null;
+
+  /** Per base vertex: thickness (inflate) of the thickest shown body-cut garment there, null if none is shown. */
+  private underThickness(): Float32Array | null {
+    if (this.underCache !== undefined) return this.underCache;
+    let under: Float32Array | null = null;
+    for (const data of this.rendered) {
+      const { def } = data;
+      if (def.role !== "garment" || def.source.kind !== "base" || !this.shown.has(def.name) || !def.inflate) continue;
+      under ??= new Float32Array(this.runtime.manifest.vertexCount);
+      // Also just past a hem cut (those triangles are still partly drawn), fading out over 2 cm so the lift has no step.
+      for (let i = 0; i < data.map.length; i++) {
+        const t = data.clip ? Math.min(1, Math.max(0, 1 + data.clip[i] / 0.02)) : 1;
+        under[data.map[i]] = Math.max(under[data.map[i]], def.inflate * t);
+      }
+    }
+    return (this.underCache = under);
+  }
+
+  /** Re-lifts fitted garments when the shown body-cut garments change. */
+  private updateLifts(): void {
+    const key = this.rendered.filter((d) => d.def.role === "garment" && d.def.source.kind === "base" && this.shown.has(d.def.name)).map((d) => d.def.name).join(",");
+    if (key === this.liftKey) return;
+    this.liftKey = key;
+    this.lifts.clear();
+    this.underCache = undefined;
+    if (this.lastShape) for (const data of this.rendered) if (data.def.role === "garment" && data.def.source.kind === "proxy") this.writePositions(data, this.lastShape);
+  }
+
   /** Iris colour preset (see IRIS_PRESETS) or custom hue/saturation/lightness factors. */
   setIris(preset: keyof typeof IRIS_PRESETS | { hue: number; sat: number; light: number }): void {
     const p = typeof preset === "string" ? IRIS_PRESETS[preset] : preset;
@@ -570,27 +673,8 @@ export class ThreeActor {
   /** Writes a new shape into the GPU buffers and re-binds the skeleton to it. */
   applyShape(shape: ActorShape): void {
     this.lastShape = shape;
-    for (const data of this.rendered) {
-      const mesh = this.meshes.get(data.def.name)!;
-      const src = this.source(shape, data);
-      const pos = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
-      const nor = mesh.geometry.getAttribute("normal") as THREE.BufferAttribute;
-      const p = pos.array as Float32Array, nn = nor.array as Float32Array;
-      const map = data.map;
-      const inflate = data.def.inflate ?? 0;
-      for (let i = 0; i < map.length; i++) {
-        const s = map[i] * 3;
-        const nx = src.normals[s], ny = src.normals[s + 1], nz = src.normals[s + 2];
-        p[i * 3] = src.positions[s] + nx * inflate;
-        p[i * 3 + 1] = src.positions[s + 1] + ny * inflate;
-        p[i * 3 + 2] = src.positions[s + 2] + nz * inflate;
-        nn[i * 3] = nx;
-        nn[i * 3 + 1] = ny;
-        nn[i * 3 + 2] = nz;
-      }
-      pos.needsUpdate = true;
-      nor.needsUpdate = true;
-    }
+    this.lifts.clear();
+    for (const data of this.rendered) this.writePositions(data, shape);
     this.updateHiddenSkin();
     if (shape.skeleton && this.skeleton) this.rebind(shape.skeleton);
     if (shape.skeleton) this.measureLegs(shape);
@@ -700,14 +784,6 @@ export class ThreeActor {
     for (const mesh of this.parts.values()) if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[k] = weight;
   }
 
-  /**
-   * Garment layer order: skin 0, garments cut from the body (underwear, T-shirt,
-   * jeans, by thickness) above it, fitted garments (proxies) on top.
-   */
-  private static layerOf(def: MeshData["def"]): number {
-    if (def.role === "body") return 0;
-    return (def.source.kind === "proxy" ? 2 : 1) + (def.inflate ?? 0) * 100;
-  }
 
   /**
    * Drops triangles hidden under visible garments to avoid poke-through: skin
@@ -718,7 +794,7 @@ export class ThreeActor {
     const level = this.level;
     const covers: { layer: number; verts: Uint32Array }[] = [];
     for (const data of this.rendered)
-      if (data.hidesBaseVertices && this.shown.has(data.def.name)) covers.push({ layer: ThreeActor.layerOf(data.def), verts: data.hidesBaseVertices });
+      if (data.hidesBaseVertices && this.shown.has(data.def.name)) covers.push({ layer: garmentLayer(data.def), verts: data.hidesBaseVertices });
     for (const data of this.rendered) {
       const { def } = data;
       const mesh = this.meshes.get(def.name)!;
@@ -729,7 +805,7 @@ export class ThreeActor {
       }
       // Hidden garments keep their last index list; it is rebuilt when they are shown.
       if (isGarment && !this.shown.has(def.name)) continue;
-      const layer = ThreeActor.layerOf(def);
+      const layer = garmentLayer(def);
       const hide = new Set<number>();
       for (const c of covers) if (c.layer > layer) for (const v of c.verts) hide.add(v);
       const { map, dominant } = data;
@@ -740,7 +816,8 @@ export class ThreeActor {
         this.useIndices(mesh, data, level);
         const attr = mesh.geometry.getAttribute("clipValue") as THREE.BufferAttribute;
         const values = attr.array as Float32Array;
-        for (let i = 0; i < map.length; i++) values[i] = hide.has(map[i]) ? -0.03 : data.clip[i];
+        // Barely below zero: the cut sits right at the covered vertices, so no gap opens below the covering hem.
+        for (let i = 0; i < map.length; i++) values[i] = hide.has(map[i]) ? -0.002 : data.clip[i];
         attr.needsUpdate = true;
         continue;
       }

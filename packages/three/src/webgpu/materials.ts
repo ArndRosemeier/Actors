@@ -47,6 +47,7 @@ import {
 import type { MeshData, PartMesh } from "@actors/core";
 import type { ActorMaterialKit, ThreeActor } from "../index";
 import type { ColliderUniforms } from "../colliders";
+import { garmentLayer } from "../layers";
 import type { SkinUniforms } from "../materials";
 import { fabricNormalMap, lashAlphaMap, poreNormalMap } from "../procedural";
 import { leafTexture, robotMaterialParams, strandTexture } from "../parts";
@@ -458,7 +459,7 @@ export function nodeMeshMaterial(data: MeshData, actor: ThreeActor): THREE.Mater
       return createNodeLashMaterial(new THREE.Color(0.05, 0.035, 0.03));
     case "cloth": {
       const fabric = def.tags?.find((t) => t.startsWith("fabric:"))?.slice(7) ?? "smooth";
-      const layer = (def.source.kind === "proxy" ? 2 : 1) + (def.inflate ?? 0) * 100;
+      const layer = garmentLayer(def);
       const mean = def.textures?.color ? new THREE.Color().setRGB(...(def.material.color ?? [0.5, 0.5, 0.5]), THREE.SRGBColorSpace) : color;
       const meanLum = 0.2126 * mean.r + 0.7152 * mean.g + 0.0722 * mean.b;
       let mat: THREE.Material = createNodeClothMaterial(color, def.material.roughness ?? 0.7, fabric, layer, tex("color", true), tex("normal"), meanLum);
