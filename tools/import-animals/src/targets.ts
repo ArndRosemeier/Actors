@@ -212,3 +212,69 @@ export function dogMorphs(input: MorphInput): Morph[] {
   }
   return out;
 }
+
+/** Closest point on a polyline and the direction of its segment there. */
+function closestOnPolyline(p: Vec3, pts: Vec3[]): { point: Vec3; dir: Vec3 } {
+  let best = Infinity, point: Vec3 = pts[0], dir: Vec3 = [0, 0, 1];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], ab = sub(pts[i + 1], a);
+    const t = Math.max(0, Math.min(1, dot(sub(p, a), ab) / (dot(ab, ab) || 1e-12)));
+    const q: Vec3 = [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t];
+    const d = Math.hypot(...sub(p, q));
+    if (d < best) {
+      best = d;
+      point = q;
+      dir = normalize(ab);
+    }
+  }
+  return { point, dir };
+}
+
+/**
+ * Squirrel morphs: bulk (a rounder, heavier body, e.g. fox squirrels), a
+ * fuller tail plume, and puffed cheeks (pouches, as in chipmunks).
+ */
+export function squirrelMorphs(input: MorphInput): Morph[] {
+  const { rig, weight } = input;
+  const bone = (n: string) => rig.bones[rig.index.get(n)!];
+  const out: Morph[] = [];
+  const sides = (names: string[]) => (v: number) => names.reduce((a, b) => a + weight(v, `${b}_L`) + weight(v, `${b}_R`), 0);
+
+  const barrelY = bone("Spine_2").head[1] - 0.03;
+  const limbs = sides(["Front_Leg_Shoulder", "Back_Leg_Pelvis", "Front_Leg_Upper", "Back_Leg_Upper"]);
+  out.push(
+    morph("bulk", "torso", input, (p, v) => {
+      const t = Math.min(1, weight(v, "Spine_1") + weight(v, "Spine_2") + weight(v, "Spine_2.001") + weight(v, "Stomach") + weight(v, "Hips") + weight(v, "Spine_3") + weight(v, "Spine_4") * 0.5 + limbs(v) * 0.8);
+      if (t <= 0) return p;
+      return [p[0] * (1 + 0.25 * t), barrelY + (p[1] - barrelY) * (1 + 0.12 * t), p[2]];
+    }),
+  );
+
+  const tailNames = ["Tail_Base", "Tail_Mid", "Tail_Mid.001", "Tail_End", "Tail_Tip"];
+  const tailLine = [...tailNames.map((n) => bone(n).head), bone("Tail_Tip").tail];
+  out.push(
+    morph("tail-plume", "tail", input, (p, v) => {
+      const w = Math.min(1, tailNames.reduce((a, n) => a + weight(v, n), 0) * 1.2);
+      if (w <= 0) return p;
+      const { point } = closestOnPolyline(p, tailLine);
+      // The plume grows wider from the root (which stays thin) to the middle.
+      const t = smoothstep(0, 0.35, Math.hypot(...sub(point, tailLine[0])) / 0.1);
+      const k = 1 + 0.5 * w * t;
+      return [point[0] + (p[0] - point[0]) * (0.8 + 0.2 * k), point[1] + (p[1] - point[1]) * k, point[2] + (p[2] - point[2]) * k];
+    }),
+  );
+
+  // Cheek pouches: the cheeks swell out and down.
+  const eye = input.eyeCenter;
+  out.push(
+    morph("cheeks", "head", input, (p, v) => {
+      const head = Math.min(1, weight(v, "Head") + weight(v, "Nose") + weight(v, "Chin"));
+      if (head <= 0) return p;
+      const s = p[0] >= 0 ? 1 : -1;
+      const c: Vec3 = [eye[0] * s * 0.85, eye[1] - 0.014, eye[2] + 0.004];
+      const g = Math.exp(-(((p[0] - c[0]) / 0.012) ** 2 + ((p[1] - c[1]) / 0.011) ** 2 + ((p[2] - c[2]) / 0.016) ** 2)) * head;
+      return [p[0] + 0.007 * s * g, p[1] - 0.003 * g, p[2]];
+    }),
+  );
+  return out;
+}

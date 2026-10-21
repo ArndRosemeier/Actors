@@ -1,9 +1,10 @@
 /**
- * Builds the dog actor pack: Mesh2Motion's CC0 quadruped rig and clips, plus a
- * body generated around that rig (implicit surface, see dog.ts), breed morphs
- * (targets.ts) and coat data for the fur material.
+ * Builds the animal actor packs (dog, squirrel): Mesh2Motion's CC0 quadruped
+ * rig and clips, plus a body generated around that rig (implicit surface, see
+ * dog.ts and squirrel.ts), shape morphs (targets.ts) and coat data for the fur
+ * material. Both animals share the rig's bones, so clips play on either.
  *
- *   npm run import:animals [-- --out <dir>] [--cell <meters>] [--triangles <n>]
+ *   npm run import:animals [-- --only dog|squirrel] [--out <dir>] [--cell <meters>] [--triangles <n>]
  *
  * The rig file is downloaded once into .cache/. No mesh is taken from the
  * source; only its skeleton and animations.
@@ -18,10 +19,13 @@ import { parseGlb } from "../../import-makehuman/src/gltf";
 import { ready as meshoptReady, simplifyLevels } from "../../import-makehuman/src/lod";
 import { meshBody, skinBody } from "./bodymesh";
 import { convertClips } from "./clips";
-import { dogBody } from "./dog";
+import { type DogBody, dogBody } from "./dog";
+import { type Rig } from "./rig";
+import { squirrelBody } from "./squirrel";
+import { squirrelClips } from "./squirrelclips";
 import { readRig } from "./rig";
 import { FOX_ANIMATIONS, MESH2MOTION_COMMIT, SOURCE_NOTE } from "./source";
-import { dogMorphs } from "./targets";
+import { type Morph, type MorphInput, dogMorphs, squirrelMorphs } from "./targets";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const CACHE = join(ROOT, ".cache");
@@ -55,14 +59,37 @@ function eyeSphere(center: Vec3, radius: number, look: Vec3, rings = 14, segment
   return { positions, uv, indices };
 }
 
+interface AnimalKind {
+  body(source: Rig): DogBody;
+  /** Surface Nets cell (meters) and target triangle count. */
+  cell: number;
+  triangles: number;
+  morphs(input: MorphInput): Morph[];
+  /** Clips of its own (made on its re-posed rig), besides the source rig's. */
+  clips?(rig: Rig): ReturnType<typeof convertClips>;
+  coat: [number, number, number];
+  iris: [number, number, number];
+  name: string;
+}
+
+const KINDS: Record<string, AnimalKind> = {
+  dog: { body: dogBody, cell: 0.0035, triangles: 44000, morphs: dogMorphs, coat: [0.55, 0.38, 0.22], iris: [0.35, 0.2, 0.08], name: "Generated dog body" },
+  squirrel: { body: squirrelBody, cell: 0.0011, triangles: 40000, morphs: squirrelMorphs, clips: squirrelClips, coat: [0.5, 0.45, 0.38], iris: [0.02, 0.018, 0.016], name: "Generated grey squirrel body" },
+};
+
 async function main(): Promise<void> {
-  const out = resolve(arg("out") ?? join(ROOT, "apps/viewer/public/packs/dog"));
-  const cell = Number(arg("cell") ?? 0.0035);
-  const triangles = Number(arg("triangles") ?? 44000);
+  const only = arg("only");
+  for (const id of Object.keys(KINDS)) if (!only || only === id) await buildPack(id, KINDS[id]);
+}
+
+async function buildPack(id: string, kind: AnimalKind): Promise<void> {
+  const out = resolve(arg("only") && arg("out") ? arg("out")! : join(ROOT, `apps/viewer/public/packs/${id}`));
+  const cell = Number(arg("cell") ?? kind.cell);
+  const triangles = Number(arg("triangles") ?? kind.triangles);
 
   const glb = parseGlb(readFileSync(fetchCached(CACHE, FOX_ANIMATIONS)));
   const source = readRig(glb);
-  const body = dogBody(source);
+  const body = kind.body(source);
   const { rig } = body;
 
   let t = Date.now();
@@ -112,7 +139,7 @@ async function main(): Promise<void> {
     return w;
   };
   const eyeOf = (v: number) => eyeMeshes.find((e) => v >= e.first && v < e.first + e.count);
-  const morphs = dogMorphs({
+  const morphs = kind.morphs({
     positions: Float32Array.from(positions),
     rig,
     weight: weightOf,
@@ -144,7 +171,7 @@ async function main(): Promise<void> {
       baseIndex: blob.add("u32", bodyMap),
       uv: blob.add("f32", skinned.uv),
       indices: blob.add("u32", skinned.indices),
-      material: { kind: "fur", color: [0.55, 0.38, 0.22] },
+      material: { kind: "fur", color: kind.coat },
       simplified,
       attributes: {
         furFlow: attr(skinned.flow, 3),
@@ -170,7 +197,7 @@ async function main(): Promise<void> {
           return e.indices.map((i) => i + offset);
         }),
       ),
-      material: { kind: "eye", color: [0.35, 0.2, 0.08] },
+      material: { kind: "eye", color: kind.iris },
       tags: ["animal"],
       lods: [0, 1],
     },
@@ -191,7 +218,10 @@ async function main(): Promise<void> {
   }
 
   const clips: ClipDef[] = [];
-  for (const { def, data } of convertClips(glb, source)) {
+  // Its own clips first, then the source rig's (they play on any re-posed copy of the rig).
+  // (Its own version wins where names clash, e.g. idle and run.)
+  for (const { def, data } of [...(kind.clips?.(rig) ?? []), ...convertClips(glb, source)]) {
+    if (clips.some((c) => c.name === def.name)) continue;
     writeFileSync(join(out, def.file), new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
     clips.push(def);
   }
@@ -205,10 +235,10 @@ async function main(): Promise<void> {
   const manifest: ActorPackManifest = {
     format: "actors-pack",
     version: 1,
-    id: "dog",
-    species: "dog",
+    id,
+    species: id,
     units: "meters",
-    source: { name: `Generated dog body; ${SOURCE_NOTE}`, license: "CC0-1.0", url: `https://github.com/scottpetrovic/mesh2motion-app/tree/${MESH2MOTION_COMMIT}` },
+    source: { name: `${kind.name}; ${SOURCE_NOTE}`, license: "CC0-1.0", url: `https://github.com/scottpetrovic/mesh2motion-app/tree/${MESH2MOTION_COMMIT}` },
     blob: "base.bin",
     vertexCount,
     basePositions,
@@ -219,7 +249,7 @@ async function main(): Promise<void> {
     targets,
     clips,
     lods,
-    extra: { animal: { kind: "dog", visibleVertices: nVisible, morphs: morphs.map((m) => m.name) } },
+    extra: { animal: { kind: id, visibleVertices: nVisible, morphs: morphs.map((m) => m.name) } },
   };
   writeFileSync(join(out, "base.bin"), blob.toBuffer());
   writeFileSync(join(out, "manifest.json"), JSON.stringify(manifest));

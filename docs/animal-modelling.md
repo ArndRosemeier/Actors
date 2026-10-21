@@ -87,7 +87,10 @@ These scratch scripts are not committed. Copies are in the thread's scratchpad; 
 
 ## Applying this to other animals
 
-- Mesh2Motion's rig and clips also fit cats and foxes. Re-pose the rig toward the species' natural stance (cats: lower head, tail up and curved; squirrels need a different rig).
+- Mesh2Motion's rig and clips also fit cats and foxes. Re-pose the rig toward the species' natural stance (cats: lower head, tail up and curved).
+- **Squirrel (done on the same rig):** when the stance is far from the fox's, place every joint directly from the photo (`placeBones` in rig.ts, pixel coordinates converted by one scale) instead of chains of `turnChain`. The fox's clips then still play (limbs are aligned to the fox's directions, so they look like a fox gait), and the species gets its own clips made with forward kinematics plus two-bone IK (`squirrelclips.ts`); its rest pose is the reference, so a clip of zero turns is exactly the rest.
+- Small animals: set the body's `unit` (squirrel 0.3) so blend widths, lip, rim and marking sizes shrink with it, mesh at about 1 mm, and set the coat's `grain` (squirrel 0.4) for finer strands and locks. Salt-and-pepper grizzle (`frost`) must be streaks a couple of millimetres wide or it averages away at viewing distance.
+- A plume tail is a loft along the tail bones with `upHint` [1, 0, 0] (sections wide in the plane of the S, thinner to the sides) plus an ellipsoid over the flat end cap.
 - Keep the per-vertex coat channels generic (regions, back, underside, masks). Species-specific patterns (stripes, rosettes) can be shader functions driven by `coatPos` and the flow.
 - Small animals need shorter fur and a finer strand spacing (`uFur.z`), or strands become blobs.
 - Check every existing preset or animation after a stance change. A screenshot sheet from `apps/viewer/scripts/animals.mjs` is the quickest check.

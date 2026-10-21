@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dogShapeOptions, dogTargetWeights } from "./animal";
-import { BREEDS, DEFAULT_SHAPE, SHAPE_RANGES, breedParams, mixParams, sanitizeShape } from "./breeds";
+import { BREEDS, DEFAULT_PRESET, DEFAULT_SHAPE, PRESETS, SHAPE_RANGES, SQUIRRELS, breedParams, mixParams, sanitizeShape } from "./breeds";
 
 describe("dog parameters", () => {
   it("every breed preset stays inside the slider ranges", () => {
@@ -56,5 +56,24 @@ describe("dog parameters", () => {
     const m = mixParams(a, b, 0.5);
     expect(m.shape.legs).toBeCloseTo((a.shape.legs + b.shape.legs) / 2);
     expect(m.coat.base[0]).toBeCloseTo((a.coat.base[0] + b.coat.base[0]) / 2);
+  });
+});
+
+describe("squirrel parameters", () => {
+  it("species presets stay inside the slider ranges and use squirrel morphs", () => {
+    for (const [id, b] of Object.entries(SQUIRRELS)) {
+      for (const [k, v] of Object.entries(b.shape)) {
+        const [lo, hi] = SHAPE_RANGES[k as keyof typeof SHAPE_RANGES];
+        expect(v, `${id}.${k}`).toBeGreaterThanOrEqual(lo);
+        expect(v, `${id}.${k}`).toBeLessThanOrEqual(hi);
+      }
+    }
+    expect(PRESETS.squirrel[DEFAULT_PRESET.squirrel]).toBeDefined();
+    const red = breedParams("red", "squirrel");
+    expect(red.coat.earTufts).toBe(1);
+    const w = dogTargetWeights({ ...DEFAULT_SHAPE, tailPlume: 0.5, cheeks: 1 });
+    expect(w.get("tail-plume")).toBeCloseTo(0.5);
+    expect(w.get("cheeks")).toBeCloseTo(1);
+    expect(() => breedParams("red")).toThrow();
   });
 });

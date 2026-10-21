@@ -63,12 +63,13 @@ export function vertexNormals(positions: ArrayLike<number>, indices: ArrayLike<n
 /** Surface of the body: quads from Surface Nets, made even and triangulated, then reduced to about `triangles`. */
 export async function meshBody(body: DogBody, cell: number, triangles: number): Promise<{ positions: Float32Array; indices: Uint32Array }> {
   const f = (p: Vec3) => bodyDistance(body.parts, p);
+  const u = body.unit ?? 1;
   const lo: Vec3 = [Infinity, Infinity, Infinity], hi: Vec3 = [-Infinity, -Infinity, -Infinity];
   for (const { prim, carve } of body.parts) {
     if (carve) continue;
     for (let k = 0; k < 3; k++) {
-      lo[k] = Math.min(lo[k], prim.min[k] - 0.03);
-      hi[k] = Math.max(hi[k], prim.max[k] + 0.03);
+      lo[k] = Math.min(lo[k], prim.min[k] - 0.03 * u);
+      hi[k] = Math.max(hi[k], prim.max[k] + 0.03 * u);
     }
   }
   const nets = surfaceNets(f, lo, hi, cell);
@@ -116,16 +117,17 @@ export async function meshBody(body: DogBody, cell: number, triangles: number): 
  */
 function taubin(body: DogBody, P: Float64Array, nb: number[][], iterations: number): void {
   const n = P.length / 3;
+  const u = body.unit ?? 1;
   const keepShape = body.parts.filter((q) => q.carve || q.region === "ear" || q.region === "nose");
   const strength = new Float64Array(n);
   for (let v = 0; v < n; v++) {
     const p: Vec3 = [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]];
     let d = Infinity;
     for (const q of keepShape) d = Math.min(d, Math.abs(q.prim.distance(p)));
-    strength[v] = Math.max(0, Math.min(1, (d - 0.004) / 0.012));
+    strength[v] = Math.max(0, Math.min(1, (d - 0.004 * u) / (0.012 * u)));
     // The mouth slit may smooth a little: its walls come out jagged from the voxel grid.
     const mouth = body.parts.find((q) => q.prim.name === "mouth");
-    if (mouth && Math.abs(mouth.prim.distance(p)) < 0.006) strength[v] = Math.max(strength[v], 0.35);
+    if (mouth && Math.abs(mouth.prim.distance(p)) < 0.006 * u) strength[v] = Math.max(strength[v], 0.35);
   }
   const next = new Float64Array(P.length);
   const before = Float64Array.from(P);
@@ -158,10 +160,10 @@ function taubin(body: DogBody, P: Float64Array, nb: number[][], iterations: numb
  * How much each part makes up the surface at p: parts within a few millimetres
  * of the closest one share it (soft, so weights blend across joins).
  */
-function membership(parts: BodyPart[], p: Vec3, out: number[], mouth: DogBody["marks"]["mouth"], split = true): void {
+function membership(parts: BodyPart[], p: Vec3, out: number[], mouth: DogBody["marks"]["mouth"], u: number, split = true): void {
   let best = Infinity;
   // In front of the mouth corner, the slit splits the head: above it is muzzle, below it jaw.
-  const inMouth = split && p[2] > mouth.z0 - 0.004;
+  const inMouth = split && p[2] > mouth.z0 - 0.004 * u;
   const above = p[1] > mouthLineY(mouth, p[2]);
   for (let i = 0; i < parts.length; i++) {
     const region = parts[i].region;
@@ -172,10 +174,10 @@ function membership(parts: BodyPart[], p: Vec3, out: number[], mouth: DogBody["m
     out[i] = parts[i].prim.distance(p);
     best = Math.min(best, out[i]);
   }
-  if (best === Infinity) return membership(parts, p, out, mouth, false);
+  if (best === Infinity) return membership(parts, p, out, mouth, u, false);
   let sum = 0;
   for (let i = 0; i < parts.length; i++) {
-    const w = out[i] === Infinity ? 0 : Math.exp(-(out[i] - best) / 0.006);
+    const w = out[i] === Infinity ? 0 : Math.exp(-(out[i] - best) / (0.006 * u));
     out[i] = w < 1e-3 ? 0 : w;
     sum += out[i];
   }
@@ -185,6 +187,7 @@ function membership(parts: BodyPart[], p: Vec3, out: number[], mouth: DogBody["m
 /** Skin weights, fur flow and coat regions for every vertex. */
 export function skinBody(body: DogBody, mesh: { positions: Float32Array; indices: Uint32Array }): BodyMesh {
   const { rig, parts } = body;
+  const u = body.unit ?? 1;
   const n = mesh.positions.length / 3;
   const normals = vertexNormals(mesh.positions, mesh.indices, n);
   // Face winding decides the sign; make the normals point out of the body (along the distance gradient).
@@ -214,7 +217,7 @@ export function skinBody(body: DogBody, mesh: { positions: Float32Array; indices
 
   for (let v = 0; v < n; v++) {
     const p: Vec3 = [mesh.positions[v * 3], mesh.positions[v * 3 + 1], mesh.positions[v * 3 + 2]];
-    membership(parts, p, member, body.marks.mouth);
+    membership(parts, p, member, body.marks.mouth, u);
     let fx = 0, fy = 0, fz = 0;
     for (let i = 0; i < parts.length; i++) {
       const m = member[i];
@@ -225,7 +228,7 @@ export function skinBody(body: DogBody, mesh: { positions: Float32Array; indices
       let sum = 0;
       const local = bones.map((b) => {
         const { d } = segmentDistance(p, rig.bones[b].head, rig.bones[b].tail);
-        const w = 1 / Math.pow(Math.max(d, 0.004), 4);
+        const w = 1 / Math.pow(Math.max(d, 0.004 * u), 4);
         sum += w;
         return w;
       });
@@ -290,15 +293,16 @@ function smooth(values: Float32Array, stride: number, nb: number[][], iterations
  * - coatB: ear, fur length factor, brow spots, chest/throat bib
  * - coatC: nose leather, lips and mouth, paw pads, eye rims
  * - coatD: back (saddle), underside and inner legs, mask (muzzle and around the eyes), blaze (white stripe over forehead and muzzle)
- * - coatE: light (wolf) mask (cheeks, muzzle sides and lower jaw, below the eyes), unused ×3
+ * - coatE: light (wolf) mask (cheeks, muzzle sides and lower jaw, below the eyes), eye ring, tail, ear tip (0 root .. 1 tip)
  */
 function coatRegions(body: DogBody, P: Float32Array, N: Float32Array, W: Float32Array, B: number, regions: Map<Region, Float32Array>, furLen: Float32Array) {
   const { rig, marks, eyes } = body;
+  const u = body.unit ?? 1;
   const n = P.length / 3;
   const coatA = new Float32Array(n * 4), coatB = new Float32Array(n * 4), coatC = new Float32Array(n * 4), coatD = new Float32Array(n * 4), coatE = new Float32Array(n * 4);
   // The light mask's upper edge: from just below the eyes down to the upper lip at the nose.
   const eyeY = Math.max(...eyes.map((e) => e.center[1])), eyeZ = Math.max(...eyes.map((e) => e.center[2]));
-  const lineY = (z: number) => eyeY - 0.02 + ((z - eyeZ) * (tip[1] - 0.014 - (eyeY - 0.02))) / (tip[2] - eyeZ);
+  const lineY = (z: number) => eyeY - 0.02 * u + ((z - eyeZ) * (tip[1] - 0.014 * u - (eyeY - 0.02 * u))) / (tip[2] - eyeZ);
   const r = (name: Region) => regions.get(name) ?? new Float32Array(n);
   const leg = r("leg"), paw = r("paw"), head = r("head"), muzzle = r("muzzle"), jaw = r("jaw"), nose = r("nose"), ear = r("ear"), torso = r("torso"), neck = r("neck"), tail = r("tail");
   const bone = (name: string) => rig.bones[rig.index.get(name)!];
@@ -315,7 +319,7 @@ function coatRegions(body: DogBody, P: Float32Array, N: Float32Array, W: Float32
     const legW = Math.min(1, leg[v] + paw[v]);
     const legT = 1 - legW * (1 - Math.min(1, p[1] / elbowY));
     const headW = Math.min(1, head[v] + muzzle[v] + jaw[v] + nose[v] + ear[v]);
-    const muzzleT = Math.min(1, muzzle[v] + jaw[v] + nose[v]) * Math.max(0, Math.min(1, (p[2] - (stop[2] - 0.01)) / (tip[2] - stop[2] + 0.01)));
+    const muzzleT = Math.min(1, muzzle[v] + jaw[v] + nose[v]) * Math.max(0, Math.min(1, (p[2] - (stop[2] - 0.01 * u)) / (tip[2] - stop[2] + 0.01 * u)));
     // Position along the tail chain: bone order plus the position on the bone.
     let tw = 0, tt = 0;
     tailBones.forEach((b, k) => {
@@ -328,10 +332,10 @@ function coatRegions(body: DogBody, P: Float32Array, N: Float32Array, W: Float32
     const tailT = tw > 0.3 ? tt / tw : 0;
     coatA.set([legT, headW, muzzleT, tailT], v * 4);
 
-    const brow = Math.max(...marks.brows.map((b) => Math.exp(-((p[0] - b[0]) ** 2 + (p[1] - b[1]) ** 2 * 1.6 + (p[2] - b[2]) ** 2) / (2 * 0.008 ** 2))));
+    const brow = Math.max(...marks.brows.map((b) => Math.exp(-((p[0] - b[0]) ** 2 + (p[1] - b[1]) ** 2 * 1.6 + (p[2] - b[2]) ** 2) / (2 * (0.008 * u) ** 2))));
     // Bib: the front of the chest and the throat, below the spine.
     const front = smoothstep(0.1, 0.6, nn[2] * 0.8 - nn[1] * 0.6);
-    const bib = Math.min(1, torso[v] + neck[v]) * front * smoothstep(bone("Spine_2.001").head[1] - 0.02, bone("Spine_2.001").head[1] - 0.14, p[1]) * smoothstep(0.05, 0.2, p[2]);
+    const bib = Math.min(1, torso[v] + neck[v]) * front * smoothstep(bone("Spine_2.001").head[1] - 0.02 * u, bone("Spine_2.001").head[1] - 0.14 * u, p[1]) * smoothstep(0.05 * u, 0.2 * u, p[2]);
     coatB.set([ear[v], furLen[v], brow, bib], v * 4);
 
     const noseW = smoothstep(0.3, 0.6, nose[v]);
@@ -339,24 +343,35 @@ function coatRegions(body: DogBody, P: Float32Array, N: Float32Array, W: Float32
     const m = marks.mouth;
     const along = (p[2] - m.z0) / (m.z1 - m.z0);
     const lipDist = Math.abs(p[1] - mouthLineY(m, p[2]));
-    const lips = along > -0.08 && along < 1.05 && Math.abs(p[0]) < m.halfWidth + 0.01 ? smoothstep(0.011, 0.005, lipDist) * Math.min(1, muzzle[v] + jaw[v] + nose[v] + head[v]) : 0;
-    const pads = paw[v] * smoothstep(-0.3, -0.75, nn[1]) * smoothstep(0.02, 0.008, p[1]);
-    const rim = Math.max(...eyes.map((e) => smoothstep(e.radius + 0.0035, e.radius + 0.001, Math.hypot(p[0] - e.center[0], p[1] - e.center[1], p[2] - e.center[2]))));
+    const lips = along > -0.08 && along < 1.05 && Math.abs(p[0]) < m.halfWidth + 0.01 * u ? smoothstep(0.011 * u, 0.005 * u, lipDist) * Math.min(1, muzzle[v] + jaw[v] + nose[v] + head[v]) : 0;
+    const pads = paw[v] * smoothstep(-0.3, -0.75, nn[1]) * smoothstep(0.02 * u, 0.008 * u, p[1]);
+    const rim = Math.max(...eyes.map((e) => smoothstep(e.radius + 0.0035 * u, e.radius + 0.001 * u, Math.hypot(p[0] - e.center[0], p[1] - e.center[1], p[2] - e.center[2]))));
     coatC.set([noseW, lips, pads, rim], v * 4);
     // Short fur along the lips, so shells from above and below don't bristle across the mouth line.
-    if (along > -0.15 && along < 1.1) coatB[v * 4 + 1] *= smoothstep(0.004, 0.018, lipDist);
+    if (along > -0.15 && along < 1.1) coatB[v * 4 + 1] *= smoothstep(0.004 * u, 0.018 * u, lipDist);
 
-    const trunk = Math.min(1, torso[v] + neck[v] + tail[v] + leg[v] * smoothstep(0.85, 1, legT) * smoothstep(elbowY + 0.1, elbowY + 0.2, p[1]));
+    const trunk = Math.min(1, torso[v] + neck[v] + tail[v] + leg[v] * smoothstep(0.85, 1, legT) * smoothstep(elbowY + 0.1 * u, elbowY + 0.2 * u, p[1]));
     const back = trunk * smoothstep(-0.35, 0.45, nn[1]);
     // Inner side of the legs (facing the other leg, not up into the body).
     const inner = leg[v] * smoothstep(0.1, 0.6, -Math.sign(p[0]) * nn[0]) * smoothstep(0.45, 0.1, nn[1]);
     const under = Math.min(1, (torso[v] + neck[v] + tail[v]) * smoothstep(-0.05, -0.6, nn[1]) + inner + paw[v] * 0.5);
-    const eyeNear = Math.max(...eyes.map((e) => Math.exp(-((p[0] - e.center[0]) ** 2 + (p[1] - e.center[1]) ** 2 + (p[2] - e.center[2]) ** 2) / (2 * 0.02 ** 2))));
+    const eyeNear = Math.max(...eyes.map((e) => Math.exp(-((p[0] - e.center[0]) ** 2 + (p[1] - e.center[1]) ** 2 + (p[2] - e.center[2]) ** 2) / (2 * (0.02 * u) ** 2))));
     const mask = Math.min(1, Math.min(1, muzzle[v] + jaw[v] + nose[v]) * smoothstep(-0.2, 0.3, muzzleT * 2 - 0.2) + eyeNear * headW);
-    const blaze = headW * (1 - ear[v]) * Math.exp(-((p[0] / 0.011) ** 2)) * smoothstep(0, 0.45, nn[1] + nn[2] * 0.6) * smoothstep(stop[2] - 0.07, stop[2] - 0.03, p[2]);
+    const blaze = headW * (1 - ear[v]) * Math.exp(-((p[0] / (0.011 * u)) ** 2)) * smoothstep(0, 0.45, nn[1] + nn[2] * 0.6) * smoothstep(stop[2] - 0.07 * u, stop[2] - 0.03 * u, p[2]);
     coatD.set([back, under, mask, blaze], v * 4);
-    const pale = Math.min(1, headW + neck[v] * smoothstep(bone("Head").head[2] - 0.08, bone("Head").head[2] + 0.02, p[2])) * (1 - ear[v]) * smoothstep(0.006, -0.01, p[1] - lineY(p[2])) * smoothstep(bone("Head").head[2] - 0.01, bone("Head").head[2] + 0.07, p[2]);
-    coatE.set([pale, 0, 0, 0], v * 4);
+    const pale = Math.min(1, headW + neck[v] * smoothstep(bone("Head").head[2] - 0.08 * u, bone("Head").head[2] + 0.02 * u, p[2])) * (1 - ear[v]) * smoothstep(0.006 * u, -0.01 * u, p[1] - lineY(p[2])) * smoothstep(bone("Head").head[2] - 0.01 * u, bone("Head").head[2] + 0.07 * u, p[2]);
+    // Pale ring around the eye (squirrels, some cats), the tail, and how far out along the ear (for ear tufts).
+    const ring = headW * Math.max(...eyes.map((e) => {
+      const d = Math.hypot(p[0] - e.center[0], p[1] - e.center[1], p[2] - e.center[2]) - e.radius;
+      return smoothstep(0.0005 * u, 0.002 * u, d) * smoothstep(0.016 * u, 0.008 * u, d);
+    }));
+    let earT = 0;
+    if (ear[v] > 0) {
+      const side = p[0] >= 0 ? "L" : "R";
+      const a = bone(`Ear_${side}`).head, b = bone(`Ear_Tip_${side}`).tail;
+      earT = ear[v] * segmentDistance(p, a, b).t;
+    }
+    coatE.set([pale, ring, Math.min(1, tail[v]), earT], v * 4);
   }
   return { coatA, coatB, coatC, coatD, coatE };
 }
