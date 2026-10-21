@@ -335,7 +335,10 @@ export function createClothMaterial(
         `#include <map_fragment>
 float clothLum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
 diffuseColor.rgb = mix( diffuseColor.rgb, uTint * clamp( clothLum / uTintMeanLum, 0.0, 3.0 ), uTintMix );`,
-      );
+      )
+      // Cut-outs (lace, fishnet) from the texture's full-resolution alpha: smaller mip levels blur the
+      // transparent space around UV islands into the cloth and punched holes along every seam from afar.
+      .replace("#include <alphatest_fragment>", "#if defined( USE_ALPHATEST ) && defined( USE_MAP )\nif ( textureLod( map, vMapUv, 0.0 ).a < alphaTest ) discard;\n#else\n#include <alphatest_fragment>\n#endif");
   };
   mat.customProgramCacheKey = () => "actors-cloth";
   return useDualQuaternionSkinning(mat);
