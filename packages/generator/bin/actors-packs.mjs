@@ -9,8 +9,7 @@
 // It is large (the whole wardrobe, hair and the CMU mocap library), so it is fetched once, on demand.
 import { execFileSync } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
@@ -59,14 +58,16 @@ body.on("data", (chunk) => {
     process.stdout.write(`\r${(done / 1e6).toFixed(0)} / ${(total / 1e6).toFixed(0)} MB`);
   }
 });
-const archive = join(tmpdir(), `actors-packs-${version}-${process.pid}.tar.gz`);
+// Next to dest (same drive), and tar gets relative paths only: Git Bash's tar on Windows reads
+// "C:\…" as a remote host, Windows' own tar does not take --force-local.
+const archive = `${dest}.download-${process.pid}.tar.gz`;
 await pipeline(body, createWriteStream(archive));
 if (process.stdout.isTTY) process.stdout.write("\n");
 
 // The archive holds packs/<actor>/...; strip "packs/" so it lands in dest.
 rmSync(dest, { recursive: true, force: true });
 mkdirSync(dest, { recursive: true });
-execFileSync("tar", ["-xzf", archive, "-C", dest, "--strip-components=1"], { stdio: "inherit" });
+execFileSync("tar", ["-xzf", join("..", basename(archive)), "--strip-components=1"], { stdio: "inherit", cwd: dest });
 rmSync(archive, { force: true });
 writeFileSync(stamp, version + "\n");
 console.log(`unpacked to ${dest}`);
