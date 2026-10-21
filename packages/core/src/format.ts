@@ -245,6 +245,13 @@ export interface ActorPackManifest {
   blob: string;
   vertexCount: number;
   basePositions: BufferRef; // f32, 3 per vertex
+  /**
+   * Per base vertex (u32): the base vertex that body-cut garments (e.g. the
+   * tights helper) have at the same spot (garment vertices map to themselves),
+   * 0xffffffff for none. Lets fitted
+   * garments (proxies, bound to skin vertices) sit on top of body-cut ones.
+   */
+  garmentVertexOf?: BufferRef;
   meshes: MeshDef[];
   proxies: ProxyDef[];
   skeleton?: SkeletonDef;

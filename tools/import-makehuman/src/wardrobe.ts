@@ -33,6 +33,8 @@ export interface WardrobeItem {
   skirt?: boolean;
   /** Hides the genital mesh while worn. */
   coversAnatomy?: boolean;
+  /** Tucked into trousers: drawn under body-cut bottoms such as jeans (tag "tucked"). */
+  tucked?: boolean;
   /** Hides the hair while worn (closed helmets, hoods). */
   hidesHair?: boolean;
   /** How far from the garment the skin is hidden (meters); larger for shoes. */
@@ -66,7 +68,7 @@ export const WARDROBE: WardrobeItem[] = [
   { name: "frill-socks", pack: "underwear04", id: "toigo_lace_frill_socks", label: "Frilled socks", category: "Socks & hosiery", occupies: ["socks"], gender: "female", texSize: 512, hideRadius: 0.03 },
 
   // --- Tops ---
-  { name: "tucked-tshirt", pack: "shirts01", id: "toigo_basic_tucked_t-shirt", label: "Tucked T-shirt", category: "Tops", occupies: TOP, fabric: "knit" },
+  { name: "tucked-tshirt", pack: "shirts01", id: "toigo_basic_tucked_t-shirt", label: "Tucked T-shirt", category: "Tops", occupies: TOP, fabric: "knit", tucked: true },
   { name: "loose-tshirt", pack: "shirts01", id: "elvs_crude_t-shirt_male", label: "Loose T-shirt", category: "Tops", occupies: TOP, gender: "male", fabric: "knit" },
   { name: "fitted-tshirt", pack: "shirts01", id: "joepal_crude_t-shirt_female", label: "Fitted T-shirt", category: "Tops", occupies: TOP, gender: "female", fabric: "knit" },
   { name: "polo", pack: "shirts01", id: "namuhekam_male_polo_shirt", label: "Polo shirt", category: "Tops", occupies: TOP, fabric: "knit" },

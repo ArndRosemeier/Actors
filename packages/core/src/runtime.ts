@@ -92,6 +92,8 @@ export class ActorRuntime {
   /** Loaded proxies (see `meshes`). */
   readonly proxies = new Map<string, ProxyBinding>();
   readonly basePositions: Float32Array;
+  /** See `ActorPackManifest.garmentVertexOf`. */
+  readonly garmentVertexOf?: Uint32Array;
   private readonly baseJoints?: Uint16Array;
   private readonly baseWeights?: Float32Array;
   private readonly proxySkins = new Map<string, { joints: Uint16Array; weights: Float32Array }>();
@@ -106,6 +108,7 @@ export class ActorRuntime {
     private readonly fetcher: Fetcher,
   ) {
     this.basePositions = readBuffer(blob, { ...manifest.basePositions, type: "f32" });
+    if (manifest.garmentVertexOf) this.garmentVertexOf = readBuffer(blob, { ...manifest.garmentVertexOf, type: "u32" });
     for (const p of manifest.proxies) if (!p.blob) this.bindProxy(p, blob);
     this.baseJoints = manifest.skin ? readBuffer(blob, { ...manifest.skin.joints, type: "u16" }) : undefined;
     this.baseWeights = manifest.skin ? readBuffer(blob, { ...manifest.skin.weights, type: "f32" }) : undefined;
