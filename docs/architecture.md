@@ -24,7 +24,7 @@ MPFB2 data (CC0) --[tools/import-makehuman]--> actor pack --[@actors/core]--> sh
 2. `morph`: base + Σ weight · target (CPU, ~20 ms for a typical update).
 3. `computeNormals` on shape vertices (so UV seams don't show).
 4. `fitSkeleton`: each joint = mean of marker vertices, bone frames from head/tail/roll (Blender convention, so Blender-authored animation stays compatible).
-5. `fitProxy`: garments are bound to body triangles (MakeHuman `.mhclo` scheme) and follow every morph.
+5. `fitProxy`: garments are bound to body triangles (MakeHuman `.mhclo` scheme) and follow every morph. `evaluate(…, fit)` fits only the proxies (and stencil meshes) of the named meshes; `Human.fit` / `ThreeActor.neededMeshes()` pass what a character wears, so a runtime with a hundred garments loaded still shapes one person in a few milliseconds.
 6. Subdivided meshes follow via their stencil (each new vertex is a fixed weighted sum of base vertices).
 7. `surfaceDelta`: position/normal deltas for extra targets on top of a shape, used for GPU face morphs.
 8. `Retargeter`: plays a clip on any fitted skeleton: each limb bone (arms, hands, fingers, legs, feet) is first swung (shortest arc) onto the source rest direction, then the recorded world-space change is applied. Torso, neck, head and clavicle bones are not swung, because each rig places them differently (aligning them tilted the pelvis and lifted the shoulders); they keep the target's own rest posture and only get the change. This is the standard "align rest poses, copy world rotations" retarget.
@@ -45,7 +45,7 @@ All of it is synchronous after targets load and has no DOM dependency. `serveRun
 
 ## Renderer adapter (`@actors/three`)
 
-One `SkinnedMesh` per pack mesh, sharing one `Skeleton`. When the shape changes, vertex buffers are rewritten and the skeleton is re-bound in place; running animations are re-baked against the new bind pose.
+One `SkinnedMesh` per pack mesh that is shown, sharing one `Skeleton`: meshes of optional garments and hairstyles are only made (and filled from the last shape) the first time they are shown, so crowds sharing one runtime don't each carry buffers for the whole loaded wardrobe. Visibility changes (`setVisible`, `setConcealed`, `hidePackMeshes`) are applied together by `flushVisibility()`, the next `update`, `applyShape` or `setLod`, so dressing a character costs one pass over the skin-hiding instead of one per garment. When the shape changes, vertex buffers are rewritten and the skeleton is re-bound in place; running animations are re-baked against the new bind pose.
 
 Materials (`materials.ts`) patch three's built-in shaders: hair cards (alpha to coverage, luminance-preserving recolour), leg colliders for skirt-skinned garments (`colliders.ts`), skin (mask tints, brows, pores, wrapped diffuse, procedural vulva detail), eyes (iris recolouring), lashes, cloth (weave or garment normal maps, per-pixel hem cut from the `clip` attribute, luminance-preserving recolour) and dual-quaternion skinning on all of them, including the shadow pass. `setLod(level)` / `updateLod(camera)` switch the detail level: index buffers per level are cached, stand-ins swap visibility, and the crowd level hides body and garments behind one merged `SkinnedMesh` (`crowd` material in the kit, linear skinning) and drops finger tracks from the playing clip. Two morph channels per face mesh ("expression", "blink") are filled from `surfaceDelta` and blended every frame.
 
