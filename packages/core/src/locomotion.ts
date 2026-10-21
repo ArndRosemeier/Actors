@@ -65,7 +65,7 @@ export function measureGait(skeleton: FittedSkeleton, clip: Clip, bones: GaitBon
         if (f < 0) return;
         const lo = Math.min(...high[k]), toeLo = Math.min(...toeHigh[k]);
         for (let s = 0; s < samples; s++) {
-          if (high[k][s] > lo + 0.02 && toeHigh[k][s] > toeLo + 0.02) continue;
+          if (high[k][s] > lo + 0.02 && (toes[k] < 0 || toeHigh[k][s] > toeLo + 0.02)) continue;
           const v = -(ahead[k][(s + 1) % samples] - ahead[k][(s + samples - 1) % samples]) / (2 * dt);
           if (v > 0) { sum += v; cnt++; }
         }
