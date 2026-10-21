@@ -60,12 +60,12 @@ for (const id of breeds) {
   await call("setBreed", id);
   await side();
   await shot(`breed-${id}`);
-  if (want(`head-${id}`) && ["germanShepherd", "labrador", "beagle", "husky"].includes(id)) {
+  if (want(`head-${id}`) && ["wolfdog", "germanShepherd", "labrador", "beagle", "husky"].includes(id)) {
     await head();
     await shot(`head-${id}`);
   }
 }
-await call("setBreed", "germanShepherd");
+await call("setBreed", "wolfdog");
 for (const clip of ["walk", "run", "sit", "howl"]) {
   if (!want(clip)) continue;
   await call("play", clip);

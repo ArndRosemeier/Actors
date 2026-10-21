@@ -8,7 +8,7 @@
  * their own +Y. Rolls are recovered from the joint frames, so the fitted
  * skeleton has the same bone frames as the source rig.
  */
-import { type Mat3, type Quat, type Vec3, boneRotationFromRoll, mat3Mul, mat3Transpose, normalize } from "@actors/core";
+import { type Mat3, type Quat, type Vec3, boneRotationFromRoll, mat3Apply, mat3AxisAngle, mat3Mul, mat3Transpose, normalize } from "@actors/core";
 import type { Gltf } from "../../import-makehuman/src/gltf";
 import { restLocals, worldPose } from "../../import-makehuman/src/clips";
 
@@ -114,4 +114,28 @@ export function boneFrame(b: RigBone): Mat3 {
   const dir = normalize(b.tail.map((v, k) => v - b.head[k]) as Vec3);
   const blenderDir: Vec3 = [dir[0], -dir[2], dir[1]];
   return mat3Mul(PACK_FROM_BLENDER, boneRotationFromRoll(normalize(blenderDir), b.roll));
+}
+
+/**
+ * Re-poses the rig: turns bone `root` and everything below it by `angle`
+ * (radians) about `axis` through the bone's head. Rolls follow, so each bone
+ * keeps its frame relative to the turned chain.
+ */
+export function turnChain(rig: Rig, root: string, axis: Vec3, angle: number): void {
+  const r = rig.index.get(root);
+  if (r === undefined) throw new Error(`No bone ${root}`);
+  const inChain = (i: number): boolean => i === r || (rig.bones[i].parent >= 0 && inChain(rig.bones[i].parent));
+  const pivot = [...rig.bones[r].head] as Vec3;
+  const m = mat3AxisAngle(normalize(axis), angle);
+  const turn = (p: Vec3): Vec3 => {
+    const q = mat3Apply(m, [p[0] - pivot[0], p[1] - pivot[1], p[2] - pivot[2]]);
+    return [q[0] + pivot[0], q[1] + pivot[1], q[2] + pivot[2]];
+  };
+  rig.bones.forEach((b, i) => {
+    if (!inChain(i)) return;
+    const frame = mat3Mul(m, boneFrame(b));
+    b.head = turn(b.head);
+    b.tail = turn(b.tail);
+    b.roll = rollFromFrame(frame);
+  });
 }

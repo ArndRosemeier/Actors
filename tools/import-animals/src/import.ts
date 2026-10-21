@@ -152,6 +152,7 @@ async function main(): Promise<void> {
         coatB: attr(skinned.coatB, 4),
         coatC: attr(skinned.coatC, 4),
         coatD: attr(skinned.coatD, 4),
+        coatE: attr(skinned.coatE, 4),
         // Base-pack position, so coat patterns stay put whatever the breed shape.
         coatPos: attr(skinned.positions, 3),
       },

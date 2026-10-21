@@ -141,3 +141,99 @@ export function bodyDistance(parts: Part[], p: Vec3): number {
   }
   return d === Infinity ? 1 : d;
 }
+
+/** A cross-section of a loft: where it sits and its size (half width, height above and depth below the path). */
+export interface LoftKey {
+  at: Vec3;
+  w: number;
+  up: number;
+  down: number;
+  /** Superellipse exponent (2: ellipse, higher: boxier). */
+  n?: number;
+}
+
+const catmull = (a: number, b: number, c: number, d: number, t: number) =>
+  0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (3 * b - a - 3 * c + d) * t * t * t);
+
+/**
+ * A generalized cylinder: cross-sections (`keys`) swept along a smooth path
+ * through their centres, sizes blended smoothly between them. Each section is
+ * a superellipse that can be deeper below the path than above it, which is
+ * how a trunk or neck profile is drawn (top line, under line, width). The
+ * section's "up" is the path's normal closest to +Y (or `upHint`). Ends are
+ * closed flat with rounded rims; keep end sections small or buried.
+ */
+export function loft(name: string, keys: LoftKey[], upHint: Vec3 = [0, 1, 0], perSpan = 16): Primitive {
+  const k = keys.length;
+  const key = (i: number) => keys[Math.max(0, Math.min(k - 1, i))];
+  const samples: { c: Vec3; t: Vec3; u: Vec3; v: Vec3; w: number; up: number; down: number; n: number }[] = [];
+  for (let i = 0; i < k - 1; i++) {
+    for (let s = 0; s < (i === k - 2 ? perSpan + 1 : perSpan); s++) {
+      const t = s / perSpan;
+      const a = key(i - 1), b = key(i), c = key(i + 1), d = key(i + 2);
+      const f = (g: (x: LoftKey) => number) => catmull(g(a), g(b), g(c), g(d), t);
+      samples.push({
+        c: [f((x) => x.at[0]), f((x) => x.at[1]), f((x) => x.at[2])],
+        t: [0, 0, 0], u: [0, 0, 0], v: [0, 0, 0],
+        w: f((x) => x.w), up: f((x) => x.up), down: f((x) => x.down), n: f((x) => x.n ?? 2),
+      });
+    }
+  }
+  samples.forEach((s, i) => {
+    const a = samples[Math.max(0, i - 1)].c, b = samples[Math.min(samples.length - 1, i + 1)].c;
+    s.t = normalize(sub(b, a));
+    s.u = normalize(cross(upHint, s.t));
+    s.v = cross(s.t, s.u);
+  });
+  let ext = 0;
+  for (const s of samples) ext = Math.max(ext, s.w, s.up, s.down);
+  const lo = [0, 1, 2].map((c) => Math.min(...samples.map((s) => s.c[c])) - ext) as Vec3;
+  const hi = [0, 1, 2].map((c) => Math.max(...samples.map((s) => s.c[c])) + ext) as Vec3;
+  const last = samples.length - 1;
+  return {
+    name,
+    min: lo,
+    max: hi,
+    distance(p) {
+      // Closest point on the path polyline.
+      let best = Infinity, bi = 0, bt = 0;
+      // Coarse pass over every 4th sample, then the segments around the best one.
+      let coarse = 0, cb = Infinity;
+      for (let i = 0; i <= last; i += 4) {
+        const c = samples[i].c;
+        const d = (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 + (p[2] - c[2]) ** 2;
+        if (d < cb) {
+          cb = d;
+          coarse = i;
+        }
+      }
+      for (let i = Math.max(0, coarse - 6); i < Math.min(last, coarse + 6); i++) {
+        const a = samples[i].c, b = samples[i + 1].c;
+        const ab = sub(b, a), ap = sub(p, a);
+        const t = Math.max(0, Math.min(1, dot(ap, ab) / (dot(ab, ab) || 1e-12)));
+        const d = (ap[0] - ab[0] * t) ** 2 + (ap[1] - ab[1] * t) ** 2 + (ap[2] - ab[2] * t) ** 2;
+        if (d < best) {
+          best = d;
+          bi = i;
+          bt = t;
+        }
+      }
+      const A = samples[bi], B = samples[bi + 1];
+      const mix = (x: number, y: number) => x + (y - x) * bt;
+      const c: Vec3 = [mix(A.c[0], B.c[0]), mix(A.c[1], B.c[1]), mix(A.c[2], B.c[2])];
+      const u = normalize([mix(A.u[0], B.u[0]), mix(A.u[1], B.u[1]), mix(A.u[2], B.u[2])]);
+      const tt = normalize([mix(A.t[0], B.t[0]), mix(A.t[1], B.t[1]), mix(A.t[2], B.t[2])]);
+      const v = cross(tt, u);
+      const d = sub(p, c);
+      const x = dot(d, u), y = dot(d, v), axial = dot(d, tt);
+      const w = mix(A.w, B.w), h = y > 0 ? mix(A.up, B.up) : mix(A.down, B.down), n = mix(A.n, B.n);
+      const r = Math.pow(Math.pow(Math.abs(x) / w, n) + Math.pow(Math.abs(y) / h, n), 1 / n);
+      const rho = Math.hypot(x, y);
+      const dc = r > 1e-6 ? rho * (1 - 1 / r) : -Math.min(w, h);
+      // Beyond an end: flat cap.
+      const beyond = (bi === 0 && bt === 0 && axial < 0) ? -axial : (bi === last - 1 && bt === 1 && axial > 0) ? axial : 0;
+      if (beyond <= 0) return dc;
+      return dc > 0 ? Math.hypot(dc, beyond) : Math.max(dc, beyond);
+    },
+  };
+}

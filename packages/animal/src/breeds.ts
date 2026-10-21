@@ -66,6 +66,12 @@ export interface DogCoat {
   spotSize: number;
   /** Lighter undercoat showing on the underside and inside the legs. */
   shade: number;
+  /** Light mask: cream muzzle sides, cheeks and lower jaw (wolf colouring). */
+  paleMask: number;
+  /** Dark guard hair tips over a lighter undercoat (wolf grey, sable). */
+  agouti: number;
+  /** Lower legs in the tan colour (fawn legs of wolves and wolfdogs). */
+  tanLegs: number;
   /** Fur length in meters (guard hair). */
   length: number;
   /** How much the fur stands off the body (0: sleek, 1: fluffy). */
@@ -117,6 +123,9 @@ export const DEFAULT_COAT: DogCoat = {
   spots: 0,
   spotSize: 1,
   shade: 0.3,
+  paleMask: 0,
+  agouti: 0,
+  tanLegs: 0,
   length: 0.012,
   fluff: 0.2,
 };
@@ -152,6 +161,12 @@ export interface BreedPreset {
 
 /** Breeds and wild canids; values not given stay at the defaults. */
 export const BREEDS: Record<string, BreedPreset> = {
+  // The base body is modelled on this breed; the preset only sets its size and coat.
+  wolfdog: {
+    name: "Czechoslovakian Wolfdog",
+    shape: { size: 1.05 },
+    coat: { base: hex("#7f7260"), second: hex("#4a4034"), tan: hex("#ad8a5e"), white: hex("#dccfb4"), saddle: 0.45, belly: 1, bib: 1, shade: 0.8, paleMask: 0.8, agouti: 0.8, tanLegs: 0.8, length: 0.014, fluff: 0.5 },
+  },
   labrador: {
     name: "Labrador Retriever",
     shape: { size: 1.02, legs: 0.95, bulk: 1.15, bone: 1.15, head: 1.05, earDrop: 1, ears: 1.05, muzzleBroad: 0.6, muzzleDeep: 0.5, stop: 0.6, chestDeep: 0.4, bellyTuck: 0.1, tail: 0.9 },
