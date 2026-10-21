@@ -41,7 +41,9 @@ export function measureGait(skeleton: FittedSkeleton, clip: Clip, bones: GaitBon
     const n = skeleton.names.length;
     const pose = createPose(n), rot = new Float64Array(n * 4), heads = new Float64Array(n * 3);
     // Per sample and foot: how far ahead of the hips, and how high.
-    const ahead = feet.map(() => new Float64Array(samples)), high = feet.map(() => new Float64Array(samples));
+    // (Toes too: a runner stands on the ball of the foot while the ankle already rises.)
+    const toes = feet.map((f) => (f >= 0 ? Array.from(skeleton.parents).indexOf(f) : -1));
+    const ahead = feet.map(() => new Float64Array(samples)), high = feet.map(() => new Float64Array(samples)), toeHigh = feet.map(() => new Float64Array(samples));
     for (let s = 0; s < samples; s++) {
       r.sampleInto((s / samples) * duration, pose);
       poseWorld(skeleton, pose, rot, heads);
@@ -49,20 +51,21 @@ export function measureGait(skeleton: FittedSkeleton, clip: Clip, bones: GaitBon
         if (f < 0) return;
         ahead[k][s] = (heads[f * 3] - heads[hips * 3]) * dir[0] + (heads[f * 3 + 2] - heads[hips * 3 + 2]) * dir[1];
         high[k][s] = heads[f * 3 + 1];
+        toeHigh[k][s] = toes[k] >= 0 ? heads[toes[k] * 3 + 1] : Infinity;
       });
     }
     let best = -Infinity;
     for (let s = 0; s < samples; s++) if (ahead[0][s] > best) { best = ahead[0][s]; strike = s / samples; }
     if (travel <= 1e-3) {
       // An in-place loop: the ground speed is how fast a planted foot slides back under the hips
-      // (feet within 2 cm of their lowest count as planted).
+      // (a foot whose ankle or toes are within 2 cm of their lowest counts as planted).
       const dt = duration / samples;
       let sum = 0, cnt = 0;
       feet.forEach((f, k) => {
         if (f < 0) return;
-        const lo = Math.min(...high[k]);
+        const lo = Math.min(...high[k]), toeLo = Math.min(...toeHigh[k]);
         for (let s = 0; s < samples; s++) {
-          if (high[k][s] > lo + 0.02) continue;
+          if (high[k][s] > lo + 0.02 && toeHigh[k][s] > toeLo + 0.02) continue;
           const v = -(ahead[k][(s + 1) % samples] - ahead[k][(s + samples - 1) % samples]) / (2 * dt);
           if (v > 0) { sum += v; cnt++; }
         }
