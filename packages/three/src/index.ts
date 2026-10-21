@@ -133,6 +133,10 @@ export interface ActorMaterialKit {
 const sharedDepth = new WeakMap<object, THREE.Material>();
 
 /** The WebGL kit: three's built-in materials with GLSL patches (see materials.ts). */
+/** Textures per runtime: actors sharing a loaded pack share them too (see ThreeActor.texture). */
+const sharedTextures = new WeakMap<ActorRuntime, Map<string, THREE.Texture>>();
+const sharedSkinLayers = new WeakMap<ActorRuntime, Map<string, Promise<THREE.Texture>>>();
+
 export const webglMaterials: ActorMaterialKit = {
   mesh: defaultMaterials,
   part: (part, actor) => createPartMaterial(part, actor.skin),
@@ -190,7 +194,12 @@ export class ThreeActor {
   private clip?: PlayableClip;
   private action?: THREE.AnimationAction;
   private lastShape?: ActorShape;
-  private readonly textures = new Map<string, THREE.Texture>();
+  /** Pack textures, shared by every actor on the same runtime (crowds don't each upload the wardrobe's textures). */
+  private get textures(): Map<string, THREE.Texture> {
+    let m = sharedTextures.get(this.runtime);
+    if (!m) sharedTextures.set(this.runtime, (m = new Map()));
+    return m;
+  }
   private readonly loader = new THREE.TextureLoader();
   private readonly data = new Map<string, MeshData>();
   /** Meshes that are drawn (internal helper meshes are skipped). */
@@ -417,12 +426,13 @@ export class ThreeActor {
 
   /** A texture shipped with the pack (cached). */
   texture(file: string, srgb = false): THREE.Texture {
-    let t = this.textures.get(file);
+    const key = `${file}|${srgb ? "s" : "l"}`;
+    let t = this.textures.get(key);
     if (!t) {
       t = this.loader.load(this.runtime.url + file);
       t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
       t.anisotropy = 4;
-      this.textures.set(file, t);
+      this.textures.set(key, t);
     }
     return t;
   }
@@ -533,7 +543,12 @@ export class ThreeActor {
     return this.level;
   }
 
-  private readonly loading = new Map<string, Promise<THREE.Texture>>();
+  /** Photo skin layers being loaded or loaded, shared like `textures`. */
+  private get loading(): Map<string, Promise<THREE.Texture>> {
+    let m = sharedSkinLayers.get(this.runtime);
+    if (!m) sharedSkinLayers.set(this.runtime, (m = new Map()));
+    return m;
+  }
   private skinKey = "";
 
   /**
