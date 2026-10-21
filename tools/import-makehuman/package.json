@@ -7,12 +7,13 @@
     "import": "tsx src/import.ts"
   },
   "dependencies": {
-    "@actors/core": "0.3.0",
-    "@actors/human": "0.3.0"
+    "@actors/core": "0.4.0",
+    "@actors/human": "0.4.0"
   },
   "devDependencies": {
     "@types/pngjs": "^6.0.5",
     "jpeg-js": "^0.4.4",
+    "meshoptimizer": "1.2.0",
     "pngjs": "^7.0.0"
   }
 }

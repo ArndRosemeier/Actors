@@ -252,6 +252,8 @@ export class CharacterEditor {
     this.syncers.push((c) => (tailRow.hidden = c.tail === "none"));
     detailed(this.select(look, "Eyebrows", [...cat.brows.map((b): [string, string] => [b.id, b.label]), [PAINTED_BROWS, "Painted"], ["", "None"]], (c) => c.brows ?? "", (v) => set({ brows: v || null }), "brows"));
     detailed(this.select(look, "Detail", [["high", "High (subdivided)"], ["low", "Low"]], (c) => c.detail, (v) => set({ detail: v as CharacterConfig["detail"] }), "detail"));
+    if (character.lods.length > 1)
+      detailed(this.select(look, "Level of detail", [["auto", "Auto (by distance)"], ...character.lods.map((l, i): [string, string] => [String(i), l.name])], () => String(character.lodMode), (v) => character.setLod(v === "auto" ? "auto" : +v), "lod"));
     this.check(look, "Anatomical detail", (c) => c.anatomy, (v) => set({ anatomy: v }), "anatomy");
 
     // Outfit

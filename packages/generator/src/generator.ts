@@ -36,6 +36,7 @@ export async function createCharacterGenerator(options: GeneratorOptions): Promi
   const stage = await CharacterStage.create(options.view, options);
   const character = await Character.load({ pack: options.pack, renderer: stage.renderer, materials: stage.materials, worker: options.worker, config: options.config });
   const remove = stage.add(character);
+  character.lodCamera = stage.camera;
   // Keep very small or very tall characters (goblins, giantkin) in frame.
   let framed = 1.7;
   const reframe = (h: number) => {

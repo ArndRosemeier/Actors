@@ -55,6 +55,24 @@ Large clip libraries in the pack (the 2,548 CMU motions) are listed in `catalog.
 
 `CharacterEditor` has two modes: **Simple** (body basics, ethnicity, hair, eyes, outfit preset, animation, face) for everyday users and **Detailed** (every control, garment by garment, the CMU library with search, detail sliders). Pick one with `mode`, hide the switch with `modeSwitch: false`; the viewer's last choice is remembered.
 
+## Levels of detail and crowds
+
+Every character has three detail levels (`character.lods`: "Full", "Medium", "Crowd"); switching is instant because they all draw from the same shape:
+
+```ts
+character.setLod(2);              // fixed level (0 = full detail)
+character.lodCamera = camera;     // or pick by camera distance every frame
+character.setLod("auto");         // switch distances in character.lods, scaled for the camera's field of view
+character.lodBias = 1.5;          // keep detail longer
+
+// Crowd members share one loaded pack (no download of their own):
+const extra = await Character.load({ pack, renderer, shareWith: character });
+await extra.randomize();
+await extra.set({ skin: "procedural" }); // WebGL photo skins cost a 2k texture per actor
+```
+
+"Medium" uses the base mesh instead of the subdivided body and garments, hair and eyes with about half their triangles. "Crowd" draws MakeHuman's 741-vertex proxy body and the garments as one merged mesh (one draw call plus the hair) and doesn't animate the fingers.
+
 ## A game's own character creator
 
 The editor and the character can be narrowed to what a game offers:

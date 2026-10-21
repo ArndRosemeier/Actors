@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { createCharacterGenerator } from "@actors/generator";
+import { Character, createCharacterGenerator, randomConfig, seededRandom } from "@actors/generator";
 import HumanWorker from "@actors/human/worker?worker";
 
 const params = new URLSearchParams(location.search);
@@ -49,5 +49,27 @@ if (params.has("compare")) {
   });
 }
 
+// `?crowd=N`: N more random characters behind the first, all switching detail level by camera
+// distance (zoom out to watch them drop to the medium and crowd levels). They share one loaded pack.
+const crowd: Character[] = [];
+const crowdSize = Math.min(400, Number(params.get("crowd") ?? 0) || 0);
+if (crowdSize > 0) {
+  const random = seededRandom(7);
+  const cols = Math.ceil(Math.sqrt(crowdSize));
+  const clips = ["walk", "idle", "dance", "jog"].filter((id) => character.catalog.animations.some((a) => a.id === id));
+  character.setLod("auto");
+  for (let i = 0; i < crowdSize; i++) {
+    const look = randomConfig(character.catalog, character.config, { random });
+    // Procedural skin: a photo skin blend costs a 2k texture per actor in WebGL.
+    const c = await Character.load({ pack: "", renderer: stage.renderer, shareWith: character, config: { ...look, skin: "procedural", animation: clips[i % clips.length] ?? null } });
+    c.lodCamera = stage.camera;
+    c.setLod("auto");
+    c.object.position.set(((i % cols) - (cols - 1) / 2) * 1.1, 0, -1.4 - Math.floor(i / cols) * 1.4);
+    c.object.rotation.y = (random() - 0.5) * 0.8;
+    stage.add(c);
+    crowd.push(c);
+  }
+}
+
 // Test hooks (used by the headless smoke test).
-Object.assign(window, { __actors: { character, stage, ready: true } });
+Object.assign(window, { __actors: { character, stage, crowd, ready: true } });
