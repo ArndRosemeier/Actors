@@ -1,6 +1,7 @@
-// Headless check of the dog actor: every breed preset side-on, close-ups of
+// Headless check of the animal actors: every preset side-on, close-ups of
 // head and coat, and frames of a few clips.
 // Usage: node scripts/animals.mjs [url] [outDir]   (SHOTS=breed-,walk to pick)
+//   deer: node scripts/animals.mjs "http://localhost:5173/animals.html?animal=deer" screenshots/deer
 import { chromium } from "playwright-core";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -32,16 +33,22 @@ const shot = async (name, wait = 500) => {
   writeFileSync(`${out}/${name}.png`, Buffer.from(png.split(",")[1], "base64"));
   console.log("saved", name);
 };
-// Frames the dog by its current size.
-const size = () => page.evaluate(() => window.__actors.animal.shape.size);
+// Frames the animal by its current size (the deer is about 1.35 times the dog's height).
+const kind = await page.evaluate(() => window.__actors.animal.kind);
+const k = kind === "deer" ? 1.35 : 1;
+const size = async () => k * (await page.evaluate(() => window.__actors.animal.shape.size));
 const side = async () => {
   const s = await size();
   await view([2.5 * s, 0.75 * s, 1.55 * s], [0, 0.38 * s, 0.05 * s]);
 };
 const head = async () => {
   const s = await size();
-  await view([0.7 * s, 0.82 * s, 1.25 * s], [0, 0.62 * s, 0.5 * s]);
+  if (kind === "deer") await view([0.55 * s, 0.82 * s, 0.85 * s], [0, 0.73 * s, 0.42 * s]);
+  else await view([0.7 * s, 0.82 * s, 1.25 * s], [0, 0.62 * s, 0.5 * s]);
 };
+const base = await page.evaluate(() => window.__actors.animal.species.base);
+const closeUps = kind === "deer" ? ["sika", "red", "whitetail"] : ["wolfdog", "germanShepherd", "labrador", "beagle", "husky"];
+const clips = kind === "deer" ? ["walk", "gallop", "eat", "headbutt"] : ["walk", "run", "sit", "howl"];
 
 const t0 = Date.now();
 const ms = await page.evaluate(async () => {
@@ -60,13 +67,13 @@ for (const id of breeds) {
   await call("setBreed", id);
   await side();
   await shot(`breed-${id}`);
-  if (want(`head-${id}`) && ["wolfdog", "germanShepherd", "labrador", "beagle", "husky"].includes(id)) {
+  if (want(`head-${id}`) && closeUps.includes(id)) {
     await head();
     await shot(`head-${id}`);
   }
 }
-await call("setBreed", "wolfdog");
-for (const clip of ["walk", "run", "sit", "howl"]) {
+await call("setBreed", base);
+for (const clip of clips) {
   if (!want(clip)) continue;
   await call("play", clip);
   await call("pose", 0.3);

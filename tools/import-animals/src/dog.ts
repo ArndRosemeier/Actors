@@ -38,7 +38,7 @@ export const TAIL_DROP = [-70, -8, 6];
 /** Ears turned forward, so they stand up rather than lean back. */
 export const EAR_TILT = 18;
 
-export type Region = "torso" | "neck" | "head" | "muzzle" | "jaw" | "nose" | "ear" | "leg" | "paw" | "tail" | "eye";
+export type Region = "torso" | "neck" | "head" | "muzzle" | "jaw" | "nose" | "ear" | "leg" | "paw" | "hoof" | "tail" | "eye";
 
 export interface BodyPart extends Part {
   /** Bones that carry this part; each vertex is shared between them by distance to the bone. */

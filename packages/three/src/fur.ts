@@ -41,6 +41,27 @@ export interface FurCoat {
   agouti?: number;
   /** Lower legs in the tan colour (fawn legs of wolves and wolfdogs). */
   tanLegs?: number;
+  // Deer markings (packs with the coatF channel; see tools/import-animals/src/deercoat.ts).
+  /** White spots in rows along the back and flanks (sika, fallow, axis). */
+  dapple?: number;
+  /** Spot spacing (1: about 4 cm). */
+  dappleSize?: number;
+  /** Dark stripe along the spine. */
+  dorsal?: number;
+  /** White rump patch around the tail. */
+  rump?: number;
+  /** Black border above the rump patch and down the tail. */
+  rumpBorder?: number;
+  /** Head and neck in the tan colour (greyer than the body). */
+  headTone?: number;
+  /** Pale ring around the eyes. */
+  eyeRing?: number;
+  /** Pale hair inside the ears. */
+  innerEar?: number;
+  /** White tufts over the metatarsal glands (outside of the hind cannons). */
+  glands?: number;
+  /** Iris colour of the animal eye material (default: amber brown). */
+  iris?: RGB;
   /** Guard hair length in meters. */
   length: number;
   fluff: number;
@@ -56,10 +77,14 @@ export interface FurUniforms {
   uMarkA: THREE.IUniform<THREE.Vector4>;
   /** bib, socks, blaze, tail tip */
   uMarkB: THREE.IUniform<THREE.Vector4>;
-  /** spots, spot size, shade, unused */
+  /** spots, spot size, shade, metatarsal gland tufts */
   uMarkC: THREE.IUniform<THREE.Vector4>;
   /** pale mask, agouti, tan legs, unused */
   uMarkD: THREE.IUniform<THREE.Vector4>;
+  /** dapple, dapple size, dorsal stripe, rump patch */
+  uMarkE: THREE.IUniform<THREE.Vector4>;
+  /** rump border, head tone, eye ring, inner ear */
+  uMarkF: THREE.IUniform<THREE.Vector4>;
   /** length (m), fluff, strand spacing (m), actor scale */
   uFur: THREE.IUniform<THREE.Vector4>;
   /** Iris colour of the animal eye material. */
@@ -76,6 +101,8 @@ export function createFurUniforms(): FurUniforms {
     uMarkB: { value: new THREE.Vector4() },
     uMarkC: { value: new THREE.Vector4(0, 1, 0.3, 0) },
     uMarkD: { value: new THREE.Vector4() },
+    uMarkE: { value: new THREE.Vector4(0, 1, 0, 0) },
+    uMarkF: { value: new THREE.Vector4() },
     uFur: { value: new THREE.Vector4(0.012, 0.2, 0.0019, 1) },
     uIris: { value: new THREE.Color().setRGB(0.32, 0.18, 0.06, THREE.SRGBColorSpace) },
   };
@@ -89,16 +116,19 @@ export function setFurCoat(u: FurUniforms, coat: FurCoat, scale = 1): void {
   u.uWhite.value.setRGB(...coat.white, THREE.SRGBColorSpace);
   u.uMarkA.value.set(coat.saddle, coat.mask, coat.points, coat.belly);
   u.uMarkB.value.set(coat.bib, coat.socks, coat.blaze, coat.tailTip);
-  u.uMarkC.value.set(coat.spots, coat.spotSize, coat.shade, 0);
+  u.uMarkC.value.set(coat.spots, coat.spotSize, coat.shade, coat.glands ?? 0);
   u.uMarkD.value.set(coat.paleMask ?? 0, coat.agouti ?? 0, coat.tanLegs ?? 0, 0);
+  u.uMarkE.value.set(coat.dapple ?? 0, coat.dappleSize ?? 1, coat.dorsal ?? 0, coat.rump ?? 0);
+  u.uMarkF.value.set(coat.rumpBorder ?? 0, coat.headTone ?? 0, coat.eyeRing ?? 0, coat.innerEar ?? 0);
   // The shape's size scales the whole body (fur included); divide it out so fur length is in meters.
   u.uFur.value.set(coat.length / scale, coat.fluff, 0.0019, scale);
+  if (coat.iris) u.uIris.value.setRGB(...coat.iris, THREE.SRGBColorSpace);
 }
 
 const GLSL_VERT_PARS = /* glsl */ `
-attribute vec4 coatA; attribute vec4 coatB; attribute vec4 coatC; attribute vec4 coatD; attribute vec4 coatE;
+attribute vec4 coatA; attribute vec4 coatB; attribute vec4 coatC; attribute vec4 coatD; attribute vec4 coatE; attribute vec4 coatF;
 attribute vec3 coatPos; attribute vec3 furFlow;
-varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoatD; varying vec4 vCoatE;
+varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoatD; varying vec4 vCoatE; varying vec4 vCoatF;
 varying vec3 vCoatPos; varying vec3 vFlow; varying float vShell;
 uniform vec4 uFur;
 #ifdef FUR_SHELL
@@ -107,7 +137,7 @@ attribute float furShell;
 `;
 
 const GLSL_VERT_MAIN = /* glsl */ `
-vCoatA = coatA; vCoatB = coatB; vCoatC = coatC; vCoatD = coatD; vCoatE = coatE; vCoatPos = coatPos; vFlow = furFlow; vShell = 0.0;
+vCoatA = coatA; vCoatB = coatB; vCoatC = coatC; vCoatD = coatD; vCoatE = coatE; vCoatF = coatF; vCoatPos = coatPos; vFlow = furFlow; vShell = 0.0;
 #ifdef FUR_SHELL
 {
   vShell = furShell;
@@ -126,10 +156,10 @@ vCoatA = coatA; vCoatB = coatB; vCoatC = coatC; vCoatD = coatD; vCoatE = coatE; 
 `;
 
 const GLSL_FRAG_PARS = /* glsl */ `
-varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoatD; varying vec4 vCoatE;
+varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoatD; varying vec4 vCoatE; varying vec4 vCoatF;
 varying vec3 vCoatPos; varying vec3 vFlow; varying float vShell;
 uniform vec3 uBase; uniform vec3 uSecond; uniform vec3 uTan; uniform vec3 uWhite;
-uniform vec4 uMarkA; uniform vec4 uMarkB; uniform vec4 uMarkC; uniform vec4 uMarkD; uniform vec4 uFur;
+uniform vec4 uMarkA; uniform vec4 uMarkB; uniform vec4 uMarkC; uniform vec4 uMarkD; uniform vec4 uMarkE; uniform vec4 uMarkF; uniform vec4 uFur;
 vec3 furHash( vec3 p ) {
   p = fract( p * vec3( 0.1031, 0.1030, 0.0973 ) );
   p += dot( p, p.yxz + 33.33 );
@@ -161,6 +191,58 @@ float furSpots( vec3 p ) {
   }
   return 1.0 - smoothstep( 0.85, 1.0, best );
 }
+/**
+ * Deer spots in rows: q = (distance along the spine, distance down from it) in spot spacings.
+ * Alternate rows are offset by half a spot; each spot is jittered, sized and sometimes missing.
+ */
+float deerSpots( vec2 q ) {
+  vec2 c = floor( q );
+  float best = 9.0;
+  for ( int x = -1; x <= 1; x++ ) for ( int y = -1; y <= 1; y++ ) {
+    vec2 cell = c + vec2( x, y );
+    vec3 r = furHash( vec3( cell, 17.0 ) );
+    if ( r.z < 0.1 ) continue;
+    vec2 ctr = cell + vec2( 0.2 + 0.6 * r.x + 0.5 * mod( cell.y, 2.0 ), 0.25 + 0.5 * r.y );
+    // Sizes vary (many small dabs, some larger); a little longer along the body than across, ragged edges.
+    float radius = 0.12 + 0.2 * r.z * r.z;
+    float d = length( ( q - ctr ) * vec2( 0.68, 1.0 ) ) / radius + ( furNoise( vec3( q * 7.0, r.x * 9.0 ) ) - 0.5 ) * 0.45;
+    best = min( best, d );
+  }
+  return 1.0 - smoothstep( 0.55, 1.1, best );
+}
+/** Blend that looks linear to the eye (the coat is mixed in linear colour, where light marks swamp dark coats). */
+vec3 furMixP( vec3 a, vec3 b, float t ) {
+  vec3 m = mix( sqrt( max( a, 0.0 ) ), sqrt( max( b, 0.0 ) ), clamp( t, 0.0, 1.0 ) );
+  return m * m;
+}
+/** Deer markings over the coat colour (all amounts 0 for dogs; coatF only exists on deer packs). */
+vec3 deerCoat( vec3 col, float n ) {
+  float rump = vCoatF.x, along = vCoatF.y, fromSpine = vCoatF.z, spotty = vCoatF.w;
+  // Head and neck greyer than the body (fading out over the withers).
+  float neckTone = max( vCoatA.y, smoothstep( 0.42, 0.2, along ) * ( 1.0 - vCoatD.y ) );
+  col = furMixP( col, uTan, neckTone * uMarkF.y * ( 1.0 - vCoatE.x ) );
+  // Dark stripe along the spine from the withers to the tail.
+  float stripe = smoothstep( 0.014, 0.006, fromSpine + n * 0.006 ) * smoothstep( 0.3, 0.38, along ) * ( 1.0 - vCoatA.y );
+  col = mix( col, mix( col, uSecond, 0.85 ), stripe * uMarkE.z );
+  // Spots in rows parallel to the spine, starting beside the stripe.
+  float spacing = 0.034 * max( uMarkE.y, 0.3 );
+  // Spots soften towards the belly (lower rows are fainter and smaller in the photo).
+  float lower = smoothstep( 0.27, 0.15, fromSpine );
+  float sp = deerSpots( vec2( along, fromSpine - 0.012 ) / spacing + n * 0.35 ) * smoothstep( 0.008, 0.02, fromSpine ) * spotty * mix( 0.45, 1.0, lower );
+  // A broken pale line low on the flank, where the spots run together.
+  float line = smoothstep( 1.0, 0.0, abs( fromSpine - 0.255 ) / 0.011 + furNoise( vCoatPos * 45.0 ) * 1.4 - 0.4 ) * spotty * smoothstep( 0.5, 0.58, along ) * smoothstep( 0.95, 0.85, along );
+  col = furMixP( col, uWhite, clamp( max( sp, line * 0.5 ), 0.0, 1.0 ) * uMarkE.x * 0.85 );
+  // Pale eye ring and inner ears; white tufts over the metatarsal glands.
+  col = furMixP( col, uWhite, smoothstep( 0.2, 0.7, vCoatB.z ) * uMarkF.z );
+  // Inside the ears: dark skin under streaks of pale hair.
+  vec3 innerEar = furMixP( uSecond, uWhite, 0.24 + 0.22 * smoothstep( 0.35, 0.8, furStreak( vCoatPos * 1.6 + 1.7 ) ) );
+  col = furMixP( col, innerEar, smoothstep( 0.15, 0.6, vCoatE.y + n * 0.2 ) * uMarkF.w );
+  col = furMixP( col, uWhite, smoothstep( 0.2, 0.6, vCoatE.z ) * uMarkC.w );
+  // Rump patch, its black border above and the dark middle of the tail's outer face.
+  col = mix( col, uWhite, smoothstep( 0.3, 0.6, rump + n * 0.2 ) * uMarkE.w );
+  col = mix( col, uSecond * 0.6, clamp( smoothstep( 0.25, 0.6, vCoatD.w + n * 0.2 ) + smoothstep( 0.3, 0.6, vCoatE.w ), 0.0, 1.0 ) * uMarkF.x );
+  return col;
+}
 /** Coat colour from the region data and the markings. */
 vec3 furCoat() {
   float legT = vCoatA.x, headW = vCoatA.y, muzzleT = vCoatA.z, tailT = vCoatA.w;
@@ -191,6 +273,7 @@ vec3 furCoat() {
   col = mix( col, uWhite, pale * uMarkD.x );
   // Tan lower legs.
   col = mix( col, uTan, smoothstep( 1.0, 0.7, legT + n * 0.15 ) * uMarkD.z );
+  col = deerCoat( col, n );
   // Spots.
   float spot = furSpots( p / ( 0.034 * max( uMarkC.y, 0.2 ) ) ) * uMarkC.x * ( 1.0 - vCoatC.x );
   col = mix( col, uSecond, spot );

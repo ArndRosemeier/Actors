@@ -85,6 +85,19 @@ These scratch scripts are not committed. Copies are in the thread's scratchpad; 
 - `cmp.py`: puts the reference and the renders side by side at equal height.
 - The photo-matching camera for the wolfdog was about `[-2.5, 0.5, 1.35] → [0, 0.45, 0.08]` (front-left quarter view).
 
+## Lessons from the deer
+
+The deer (`deer.ts`, `deercoat.ts`) followed the workflow above on a side photo of a sika hind, with Quaternius' CC0 low-poly Deer as the blueprint for rig, clips and proportions.
+
+- **Check the blueprint against the photo first.** The low-poly deer's chest depth, head height and neck angle already matched the photo within a few percent, so its rig only needed scaling, raised ears and a hanging tail. Keeping the source proportions keeps the clips clean.
+- **Read the source rig's weights, not just its hierarchy.** Quaternius' "IK" bones are the weighted pasterns and hooves, parented to the armature. Re-parented under the cannon bones (where the IK chain ends), they follow the legs in every clip. The unweighted root (`Body`) and the pole targets go.
+- **Ellipsoid radii are (u, v, w) of the frame, and `frameFrom(axis)` puts the axis in w.** The long radius goes last. Getting this wrong turned the hams into lobes sticking out backwards.
+- **Keep loft paths straight.** A path that follows (top + bottom) / 2 wiggles, and the nearest-section search then jumps on the concave side, leaving seams across the back. Use a straight (or gently inclined) path and put the profile into `up`/`down`. Keep every `down` positive: a path above the under line gives negative depths and a bulge.
+- **Details smaller than the voxel size come out jagged.** A 2 mm lip groove at 3 mm cells looked like a torn slit. Draw such lines in the coat instead.
+- **Coat colours mix in linear space,** so 30 % white over a dark chestnut looks almost white after tone mapping. The deer markings use `furMixP` (a mix in √ space) so amounts read as they should; dog-era amounts (belly, bib, pale mask) need low values on dark coats.
+- **Pattern coordinates need care.** Distances to the nearest point of a spine polyline are constant in wedges around its ends and corners, which smeared spots into rings. Spots use z along the body and the in-plane distance to the spine line at the vertex's own z instead.
+- **Flat loft end caps show.** End a loft in a small section buried under another part (the deer's trunk ends under the tail root).
+
 ## Applying this to other animals
 
 - Mesh2Motion's rig and clips also fit cats and foxes. Re-pose the rig toward the species' natural stance (cats: lower head, tail up and curved; squirrels need a different rig).

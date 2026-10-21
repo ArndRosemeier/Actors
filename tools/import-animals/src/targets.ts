@@ -44,7 +44,7 @@ function rotateAbout(p: Vec3, origin: Vec3, axis: Vec3, angle: number): Vec3 {
 }
 
 /** Builds a morph from a per-point deformation; rigid vertices follow their anchor. */
-function morph(name: string, group: string, input: MorphInput, deform: (p: Vec3, v: number) => Vec3): Morph {
+export function morph(name: string, group: string, input: MorphInput, deform: (p: Vec3, v: number) => Vec3): Morph {
   const P = input.positions;
   const n = P.length / 3;
   const deltas = new Float32Array(n * 3);
