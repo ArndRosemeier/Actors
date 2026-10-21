@@ -94,6 +94,8 @@ export interface DogCoat {
   grain?: number;
   /** Eye colour. */
   iris?: RGB;
+  /** Nose leather colour; when set, the nose also gets nostrils and a philtrum. */
+  noseColor?: RGB;
 }
 
 export interface DogParams {
@@ -266,22 +268,22 @@ export const SQUIRRELS: Record<string, BreedPreset> = {
   grey: {
     name: "Eastern Grey Squirrel",
     shape: {},
-    coat: { base: hex("#86785c"), second: hex("#2a241e"), tan: hex("#9a7a52"), white: hex("#ece4d4"), belly: 1, bib: 1, shade: 0.5, agouti: 0.85, frost: 0.7, tanLegs: 0.3, eyeRing: 0.55, tailFrost: 1, length: 0.006, fluff: 0.45, grain: 0.4, iris: hex("#0b0908") },
+    coat: { base: hex("#86785c"), second: hex("#2a241e"), tan: hex("#9a7a52"), white: hex("#ece4d4"), belly: 1, bib: 1, shade: 0.5, agouti: 0.85, frost: 0.7, tanLegs: 0.3, eyeRing: 0.55, tailFrost: 1, length: 0.006, fluff: 0.45, grain: 0.4, iris: hex("#0b0908"), noseColor: hex("#6c4c44") },
   },
   red: {
     name: "Eurasian Red Squirrel",
     shape: { size: 0.92, ears: 1.15, tailPlume: 0.3 },
-    coat: { base: hex("#7a3e22"), second: hex("#3e2014"), tan: hex("#9a5230"), white: hex("#ece2d2"), belly: 1, bib: 1, shade: 0.25, agouti: 0.3, frost: 0, eyeRing: 0.4, tailFrost: 0.05, earTufts: 1, length: 0.007, fluff: 0.5, grain: 0.4, iris: hex("#0b0908") },
+    coat: { base: hex("#7a3e22"), second: hex("#3e2014"), tan: hex("#9a5230"), white: hex("#ece2d2"), belly: 1, bib: 1, shade: 0.25, agouti: 0.3, frost: 0, eyeRing: 0.4, tailFrost: 0.05, earTufts: 1, length: 0.007, fluff: 0.5, grain: 0.4, iris: hex("#0b0908"), noseColor: hex("#5a3c34") },
   },
   fox: {
     name: "Fox Squirrel",
     shape: { size: 1.15, bulk: 1.2, tailPlume: 0.6 },
-    coat: { base: hex("#7f6a50"), second: hex("#2e2219"), tan: hex("#a06a3c"), white: hex("#c2905e"), belly: 1, bib: 1, shade: 0.6, agouti: 0.75, frost: 0.35, tanLegs: 0.5, eyeRing: 0.6, tailFrost: 0.5, length: 0.007, fluff: 0.5, grain: 0.4, iris: hex("#0b0908") },
+    coat: { base: hex("#7f6a50"), second: hex("#2e2219"), tan: hex("#a06a3c"), white: hex("#c2905e"), belly: 1, bib: 1, shade: 0.6, agouti: 0.75, frost: 0.35, tanLegs: 0.5, eyeRing: 0.6, tailFrost: 0.5, length: 0.007, fluff: 0.5, grain: 0.4, iris: hex("#0b0908"), noseColor: hex("#644438") },
   },
   black: {
     name: "Black Squirrel (melanistic grey)",
     shape: {},
-    coat: { base: hex("#1d1a18"), second: hex("#0c0b0a"), tan: hex("#3a2a20"), white: hex("#3a3330"), shade: 0.2, agouti: 0.3, frost: 0.08, tanLegs: 0.3, eyeRing: 0.15, tailFrost: 0.15, length: 0.006, fluff: 0.45, grain: 0.4, iris: hex("#0b0908") },
+    coat: { base: hex("#1d1a18"), second: hex("#0c0b0a"), tan: hex("#3a2a20"), white: hex("#3a3330"), shade: 0.2, agouti: 0.3, frost: 0.08, tanLegs: 0.3, eyeRing: 0.15, tailFrost: 0.15, length: 0.006, fluff: 0.45, grain: 0.4, iris: hex("#0b0908"), noseColor: hex("#2c2422") },
   },
 };
 

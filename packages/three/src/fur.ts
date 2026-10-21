@@ -56,6 +56,8 @@ export interface FurCoat {
   grain?: number;
   /** Eye colour (sRGB). */
   iris?: RGB;
+  /** Nose leather colour (sRGB); when set, the nose also gets nostrils and a philtrum (packs with `coatF`). */
+  noseColor?: RGB;
 }
 
 export interface FurUniforms {
@@ -76,6 +78,8 @@ export interface FurUniforms {
   uMarkE: THREE.IUniform<THREE.Vector4>;
   /** Fur grain (pattern scale relative to a dog's). */
   uGrain: THREE.IUniform<number>;
+  /** Nose leather colour (linear) and whether nose detail is on (w). */
+  uNose: THREE.IUniform<THREE.Vector4>;
   /** length (m), fluff, strand spacing (m), actor scale */
   uFur: THREE.IUniform<THREE.Vector4>;
   /** Iris colour of the animal eye material. */
@@ -94,6 +98,7 @@ export function createFurUniforms(): FurUniforms {
     uMarkD: { value: new THREE.Vector4() },
     uMarkE: { value: new THREE.Vector4() },
     uGrain: { value: 1 },
+    uNose: { value: new THREE.Vector4() },
     uFur: { value: new THREE.Vector4(0.012, 0.2, 0.0019, 1) },
     uIris: { value: new THREE.Color().setRGB(0.32, 0.18, 0.06, THREE.SRGBColorSpace) },
   };
@@ -113,14 +118,18 @@ export function setFurCoat(u: FurUniforms, coat: FurCoat, scale = 1): void {
   const grain = coat.grain ?? 1;
   u.uGrain.value = grain;
   if (coat.iris) u.uIris.value.setRGB(...coat.iris, THREE.SRGBColorSpace);
+  if (coat.noseColor) {
+    const c = new THREE.Color().setRGB(...coat.noseColor, THREE.SRGBColorSpace);
+    u.uNose.value.set(c.r, c.g, c.b, 1);
+  } else u.uNose.value.set(0, 0, 0, 0);
   // The shape's size scales the whole body (fur included); divide it out so fur length is in meters.
   u.uFur.value.set(coat.length / scale, coat.fluff, 0.0019 * grain, scale);
 }
 
 const GLSL_VERT_PARS = /* glsl */ `
-attribute vec4 coatA; attribute vec4 coatB; attribute vec4 coatC; attribute vec4 coatD; attribute vec4 coatE;
+attribute vec4 coatA; attribute vec4 coatB; attribute vec4 coatC; attribute vec4 coatD; attribute vec4 coatE; attribute vec4 coatF;
 attribute vec3 coatPos; attribute vec3 furFlow;
-varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoatD; varying vec4 vCoatE;
+varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoatD; varying vec4 vCoatE; varying vec4 vCoatF;
 varying vec3 vCoatPos; varying vec3 vFlow; varying float vShell;
 uniform vec4 uFur; uniform vec4 uMarkE;
 #ifdef FUR_SHELL
@@ -129,7 +138,7 @@ attribute float furShell;
 `;
 
 const GLSL_VERT_MAIN = /* glsl */ `
-vCoatA = coatA; vCoatB = coatB; vCoatC = coatC; vCoatD = coatD; vCoatE = coatE; vCoatPos = coatPos; vFlow = furFlow; vShell = 0.0;
+vCoatA = coatA; vCoatB = coatB; vCoatC = coatC; vCoatD = coatD; vCoatE = coatE; vCoatF = coatF; vCoatPos = coatPos; vFlow = furFlow; vShell = 0.0;
 #ifdef FUR_SHELL
 {
   vShell = furShell;
@@ -149,8 +158,9 @@ vCoatA = coatA; vCoatB = coatB; vCoatC = coatC; vCoatD = coatD; vCoatE = coatE; 
 `;
 
 const GLSL_FRAG_PARS = /* glsl */ `
-varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoatD; varying vec4 vCoatE;
+varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoatD; varying vec4 vCoatE; varying vec4 vCoatF;
 varying vec3 vCoatPos; varying vec3 vFlow; varying float vShell;
+uniform vec4 uNose;
 uniform vec3 uBase; uniform vec3 uSecond; uniform vec3 uTan; uniform vec3 uWhite;
 uniform vec4 uMarkA; uniform vec4 uMarkB; uniform vec4 uMarkC; uniform vec4 uMarkD; uniform vec4 uMarkE; uniform vec4 uFur;
 uniform float uGrain;
@@ -184,6 +194,13 @@ float furSpots( vec3 p ) {
     best = min( best, length( p - cell - 0.15 - 0.7 * r ) / radius );
   }
   return 1.0 - smoothstep( 0.85, 1.0, best );
+}
+/** Bare nose pad (packs with nose coordinates, when the coat sets a nose colour), seen from in front of the nose. */
+float furNosePad() {
+  if ( uNose.w < 0.5 ) return 0.0;
+  vec2 q = vCoatF.xy - vec2( 0.0, 0.0008 );
+  float ell = length( q / vec2( 0.0105, 0.0085 ) );
+  return ( 1.0 - smoothstep( 0.85, 1.0, ell ) ) * smoothstep( -0.011, -0.006, vCoatF.z );
 }
 /** Coat colour from the region data and the markings. */
 vec3 furCoat() {
@@ -239,7 +256,34 @@ vec3 furCoat() {
   // Pale eye ring.
   col = mix( col, uWhite * 0.96, smoothstep( 0.25, 0.6, vCoatE.y + n * 0.15 ) * uMarkE.x );
   // Bare skin: nose leather, lips, pads, eye rims.
-  col = mix( col, vec3( 0.025, 0.02, 0.02 ), clamp( vCoatC.x + vCoatC.y + vCoatC.z + vCoatC.w, 0.0, 1.0 ) );
+  vec3 bare = vec3( 0.025, 0.02, 0.02 );
+  float pad = furNosePad();
+  float bareW = clamp( max( vCoatC.x + vCoatC.y + vCoatC.z + vCoatC.w, pad ), 0.0, 1.0 );
+  if ( uNose.w > 0.5 ) {
+    // Nose leather seen from the front (vCoatF.xy: side, up; dog-sized meters): a pebbled pad,
+    // comma-shaped nostrils curving out and down, and the philtrum splitting the lip below.
+    vec2 q = vCoatF.xy;
+    vec3 leather = uNose.rgb * ( 0.8 + 0.4 * furNoise( vCoatPos / uGrain * 2600.0 ) );
+    // A little darker toward the edge of the pad.
+    leather *= mix( 1.0, 0.7, smoothstep( 0.006, 0.014, length( q * vec2( 0.8, 1.0 ) ) ) );
+    float nostril = 0.0;
+    for ( int k = 0; k < 2; k++ ) {
+      float s = k == 0 ? 1.0 : -1.0;
+      vec2 r = q - vec2( s * 0.0062, -0.0012 );
+      float a = s * 0.75;
+      r = vec2( cos( a ) * r.x - sin( a ) * r.y, sin( a ) * r.x + cos( a ) * r.y );
+      // Curve the slit: shift it sideways by its height squared.
+      r.x += 120.0 * r.y * r.y * s;
+      nostril = max( nostril, 1.0 - smoothstep( 0.75, 1.05, length( r / vec2( 0.0016, 0.0042 ) ) ) );
+    }
+    float philtrum = ( 1.0 - smoothstep( 0.0006, 0.0014, abs( q.x ) ) ) * smoothstep( -0.0035, -0.0065, q.y );
+    leather = mix( leather, vec3( 0.02, 0.012, 0.01 ), max( nostril, philtrum ) );
+    float noseW = max( smoothstep( 0.0, 0.6, vCoatC.x ), pad );
+    // Lips in a darker shade of the leather rather than black.
+    bare = mix( bare, uNose.rgb * 0.22, clamp( vCoatC.y / max( bareW, 1e-3 ), 0.0, 1.0 ) );
+    bare = mix( bare, leather, clamp( noseW / max( bareW, 1e-3 ), 0.0, 1.0 ) );
+  }
+  col = mix( col, bare, bareW );
   // Clumps of lighter and darker hair (larger than single strands, so they read from afar).
   return col * ( 0.86 + 0.28 * furStreak( p ) );
 }
@@ -272,7 +316,7 @@ float furStrands() {
 const GLSL_FRAG_MAIN = /* glsl */ `
 #include <color_fragment>
 diffuseColor.rgb = furCoat();
-float furBare = clamp( vCoatC.x + vCoatC.y + vCoatC.z + vCoatC.w, 0.0, 1.0 );
+float furBare = clamp( max( vCoatC.x + vCoatC.y + vCoatC.z + vCoatC.w, furNosePad() ), 0.0, 1.0 );
 #ifdef FUR_SHELL
   diffuseColor.a = furStrands() * ( 1.0 - furBare ) * step( 0.0005, uFur.x * vCoatB.y );
   // Darker near the skin (strands shade each other).

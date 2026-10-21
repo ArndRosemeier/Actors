@@ -32,7 +32,7 @@ const BACKWARD = () => [0, -0.25, -1] as Vec3;
 
 /** Where the photo puts the head: occiput and nose tip. */
 const OCCIPUT = P(378, 556);
-const NOSE_TIP = P(236, 668);
+const NOSE_TIP = P(244, 664);
 /** Tail centre line (base to tip), carried up in an S. */
 const TAIL = [P(885, 780), P(960, 745), P(1012, 600), P(992, 420), P(912, 272), P(815, 222)];
 
@@ -44,7 +44,7 @@ export function squirrelRig(source: Rig): Rig {
   chain(["Hips", "Spine_1", "Spine_2", "Spine_2.001", "Spine_3", "Spine_4"], [P(845, 765), P(720, 690), P(600, 650), P(490, 628), P(435, 618), P(402, 588), OCCIPUT]);
   const stop = lerp(OCCIPUT, NOSE_TIP, 0.55), noseBase = lerp(OCCIPUT, NOSE_TIP, 0.86);
   chain(["Head", "Nose", "Head.tip"], [OCCIPUT, stop, noseBase, NOSE_TIP]);
-  chain(["Chin", "Chin_Tip"], [P(326, 664), P(268, 698), P(250, 701)]);
+  chain(["Chin", "Chin_Tip"], [P(326, 664), P(272, 696), P(258, 699)]);
   chain(["Stomach", "Stomach_tip"], [P(600, 720), P(610, 800), P(615, 850)]);
   chain(["Tail_Base", "Tail_Mid", "Tail_Mid.001", "Tail_End", "Tail_Tip"], TAIL);
   for (const [side, s] of [["L", 1], ["R", -1]] as const) {
@@ -107,23 +107,28 @@ export function squirrelBody(source: Rig): DogBody {
     hd(0.12, 0.004, 0.02, 0.023, 0.019),
     hd(0.32, 0.003, 0.021, 0.0235, 0.0198),
     hd(0.52, 0.0, 0.0175, 0.0195, 0.0165),
-    hd(0.72, -0.001, 0.0135, 0.0132, 0.0138),
-    hd(0.9, -0.001, 0.0102, 0.0102, 0.011),
-    hd(0.99, -0.001, 0.0062, 0.0065, 0.0072),
+    hd(0.72, -0.001, 0.0145, 0.0135, 0.0142),
+    hd(0.88, -0.001, 0.0118, 0.0108, 0.0118),
+    hd(0.96, -0.0012, 0.0085, 0.0078, 0.0088, 2.4),
   ]), 0.008, ["Head", "Nose", "Spine_4"], "head", BACKWARD, 0.55);
   // Full cheeks (the pale cheek fur behind the whisker pads).
-  for (const s of [1, -1]) put(ellipsoid("cheek", add(axis(0.42), [0.011 * s, -0.01, 0]), frameFrom(sub(NOSE_TIP, OCCIPUT)), [0.011, 0.0125, 0.019]), 0.007, ["Head"], "head", BACKWARD, 0.6);
+  for (const s of [1, -1]) put(ellipsoid("cheek", add(axis(0.5), [0.0125 * s, -0.0105, 0]), frameFrom(sub(NOSE_TIP, OCCIPUT)), [0.0115, 0.0125, 0.018]), 0.008, ["Head"], "head", BACKWARD, 0.6);
   // Whisker pads and the nose.
-  for (const s of [1, -1]) put(ellipsoid("whiskerpad", add(axis(0.84), [0.0052 * s, -0.0052, -0.001]), frameFrom(sub(NOSE_TIP, OCCIPUT)), [0.0064, 0.0064, 0.008]), 0.004, ["Nose", "Head"], "muzzle", BACKWARD, 0.35);
-  put(capsule("muzzle", axis(0.62, -0.002), axis(0.95, -0.0015), 0.0098, 0.0063), 0.006, ["Nose", "Head"], "muzzle", BACKWARD, 0.35);
-  put(ellipsoid("nose", add(NOSE_TIP, [0, 0.0005, -0.0012]), frameFrom([0, 0.2, 1]), [0.0048, 0.0038, 0.0032]), 0.002, ["Head.tip", "Nose"], "nose", BACKWARD, 0);
+  // Whisker pads: full and set wide, so the face reads short and blunt from the front.
+  for (const s of [1, -1]) put(ellipsoid("whiskerpad", add(axis(0.84), [0.0064 * s, -0.0056, -0.0008]), frameFrom(sub(NOSE_TIP, OCCIPUT)), [0.0074, 0.0068, 0.0082]), 0.0045, ["Nose", "Head"], "muzzle", BACKWARD, 0.35);
+  put(capsule("muzzle", axis(0.6, -0.002), axis(0.9, -0.0016), 0.0102, 0.0074), 0.006, ["Nose", "Head"], "muzzle", BACKWARD, 0.35);
+  // Nose leather: a small rounded pad flush with the front of the muzzle (it only rounds the end off).
+  const noseDir = normalize(sub(NOSE_TIP, OCCIPUT));
+  put(ellipsoid("nose", add(NOSE_TIP, scale(noseDir, -0.0026)), frameFrom(noseDir, [1, 0, 0]), [0.0046, 0.0036, 0.0028]), 0.003, ["Head.tip", "Nose"], "nose", BACKWARD, 0);
   // Lower jaw: short, under the muzzle.
-  const jawA = P(326, 676), jawB = P(266, 697);
+  const jawA = P(326, 676), jawB = P(270, 695);
   put(capsule("jaw", jawA, jawB, 0.0075, 0.0042, [1, 0, 0], [0.85, 0.7]), 0.006, ["Chin", "Chin_Tip"], "jaw", BACKWARD, 0.35);
+  // Throat: a straight line from the chin down to the chest (fills the notch behind the jaw).
+  put(capsule("throat", P(298, 702), P(352, 768), 0.0068, 0.0105), 0.016, ["Spine_4", "Spine_3", "Head"], "neck", () => [0, -1, -0.4], 1.0);
   // Mouth: a short slit under the nose, so the jaw can chew.
-  const mouthBack = P(274, 689), mouthFront = P(250, 693);
+  const mouthBack = P(276, 688), mouthFront = P(256, 690);
   const slitFrame: Frame = frameFrom(sub(mouthFront, mouthBack));
-  put(box("mouth", lerp(mouthBack, mouthFront, 0.5), slitFrame, [0.012, 0.0006, Math.hypot(...sub(mouthFront, mouthBack)) / 2]), 0.001, ["Chin"], "jaw", BACKWARD, 0, true);
+  put(box("mouth", lerp(mouthBack, mouthFront, 0.5), slitFrame, [0.0075, 0.0006, Math.hypot(...sub(mouthFront, mouthBack)) / 2]), 0.001, ["Chin"], "jaw", BACKWARD, 0, true);
 
   // Eyes: large, dark and set high on the sides of the head, bulging a little.
   const eyeR = 0.0062;
@@ -218,7 +223,7 @@ export function squirrelBody(source: Rig): DogBody {
     marks: {
       brows,
       nose: NOSE_TIP,
-      mouth: { y0: mouthBack[1], y1: mouthFront[1], z0: mouthBack[2], z1: mouthFront[2], halfWidth: 0.008 },
+      mouth: { y0: mouthBack[1], y1: mouthFront[1], z0: mouthBack[2], z1: mouthFront[2], halfWidth: 0.0045 },
     },
   };
 }
