@@ -5,7 +5,7 @@ export default defineConfig({
   base: "./",
   build: {
     target: "es2022",
-    rollupOptions: { input: { main: resolve(__dirname, "index.html"), animals: resolve(__dirname, "animals.html") } },
+    rollupOptions: { input: { main: resolve(__dirname, "index.html"), animals: resolve(__dirname, "animals.html"), drones: resolve(__dirname, "drones.html") } },
   },
   server: { port: 5173 },
 });

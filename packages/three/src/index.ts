@@ -50,6 +50,7 @@ export * from "./racepatterns";
 export * from "./parts";
 export * from "./crowd";
 export * from "./fur";
+export * from "./drone";
 
 export interface MaterialFactory {
   (mesh: MeshData, actor: ThreeActor): THREE.Material;
