@@ -55,6 +55,26 @@ Large clip libraries in the pack (the 2,548 CMU motions) are listed in `catalog.
 
 `CharacterEditor` has two modes: **Simple** (body basics, ethnicity, hair, eyes, outfit preset, animation, face) for everyday users and **Detailed** (every control, garment by garment, the CMU library with search, detail sliders). Pick one with `mode`, hide the switch with `modeSwitch: false`; the viewer's last choice is remembered.
 
+## A game's own character creator
+
+The editor and the character can be narrowed to what a game offers:
+
+```ts
+const character = await Character.load({
+  pack, renderer, materials: nodeMaterials, clipLibraries: false,
+  // what the character (and so its editor and randomize) may pick from
+  catalog: (c) => ({ ...c, races: c.races.filter((r) => r.id === "human"), garments: c.garments.filter((g) => !g.credit), outfits: c.outfits.filter((o) => everyday.includes(o.id)) }),
+});
+new CharacterEditor(character, panel, {
+  sections: ["body", "look", "outfit"],          // no race, animation or detail sliders
+  buttons: ["randomize", "reset"],               // no save, load or glTF export
+  hide: ["anatomy", "body.cupSize", "outfit-preset"], // single controls, by key or role
+  randomize: () => myGameLook(seed++),            // what Randomize sets
+});
+```
+
+Restyle the panel with its CSS variables (`--ae-panel`, `--ae-text`, `--ae-muted`, `--ae-accent`, `--ae-border`) on `.actors-editor`.
+
 ## three's WebGPURenderer
 
 `Character` draws with WebGL materials by default. For three's `WebGPURenderer` (WebGPU, or its WebGL 2 backend with `forceWebGL`), pass the node-material kit; every look, pattern and clip works the same:

@@ -25,6 +25,11 @@ export interface CharacterOptions {
   worker?: MessagePortLike;
   /** Starting look; missing fields use the defaults. */
   config?: CharacterPatch;
+  /**
+   * Narrows what the character offers (and what its editor and `randomize` pick from), e.g. a
+   * game that leaves out fantasy outfits or CC-BY garments. Gets the pack's whole catalog.
+   */
+  catalog?: (catalog: CharacterCatalog) => CharacterCatalog;
   /** Also list the pack's large clip libraries (e.g. 2,548 CMU motions; default true). Only their index is loaded up front. */
   clipLibraries?: boolean;
   fetcher?: Fetcher;
@@ -69,9 +74,11 @@ export class Character {
     readonly human: Human,
     private readonly renderer: unknown,
     materials?: ActorMaterialKit,
+    narrow?: (catalog: CharacterCatalog) => CharacterCatalog,
   ) {
     this.actor = new ThreeActor(human.runtime, materials);
-    this.catalog = buildCatalog(human, Object.keys(IRIS_PRESETS));
+    const all = buildCatalog(human, Object.keys(IRIS_PRESETS));
+    this.catalog = narrow ? narrow(all) : all;
     this.cfg = defaultConfig(this.catalog);
   }
 
@@ -79,7 +86,7 @@ export class Character {
     const human = await Human.load(options.pack, options.fetcher);
     if (options.clipLibraries !== false) await Promise.all((human.runtime.manifest.clipLibraries ?? []).map((l) => human.runtime.loadClipLibrary(l.name)));
     if (options.worker) await human.useWorker(options.worker);
-    const c = new Character(human, options.renderer, options.materials);
+    const c = new Character(human, options.renderer, options.materials, options.catalog);
     await c.set(options.config ?? {});
     return c;
   }
