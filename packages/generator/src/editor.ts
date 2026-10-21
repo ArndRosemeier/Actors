@@ -1,6 +1,6 @@
 import { ADULT_MIN_AGE, BEARD_STYLES, HORN_STYLES, type HumanParams, MAX_AGE, TAIL_STYLES } from "@actors/human";
 import { type CharacterConfig, PAINTED_BROWS, outfitGarments } from "./catalog";
-import type { Character } from "./character";
+import type { Character, CharacterPatch } from "./character";
 import { PUPILS, SKIN_PATTERNS } from "@actors/three";
 
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
@@ -9,7 +9,7 @@ const STYLE = `
 .actors-editor { --ae-panel: #1d1f24; --ae-text: #e6e6e6; --ae-muted: #9aa0a6; --ae-accent: #c98b6b; --ae-border: #2c2f36;
   box-sizing: border-box; background: var(--ae-panel); color: var(--ae-text); font: 13px/1.4 system-ui, sans-serif; padding: 12px 14px 20px; overflow-y: auto; }
 .actors-editor * { box-sizing: border-box; }
-.actors-editor [hidden] { display: none !important; }
+.actors-editor [hidden], .actors-editor .ae-off { display: none !important; }
 .actors-editor header { display: flex; align-items: baseline; justify-content: space-between; }
 .actors-editor h1 { font-size: 18px; margin: 0 0 8px; }
 .actors-editor h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ae-muted); margin: 16px 0 6px; }
@@ -52,6 +52,11 @@ const STYLE = `
 
 export type EditorMode = "simple" | "detailed";
 
+/** The editor's sections, in order. */
+export type EditorSection = "race" | "body" | "look" | "outfit" | "animation" | "details";
+/** The footer's buttons. */
+export type EditorButton = "randomize" | "reset" | "save" | "load" | "export";
+
 const ETHNICITIES: [string, string, [number, number, number]][] = [
   ["african", "African", [1, 0, 0]],
   ["asian", "Asian", [0, 1, 0]],
@@ -90,6 +95,17 @@ export interface EditorOptions {
   mode?: EditorMode;
   /** Show the Simple/Detailed switch (default true). */
   modeSwitch?: boolean;
+  /** Only these sections (default: all). For a game's own creator, e.g. without "race" or "animation". */
+  sections?: EditorSection[];
+  /** Only these footer buttons (default: all). */
+  buttons?: EditorButton[];
+  /**
+   * Controls to leave out, by their key: a config field ("anatomy", "expression", "beard"), a body
+   * slider ("body.cupSize"), a detail slider ("details.nose") or a role ("outfit-preset").
+   */
+  hide?: string[];
+  /** What Randomize sets (default: `character.randomize()` from the character's catalog). */
+  randomize?: () => CharacterPatch | Promise<CharacterPatch>;
 }
 
 const SIMPLE_BODY = new Set<keyof HumanParams>(["gender", "ageYears", "muscle", "weight", "height", "cupSize"]);
@@ -159,7 +175,7 @@ export class CharacterEditor {
     }
 
     // Race
-    const raceSec = this.section("Race");
+    const raceSec = this.section("Race", "race");
     const raceNames = cat.races.map((r): [string, string] => [r.id, r.label]);
     // Picking a race rolls a typical member of it (shape, skin, eyes, hair), keeping gender, outfit and animation.
     this.select(raceSec, "Race", raceNames, (c) => c.race, (v) => {
@@ -176,7 +192,7 @@ export class CharacterEditor {
     detailed(this.slider(raceSec, "Size", 0, 1, 0.01, pct, (c) => c.raceSize, (v) => set({ raceSize: v }), "raceSize"));
 
     // Body
-    const body = this.section("Body");
+    const body = this.section("Body", "body");
     for (const s of BODY) {
       const row = this.slider(body, s.label, s.min, s.max, s.step, s.fmt, (c) => c.body[s.key], (v) => set({ body: { [s.key]: v } }), `body.${s.key}`);
       if (!SIMPLE_BODY.has(s.key)) detailed(row);
@@ -192,7 +208,7 @@ export class CharacterEditor {
     only("simple", eth);
 
     // Look
-    const look = this.section("Look");
+    const look = this.section("Look", "look");
     if (cat.photoSkin) detailed(this.select(look, "Skin", [["photo", "Photo (follows ethnicity)"], ["procedural", "Procedural"]], (c) => c.skin, (v) => set({ skin: v as CharacterConfig["skin"] }), "skin"));
     const tone = detailed(this.slider(look, "Skin tone", 0, 1, 0.01, pct, (c) => c.skinTone, (v) => set({ skinTone: v }), "skinTone"));
     this.syncers.push((c) => (tone.hidden = c.skin === "photo"));
@@ -239,7 +255,7 @@ export class CharacterEditor {
     this.check(look, "Anatomical detail", (c) => c.anatomy, (v) => set({ anatomy: v }), "anatomy");
 
     // Outfit
-    const outfit = this.section("Outfit");
+    const outfit = this.section("Outfit", "outfit");
     const presetSel = this.select(outfit, "Preset", [["", "Custom"], ...cat.outfits.map((o): [string, string] => [o.id, o.label])], (c) => {
       const match = cat.outfits.find((o) => sameSet(outfitGarments(o, c.body), c.outfit));
       return match?.id ?? "";
@@ -333,7 +349,7 @@ export class CharacterEditor {
     });
 
     // Animation and face
-    const motion = this.section("Animation");
+    const motion = this.section("Animation", "animation");
     // Clip pickers: a library choice, a search box for big libraries, and the clip list grouped by category.
     const libSel = this.select(motion, "Library", cat.libraries.map((l) => [l.id, l.label]), (c) => cat.animations.find((a) => a.id === c.animation)?.library ?? libSel.value, () => fillClips(), "library");
     if (cat.libraries.length < 2) (libSel.parentElement as HTMLElement).hidden = true;
@@ -391,7 +407,7 @@ export class CharacterEditor {
 
     // Detail sliders
     if (options.details !== false && cat.details.length) {
-      const details = detailed(this.section("Details"));
+      const details = detailed(this.section("Details", "details"));
       const groups = new Map<string, HTMLElement>();
       for (const d of cat.details) {
         if (!groups.has(d.group)) {
@@ -408,13 +424,15 @@ export class CharacterEditor {
     // Footer
     const footer = document.createElement("footer");
     const button = (label: string, onClick: () => void, role?: string) => {
+      if (role && options.buttons && !options.buttons.includes(role as EditorButton)) return;
       const b = document.createElement("button");
       b.textContent = label;
       if (role) b.dataset.role = role;
       b.addEventListener("click", onClick);
       footer.appendChild(b);
     };
-    button("Randomize", () => character.randomize(), "randomize");
+    const randomize = options.randomize;
+    button("Randomize", () => void (randomize ? Promise.resolve(randomize()).then((p) => character.set(p)) : character.randomize()), "randomize");
     button("Reset", () => character.reset(), "reset");
     button("Save", () => download(new Blob([JSON.stringify(character.config, null, 2)], { type: "application/json" }), "character.json"), "save");
     button("Load", () => {
@@ -430,6 +448,14 @@ export class CharacterEditor {
     button("Export glTF", async () => download(new Blob([await character.exportGlb()], { type: "model/gltf-binary" }), "character.glb"), "export");
     for (const a of options.actions ?? []) button(a.label, a.onClick);
     el.appendChild(footer);
+
+    // What the host leaves out.
+    if (options.sections) for (const sec of el.querySelectorAll<HTMLElement>("section[data-section]")) sec.classList.toggle("ae-off", !options.sections.includes(sec.dataset.section as EditorSection));
+    for (const key of options.hide ?? []) {
+      for (const node of el.querySelectorAll<HTMLElement>(`[data-key="${CSS.escape(key)}"], [data-role="${CSS.escape(key)}"]`)) {
+        ((node.closest(".ae-row, .ae-check") as HTMLElement | null) ?? node).classList.add("ae-off");
+      }
+    }
 
     this.unsubscribe = character.onChange((c) => this.sync(c));
     this.sync(character.config);
@@ -469,8 +495,9 @@ export class CharacterEditor {
     for (const s of this.syncers) s(c);
   }
 
-  private section(title: string): HTMLElement {
+  private section(title: string, id: EditorSection): HTMLElement {
     const s = document.createElement("section");
+    s.dataset.section = id;
     const h = document.createElement("h2");
     h.textContent = title;
     s.appendChild(h);
