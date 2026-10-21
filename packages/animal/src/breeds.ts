@@ -287,11 +287,11 @@ export const SQUIRRELS: Record<string, BreedPreset> = {
   },
 };
 
-/** Presets per animal kind (the pack's `extra.animal.kind`). */
+/** Dog-shaped presets per animal kind (the pack's `extra.animal.kind`); deer presets are DEER_PRESETS. */
 export const PRESETS: Record<string, Record<string, BreedPreset>> = { dog: BREEDS, squirrel: SQUIRRELS };
 
 /** The preset an animal of this kind starts with. */
-export const DEFAULT_PRESET: Record<string, string> = { dog: "wolfdog", squirrel: "grey" };
+export const DEFAULT_PRESET: Record<string, string> = { dog: "wolfdog", squirrel: "grey", deer: "sika" };
 
 const clamp = (v: number, lo: number, hi: number) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);
 

@@ -1,5 +1,6 @@
 import { type ActorShape, ActorRuntime, type BoneScale, type Fetcher, type MessagePortLike, RemoteRuntime, type ShapeOptions } from "@actors/core";
-import { type BreedPreset, DEFAULT_COAT, DEFAULT_PRESET, DEFAULT_SHAPE, type DogCoat, type DogParams, type DogShape, PRESETS, breedParams, sanitizeShape } from "./breeds";
+import { DEFAULT_PRESET, type DogCoat, type DogShape, SHAPE_RANGES, SQUIRRELS, BREEDS, breedParams, sanitizeShape } from "./breeds";
+import { DEER_PRESETS, DEER_SHAPE_RANGES, type DeerCoat, type DeerShape, deerParams, deerShapeOptions, deerTargetWeights } from "./deer";
 
 /** What the animal importer writes into `manifest.extra.animal`. */
 export interface AnimalExtra {
@@ -72,7 +73,7 @@ export function dogShapeOptions(shape: DogShape, boneNames?: string[]): ShapeOpt
   return { bones, scale: s.size };
 }
 
-/** Morphs each morph-driven shape value needs (a pack without them ignores the value). */
+/** Morphs each morph-driven dog/squirrel shape value needs (a pack without them ignores the value). */
 export const SHAPE_MORPHS: Partial<Record<keyof DogShape, string[]>> = {
   earDrop: ["ears-drop"],
   earFold: ["ears-fold"],
@@ -89,29 +90,83 @@ export const SHAPE_MORPHS: Partial<Record<keyof DogShape, string[]>> = {
   cheeks: ["cheeks"],
 };
 
-/** An animal actor (dog or squirrel, one shared rig): preset parameters -> target weights and bone scales -> shape. */
-export class Animal {
-  shape: DogShape = { ...DEFAULT_SHAPE };
-  coat: DogCoat = { ...DEFAULT_COAT };
+/** What an animal kind brings: presets, slider ranges, and how a shape becomes morph weights and bone scales. */
+export interface Species<S extends object, C extends object> {
+  kind: string;
+  /** Default preset (the one the base body is modelled on). */
+  base: string;
+  presets: Record<string, { name: string; shape: Partial<S>; coat: Partial<C> }>;
+  ranges: Record<keyof S, [number, number]>;
+  /** Morphs each morph-driven shape value needs; values not listed are proportions and always work. */
+  morphs?: Partial<Record<keyof S, string[]>>;
+  params(id: string): { shape: S; coat: C };
+  targetWeights(shape: S): Map<string, number>;
+  shapeOptions(shape: S, boneNames?: string[]): ShapeOptions;
+}
+
+export const DOG: Species<DogShape, DogCoat> = {
+  kind: "dog",
+  base: DEFAULT_PRESET.dog,
+  presets: BREEDS,
+  ranges: SHAPE_RANGES,
+  morphs: SHAPE_MORPHS,
+  params: (id) => breedParams(id, "dog"),
+  targetWeights: dogTargetWeights,
+  shapeOptions: dogShapeOptions,
+};
+
+/** Squirrels share the dog's rig, bones, shape values and morph names. */
+export const SQUIRREL: Species<DogShape, DogCoat> = {
+  ...DOG,
+  kind: "squirrel",
+  base: DEFAULT_PRESET.squirrel,
+  presets: SQUIRRELS,
+  params: (id) => breedParams(id, "squirrel"),
+};
+
+export const DEER: Species<DeerShape, DeerCoat> = {
+  kind: "deer",
+  base: DEFAULT_PRESET.deer,
+  presets: DEER_PRESETS,
+  ranges: DEER_SHAPE_RANGES,
+  params: deerParams,
+  targetWeights: deerTargetWeights,
+  shapeOptions: deerShapeOptions,
+};
+
+/** Species by pack kind (`manifest.extra.animal.kind`). */
+export const SPECIES: Record<string, Species<object, object>> = { dog: DOG as never, squirrel: SQUIRREL as never, deer: DEER as never };
+
+/**
+ * An animal actor: shape parameters -> target weights and bone scales -> shape.
+ * The species (dog, squirrel, deer) comes from the pack; the type parameters only give
+ * `shape` and `coat` their types, e.g. `Animal.load<DeerShape, DeerCoat>(url)`.
+ */
+export class Animal<S extends object = DogShape, C extends object = DogCoat> {
+  shape: S;
+  coat: C;
   readonly extra: AnimalExtra;
+  readonly species: Species<S, C>;
   private remote?: RemoteRuntime;
 
   private constructor(readonly runtime: ActorRuntime) {
     const extra = runtime.manifest.extra?.animal as AnimalExtra | undefined;
     if (!extra) throw new Error("Pack has no animal data");
     this.extra = extra;
-    const first = DEFAULT_PRESET[extra.kind];
-    if (first && this.presets[first]) this.params = breedParams(first, extra.kind);
+    const species = SPECIES[extra.kind];
+    if (!species) throw new Error(`Unknown animal kind ${extra.kind}`);
+    this.species = species as unknown as Species<S, C>;
+    ({ shape: this.shape, coat: this.coat } = this.species.params(this.species.base));
   }
 
-  /** The presets for this kind of animal (dog breeds, squirrel species). */
-  get presets(): Record<string, BreedPreset> {
-    return PRESETS[this.extra.kind] ?? {};
+  /** The presets for this kind of animal (dog breeds, squirrel or deer species). */
+  get presets(): Record<string, { name: string; shape: Partial<S>; coat: Partial<C> }> {
+    return this.species.presets;
   }
 
   /** Whether a shape value does anything on this pack (its morphs are there, or it is a proportion). */
-  supports(key: keyof DogShape): boolean {
-    const need = SHAPE_MORPHS[key];
+  supports(key: keyof S): boolean {
+    const need = this.species.morphs?.[key];
     if (!need) return true;
     const have = new Set(this.runtime.manifest.targets.map((t) => t.name));
     return need.some((n) => have.has(n));
@@ -122,40 +177,49 @@ export class Animal {
    * reuse the loaded data, so only the first one downloads anything.
    * `fresh` loads a private copy instead.
    */
-  static async load(manifestUrl: string, fetcher?: Fetcher, fresh = false): Promise<Animal> {
-    return new Animal(await (fresh ? ActorRuntime.load(manifestUrl, fetcher) : ActorRuntime.shared(manifestUrl, fetcher)));
+  static async load<S extends object = DogShape, C extends object = DogCoat>(manifestUrl: string, fetcher?: Fetcher, fresh = false): Promise<Animal<S, C>> {
+    return new Animal<S, C>(await (fresh ? ActorRuntime.load(manifestUrl, fetcher) : ActorRuntime.shared(manifestUrl, fetcher)));
   }
 
-  /** Another animal on the same loaded pack (and worker), e.g. for a pack of dogs. */
-  static share(other: Animal): Animal {
-    const a = new Animal(other.runtime);
+  /** Another animal on the same loaded pack (and worker), e.g. for a herd. */
+  static share<S extends object, C extends object>(other: Animal<S, C>): Animal<S, C> {
+    const a = new Animal<S, C>(other.runtime);
     a.remote = other.remote;
     return a;
   }
 
-  get params(): DogParams {
+  get kind(): string {
+    return this.extra.kind;
+  }
+
+  get params(): { shape: S; coat: C } {
     return { shape: this.shape, coat: this.coat };
   }
 
-  set params(p: DogParams) {
+  set params(p: { shape: S; coat: C }) {
     this.shape = { ...p.shape };
     this.coat = { ...p.coat };
   }
 
-  /** Applies a preset of this kind (see BREEDS, SQUIRRELS). */
+  /** Applies a preset (dog breed, squirrel or deer species; see `presets`). */
+  setPreset(id: string): void {
+    this.params = this.species.params(id);
+  }
+
+  /** Applies a preset; the same as setPreset. */
   setBreed(id: string): void {
-    this.params = breedParams(id, this.extra.kind);
+    this.setPreset(id);
   }
 
   targetWeights(): Map<string, number> {
     const available = new Set(this.runtime.manifest.targets.map((t) => t.name));
-    const w = dogTargetWeights(this.shape);
+    const w = this.species.targetWeights(this.shape);
     for (const k of [...w.keys()]) if (!available.has(k)) w.delete(k);
     return w;
   }
 
   shapeOptions(): ShapeOptions {
-    return dogShapeOptions(this.shape, this.runtime.manifest.skeleton?.bones.map((b) => b.name));
+    return this.species.shapeOptions(this.shape, this.runtime.manifest.skeleton?.bones.map((b) => b.name));
   }
 
   /** Evaluate shapes in a Web Worker running `@actors/animal/worker`. */
@@ -172,3 +236,6 @@ export class Animal {
     return this.remote ? this.remote.evaluate(this.targetWeights(), this.shapeOptions()) : this.runtime.evaluate(this.targetWeights(), previous, this.shapeOptions());
   }
 }
+
+/** A deer actor (see DEER). */
+export type Deer = Animal<DeerShape, DeerCoat>;
