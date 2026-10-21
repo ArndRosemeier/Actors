@@ -4,5 +4,6 @@
  * `human.useWorker(new HumanWorker())`.
  */
 import { type MessagePortLike, serveRuntime } from "@actors/core";
+import { ROBOT_TASK, robotTask } from "./robot";
 
-serveRuntime(self as unknown as MessagePortLike);
+serveRuntime(self as unknown as MessagePortLike, { [ROBOT_TASK]: robotTask });

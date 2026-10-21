@@ -1,5 +1,5 @@
 import { raceParts, randomRaceLook } from "./racelook";
-import { ADULT_MIN_AGE, DEFAULT_PARAMS, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type BeardStyle, type HornStyle, type PupilShape, RACES, RACE_IDS, type RaceId, type SkinPattern, type TailStyle } from "@actors/human";
+import { ADULT_MIN_AGE, DEFAULT_PARAMS, DEFAULT_ROBOT, ROBOT_EARS, ROBOT_HEADS, ROBOT_PLATING, type RobotConfig, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type BeardStyle, type HornStyle, type PupilShape, RACES, RACE_IDS, type RaceId, type SkinPattern, type TailStyle } from "@actors/human";
 
 /** One choice in a list: the id the API takes and a display label. */
 export interface Choice {
@@ -52,6 +52,85 @@ export interface AnimationChoice extends Choice {
   description?: string;
 }
 
+/** Surface finish of a robot's plates. */
+export type RobotFinish = "gloss" | "satin" | "metallic" | "matte";
+
+/** Material settings per finish (plates and trim). */
+export const ROBOT_FINISHES: Record<RobotFinish, { label: string; metalness: number; roughness: number; clearcoat: number; clearcoatRoughness: number }> = {
+  gloss: { label: "Gloss paint", metalness: 0.15, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.06 },
+  satin: { label: "Satin", metalness: 0.3, roughness: 0.45, clearcoat: 0.35, clearcoatRoughness: 0.3 },
+  metallic: { label: "Polished metal", metalness: 1, roughness: 0.22, clearcoat: 0.3, clearcoatRoughness: 0.1 },
+  matte: { label: "Matte", metalness: 0.05, roughness: 0.8, clearcoat: 0, clearcoatRoughness: 0.5 },
+};
+
+/** A robot's look: shape options (see `@actors/human` RobotConfig) plus colours and finish. */
+export interface RobotLook extends RobotConfig {
+  /** Main plate colour (sRGB hex). */
+  paint: string;
+  /** Second plate colour: shoulders, hands, pelvis, feet, ear pods, visor frame. */
+  trim: string;
+  /** Inner frame (the synthetic muscle in the gaps). */
+  frame: string;
+  /** Joint housings and bezels. */
+  metal: string;
+  /** Lights: visor, optics, joint rings, chest core. */
+  glow: string;
+  /** 0..1 light strength (0 = off). */
+  glowStrength: number;
+  finish: RobotFinish;
+}
+
+/** Colour schemes for robots. */
+export const ROBOT_PALETTES: (Choice & { look: Pick<RobotLook, "paint" | "trim" | "frame" | "metal" | "glow" | "finish"> })[] = [
+  { id: "arctic", label: "Arctic white", look: { paint: "#e9ecef", trim: "#2b2f36", frame: "#1d2026", metal: "#a7adb5", glow: "#4fd8ff", finish: "gloss" } },
+  { id: "gunmetal", label: "Gunmetal", look: { paint: "#4a4f57", trim: "#1f2227", frame: "#15171b", metal: "#8d939b", glow: "#ff9a3c", finish: "satin" } },
+  { id: "crimson", label: "Crimson", look: { paint: "#a3161d", trim: "#1b1c20", frame: "#141519", metal: "#b8bcc2", glow: "#ffe2b0", finish: "gloss" } },
+  { id: "aurum", label: "Gold and black", look: { paint: "#c9a24a", trim: "#16171a", frame: "#101114", metal: "#d9c27a", glow: "#fff1c4", finish: "metallic" } },
+  { id: "chrome", label: "Chrome", look: { paint: "#c8ccd2", trim: "#5e646d", frame: "#1a1c20", metal: "#e0e3e7", glow: "#6aa8ff", finish: "metallic" } },
+  { id: "stealth", label: "Stealth", look: { paint: "#1b1d21", trim: "#2a2d33", frame: "#0e0f12", metal: "#3d4148", glow: "#ff2a3a", finish: "matte" } },
+  { id: "field", label: "Field olive", look: { paint: "#5d6545", trim: "#3a3d33", frame: "#1c1e19", metal: "#7d8072", glow: "#ffc83c", finish: "matte" } },
+  { id: "pearl", label: "Pearl and teal", look: { paint: "#f2efe9", trim: "#1f7a7a", frame: "#24282d", metal: "#c9ccd0", glow: "#58ffd6", finish: "gloss" } },
+];
+
+export const DEFAULT_ROBOT_LOOK: RobotLook = { ...DEFAULT_ROBOT, ...ROBOT_PALETTES[0].look, glowStrength: 0.7 };
+
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/** A valid robot look (bad values fall back to the defaults). */
+export function sanitizeRobotLook(look: Partial<RobotLook> | undefined): RobotLook {
+  const l = { ...DEFAULT_ROBOT_LOOK, ...look };
+  const color = (k: "paint" | "trim" | "frame" | "metal" | "glow") => (typeof l[k] === "string" && HEX.test(l[k]) ? l[k] : DEFAULT_ROBOT_LOOK[k]);
+  return {
+    head: ROBOT_HEADS.includes(l.head) ? l.head : DEFAULT_ROBOT.head,
+    ears: ROBOT_EARS.includes(l.ears) ? l.ears : DEFAULT_ROBOT.ears,
+    plating: ROBOT_PLATING.includes(l.plating) ? l.plating : DEFAULT_ROBOT.plating,
+    thickness: Math.min(1, Math.max(0, Number.isFinite(l.thickness) ? l.thickness : DEFAULT_ROBOT.thickness)),
+    core: !!l.core,
+    paint: color("paint"),
+    trim: color("trim"),
+    frame: color("frame"),
+    metal: color("metal"),
+    glow: color("glow"),
+    glowStrength: Math.min(1, Math.max(0, Number.isFinite(l.glowStrength) ? l.glowStrength : DEFAULT_ROBOT_LOOK.glowStrength)),
+    finish: l.finish in ROBOT_FINISHES ? l.finish : DEFAULT_ROBOT_LOOK.finish,
+  };
+}
+
+/** A random robot look (shape options, palette, light colour). */
+export function randomRobotLook(r: () => number): RobotLook {
+  const pick = <T>(list: readonly T[]): T => list[Math.floor(r() * list.length)];
+  const palette = pick(ROBOT_PALETTES).look;
+  return sanitizeRobotLook({
+    ...palette,
+    head: pick(ROBOT_HEADS),
+    ears: pick(ROBOT_EARS),
+    plating: pick(ROBOT_PLATING),
+    thickness: 0.2 + r() * 0.7,
+    core: r() < 0.6,
+    glowStrength: 0.4 + r() * 0.6,
+  });
+}
+
 export interface CharacterCatalog {
   /** Fantasy races (human first). */
   races: (Choice & { id: RaceId; description: string })[];
@@ -71,6 +150,8 @@ export interface CharacterCatalog {
   details: { id: string; label: string; group: string; min: number; max: number }[];
   /** Photographic skins are available. */
   photoSkin: boolean;
+  /** Robot options: head styles, ear styles, plating, finishes and colour schemes (absent: no robots offered). */
+  robot?: { heads: Choice[]; ears: Choice[]; plating: Choice[]; finishes: Choice[]; palettes: (Choice & { look: Partial<RobotLook> })[] };
 }
 
 /** The whole look and motion of a character, serialisable as JSON. */
@@ -142,6 +223,12 @@ export interface CharacterConfig {
   blink: boolean;
   /** "high" = subdivided body, "low" = base mesh. */
   detail: "high" | "low";
+  /**
+   * A robot instead of a human: same skeleton and clips, shaped by the same body and race
+   * sliders, drawn with plates, frame and joints (`robotLook`) instead of skin, hair and clothes.
+   */
+  robot: boolean;
+  robotLook: RobotLook;
 }
 
 export const PAINTED_BROWS = "painted";
@@ -231,6 +318,8 @@ export const GARMENT_COLORS: Choice[] = [
 
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 
+const ROBOT_HEAD_LABELS: Record<string, string> = { visor: "Visor", optics: "Twin optics", mono: "Mono-eye", android: "Android face" };
+
 export function buildCatalog(human: Human, irisPresets: string[]): CharacterCatalog {
   const m = human.runtime.manifest;
   const labels = human.extra.garmentLabels ?? {};
@@ -276,6 +365,13 @@ export function buildCatalog(human: Human, irisPresets: string[]): CharacterCata
     expressions: Object.keys(EXPRESSIONS).map((id) => ({ id, label: cap(id) })),
     details: human.modifiers.map((d) => ({ id: d.id, label: d.label, group: d.group, min: d.negative.length ? -1 : 0, max: 1 })),
     photoSkin: (human.extra.skins?.length ?? 0) > 0,
+    robot: {
+      heads: ROBOT_HEADS.map((id) => ({ id, label: ROBOT_HEAD_LABELS[id] })),
+      ears: ROBOT_EARS.map((id) => ({ id, label: cap(id) })),
+      plating: ROBOT_PLATING.map((id) => ({ id, label: cap(id) })),
+      finishes: Object.entries(ROBOT_FINISHES).map(([id, f]) => ({ id, label: f.label })),
+      palettes: ROBOT_PALETTES,
+    },
   };
 }
 
@@ -356,6 +452,8 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     expressionIntensity: 0.8,
     blink: true,
     detail: "high",
+    robot: false,
+    robotLook: { ...DEFAULT_ROBOT_LOOK },
   };
 }
 
@@ -370,6 +468,8 @@ export interface RandomOptions {
   gender?: "female" | "male" | "any";
   /** Race of the new character (default: the base's race and mix). */
   race?: RaceId;
+  /** Make a robot (true), a human (false), or keep the base's kind (default). Robots get a random robot look. */
+  robot?: boolean;
 }
 
 /** Seeded PRNG (mulberry32) for `randomConfig`. */
@@ -452,5 +552,7 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
     outfit,
     garmentColors: outfitPreset ? { ...outfitPreset.colors, ...garmentColors } : base.garmentColors,
     animation: options.animation ? (pick(catalog.animations.filter((a) => !a.library))?.id ?? base.animation) : base.animation,
+    robot: options.robot ?? base.robot,
+    robotLook: (options.robot ?? base.robot) ? randomRobotLook(r) : base.robotLook,
   };
 }

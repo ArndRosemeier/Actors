@@ -5,14 +5,14 @@ The character generator ships as four installable packages, attached to each [Gi
 | Package | What it is |
 |---|---|
 | `@actors/generator` | `Character`, `CharacterStage`, `CharacterEditor`, `createCharacterGenerator` ([README](../packages/generator/README.md)). Pulls in the three below. |
-| `@actors/human` | Human sliders, races, expressions, and the `@actors/human/worker` Web Worker entry. |
+| `@actors/human` | Human sliders, races, robots, expressions, and the `@actors/human/worker` Web Worker entry. |
 | `@actors/three` | three.js adapter (materials, skinning, playback). |
 | `@actors/core` | Renderer-free runtime (pack format, morphs, fitting, retargeting). |
 
 ## Install
 
 ```bash
-npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.4.0/actors-generator-0.4.0.tgz
+npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.5.0/actors-generator-0.5.0.tgz
 ```
 
 `@actors/generator` depends on the `core`, `human` and `three` tarballs of the same release, so npm fetches them too, and you can import from all four. `three` (0.180 or newer) is a peer dependency, so your app's copy is used. To upgrade, change both version numbers in the URL.

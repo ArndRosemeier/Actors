@@ -2,7 +2,10 @@
  * Extra skinned meshes generated at runtime (horns, beards, tails...), in the
  * same model space and skeleton as the actor's pack meshes. Renderer-free.
  */
-export type PartKind = "hair" | "leaf" | "horn" | "tusk" | "skin" | "fin" | "fur";
+export type PartKind =
+  | "hair" | "leaf" | "horn" | "tusk" | "skin" | "fin" | "fur"
+  // Robot parts: painted armour plates, second paint, flexible inner frame, bare-metal joint housings, visor glass, lights.
+  | "plate" | "trim" | "frame" | "joint" | "visor" | "glow";
 
 export interface PartMesh {
   name: string;

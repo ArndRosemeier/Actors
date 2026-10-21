@@ -49,7 +49,7 @@ import type { ActorMaterialKit, ThreeActor } from "../index";
 import type { ColliderUniforms } from "../colliders";
 import type { SkinUniforms } from "../materials";
 import { fabricNormalMap, lashAlphaMap, poreNormalMap } from "../procedural";
-import { leafTexture, strandTexture } from "../parts";
+import { leafTexture, robotMaterialParams, strandTexture } from "../parts";
 import { useNodeDqs } from "./dqs";
 import { bumpNormal } from "./noise";
 import { eyeColor, skinPattern, ss, stubble } from "./patterns";
@@ -368,6 +368,12 @@ export function createNodeWetMaterial(color: THREE.Color, roughness: number): Me
 /** Material for a generated add-on (see createPartMaterial). */
 export function createNodePartMaterial(part: PartMesh, actor: ThreeActor): THREE.Material {
   const color = new THREE.Color().setRGB(...(part.color ?? [0.3, 0.2, 0.12]), THREE.SRGBColorSpace);
+  const robot = robotMaterialParams(part.kind);
+  if (robot) {
+    const m = useNodeDqs(new MeshPhysicalNodeMaterial(robot));
+    if (part.kind === "glow") m.userData.emissiveTint = true;
+    return m;
+  }
   switch (part.kind) {
     case "skin":
       return createNodeSkinMaterial(actor);

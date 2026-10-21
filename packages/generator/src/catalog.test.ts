@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ADULT_MIN_AGE, RACE_IDS } from "@actors/human";
-import { type CharacterCatalog, GARMENT_COLORS, concealedGarments, OUTFITS, defaultConfig, outfitGarments, randomConfig, resolveOutfit, seededRandom } from "./catalog";
+import { type CharacterCatalog, DEFAULT_ROBOT_LOOK, GARMENT_COLORS, ROBOT_PALETTES, sanitizeRobotLook, concealedGarments, OUTFITS, defaultConfig, outfitGarments, randomConfig, resolveOutfit, seededRandom } from "./catalog";
 
 const IDS = ["briefs", "bra", "tshirt", "jeans", "socks", "skirt", "skirt-mini", "dress", "sneakers"];
 const catalog: CharacterCatalog = {
@@ -140,5 +140,35 @@ describe("race looks", () => {
       expect(["leaves", "crest"]).not.toContain(woman.hair);
     }
     expect(dwarfBeards).toBeGreaterThan(25);
+  });
+});
+
+describe("robots", () => {
+  const base = defaultConfig(catalog);
+
+  it("start as humans with a valid default robot look", () => {
+    expect(base.robot).toBe(false);
+    expect(sanitizeRobotLook(base.robotLook)).toEqual(base.robotLook);
+  });
+
+  it("randomize into robots with palette looks, and keep humans human", () => {
+    const r = seededRandom(5);
+    for (let i = 0; i < 20; i++) {
+      const c = randomConfig(catalog, base, { random: r, robot: true });
+      expect(c.robot).toBe(true);
+      expect(sanitizeRobotLook(c.robotLook)).toEqual(c.robotLook);
+      expect(ROBOT_PALETTES.some((p) => p.look.paint === c.robotLook.paint)).toBe(true);
+    }
+    const human = randomConfig(catalog, base, { random: seededRandom(5) });
+    expect(human.robot).toBe(false);
+    expect(human.robotLook).toEqual(base.robotLook);
+  });
+
+  it("sanitize bad robot looks", () => {
+    const l = sanitizeRobotLook({ paint: "red", head: "tv" as never, glowStrength: 9, finish: "chrome" as never });
+    expect(l.paint).toBe(DEFAULT_ROBOT_LOOK.paint);
+    expect(l.head).toBe(DEFAULT_ROBOT_LOOK.head);
+    expect(l.glowStrength).toBe(1);
+    expect(l.finish).toBe(DEFAULT_ROBOT_LOOK.finish);
   });
 });

@@ -353,7 +353,25 @@ export class ThreeActor {
 
   /** Colour (sRGB hex or THREE.Color) of the generated parts of the given kinds (e.g. ["hair", "leaf"] for the hair colour). */
   setPartColor(kinds: string[], color: THREE.ColorRepresentation): void {
-    for (const mesh of this.parts.values()) if (kinds.includes(mesh.userData.partKind)) (mesh.material as THREE.MeshStandardMaterial).color.set(color);
+    for (const mesh of this.parts.values()) {
+      if (!kinds.includes(mesh.userData.partKind)) continue;
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+      (mat.userData.emissiveTint ? mat.emissive : mat.color).set(color);
+    }
+  }
+
+  /** Surface settings (metalness, roughness, clearcoat, emissiveIntensity...) of the generated parts of the given kinds. */
+  setPartMaterial(kinds: string[], settings: Partial<Pick<THREE.MeshPhysicalMaterial, "metalness" | "roughness" | "clearcoat" | "clearcoatRoughness" | "emissiveIntensity">>): void {
+    for (const mesh of this.parts.values()) if (kinds.includes(mesh.userData.partKind)) Object.assign(mesh.material as THREE.MeshPhysicalMaterial, settings);
+  }
+
+  private packHidden = false;
+
+  /** Hides every pack mesh (body, eyes, hair, garments...), e.g. while generated robot parts stand in for the body. */
+  hidePackMeshes(hidden: boolean): void {
+    if (hidden === this.packHidden) return;
+    this.packHidden = hidden;
+    this.updateVisibility();
   }
 
   /** A texture shipped with the pack (cached). */
@@ -420,6 +438,7 @@ export class ThreeActor {
     }
     const covered = [...this.data.values()].some((d) => d.def.tags?.includes("covers:anatomy") && this.wanted.get(d.def.name));
     if (covered) for (const d of this.data.values()) if (d.def.tags?.includes("anatomy")) this.shown.delete(d.def.name);
+    if (this.packHidden) this.shown.clear();
     for (const [n, mesh] of this.meshes) mesh.visible = this.shown.has(n);
     this.updateHiddenSkin();
   }
