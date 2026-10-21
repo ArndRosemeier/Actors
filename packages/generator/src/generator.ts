@@ -33,8 +33,8 @@ export interface CharacterGenerator {
  * ```
  */
 export async function createCharacterGenerator(options: GeneratorOptions): Promise<CharacterGenerator> {
-  const stage = new CharacterStage(options.view, options);
-  const character = await Character.load({ pack: options.pack, renderer: stage.renderer, worker: options.worker, config: options.config });
+  const stage = await CharacterStage.create(options.view, options);
+  const character = await Character.load({ pack: options.pack, renderer: stage.renderer, materials: stage.materials, worker: options.worker, config: options.config });
   const remove = stage.add(character);
   // Keep very small or very tall characters (goblins, giantkin) in frame.
   let framed = 1.7;

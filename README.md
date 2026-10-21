@@ -27,7 +27,7 @@ Every push to `main` builds the pack and the generator and deploys them to GitHu
 Other projects install it from a GitHub release (no npm registry or token needed) and get the asset files from the hosted demo or with `npx actors-packs`; see [docs/using-actors.md](docs/using-actors.md):
 
 ```bash
-npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.1.0/actors-generator-0.1.0.tgz
+npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.2.0/actors-generator-0.2.0.tgz
 npx actors-packs   # asset packs for this version -> public/packs
 ```
 
@@ -45,7 +45,7 @@ await character.play("walk");
 |---|---|
 | `packages/core` | Renderer-free runtime: pack format, morph blending, normals, Catmull-Clark subdivision, skeleton fitting, garment (proxy) fitting, clip retargeting, Web Worker evaluation. Runs in a browser, a worker or Node. |
 | `packages/human` | Human-specific logic: MakeHuman-style macro sliders (gender, age, muscle, …), detail sliders, adult age clamp, facial expressions and blinking, worker entry. |
-| `packages/three` | three.js adapter: skinned meshes sharing one skeleton, skin/eye/lash/cloth materials, dual-quaternion skinning, GPU face morphs, clip playback. |
+| `packages/three` | three.js adapter: skinned meshes sharing one skeleton, skin/eye/lash/cloth materials, dual-quaternion skinning, GPU face morphs, clip playback. Material kits: `webglMaterials` (WebGLRenderer) and `nodeMaterials` from `@actors/three/webgpu` (WebGPURenderer). |
 | `tools/import-makehuman` | Offline importer: MakeHuman/MPFB2 data, MakeHuman eyes and Quaternius animations → actor pack (JSON manifest + binary blob + one streamed file per morph target + clips + textures). |
 | `packages/generator` | Reusable character generator on top of the three adapters: `Character` (one JSON config for shape, look, outfit, anatomy, clip, face; randomize, save/load, glTF export), `CharacterStage` (studio scene) and `CharacterEditor` (DOM control panel). |
 | `apps/viewer` | The generator as a Vite app (a few lines on top of `@actors/generator`), with `?compare` to show the source animation side by side. |
@@ -64,7 +64,7 @@ await character.play("walk");
 
 ## Engine-agnostic by design
 
-* The core never touches a renderer; adapters do (three.js today, Babylon.js etc. later).
+* The core never touches a renderer; adapters do (three.js today, Babylon.js etc. later). The three.js adapter draws with `THREE.WebGLRenderer` (GLSL patches) or with three's `WebGPURenderer` (node materials from `@actors/three/webgpu`, on WebGPU or its WebGL 2 backend); the viewer shows the latter with `?webgpu` or `?webgpu-gl`.
 * Packs use glTF conventions (meters, +Y up, +Z forward).
 * The viewer exports any character (mesh, rig, garments, animations) as **glTF/GLB**, which Unity, Unreal, Godot and Blender import.
 

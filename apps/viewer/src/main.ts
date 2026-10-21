@@ -11,6 +11,8 @@ const { character, stage } = await createCharacterGenerator({
   panel: document.getElementById("panel")!,
   worker: params.has("noworker") ? undefined : new HumanWorker(),
   title: "Character",
+  // `?webgpu` draws with three's WebGPURenderer and node materials, `?webgpu-gl` with its WebGL 2 backend.
+  renderer: params.has("webgpu") ? "webgpu" : params.has("webgpu-gl") ? "webgpu-gl" : "webgl",
 });
 
 // `?compare`: the source animation on its own mannequin next to the actor (dev check for the retarget).

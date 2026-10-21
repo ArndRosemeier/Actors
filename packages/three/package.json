@@ -1,21 +1,22 @@
 {
   "name": "@actors/three",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./webgpu": "./src/webgpu/index.ts"
   },
   "dependencies": {
-    "@actors/core": "0.1.0"
+    "@actors/core": "0.2.0"
   },
   "peerDependencies": {
-    "three": ">=0.160.0"
+    "three": ">=0.180.0"
   },
   "devDependencies": {
-    "three": "0.170.0",
-    "@types/three": "0.170.0"
+    "three": "0.186.1",
+    "@types/three": "0.186.0"
   }
 }

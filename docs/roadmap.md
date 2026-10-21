@@ -24,4 +24,4 @@ Based on the research in the project (`research/character-base-options.md`, `res
 4. **Animation**: the free Standard editions have ~90 clips between them; only 13 are wired up. No facial animation in the clips (expressions are separate). The first retargeter used CMU BVH files without a real rest pose and broke shoulders and hands; clips now always come from sources with a stored rest pose, and `?compare` in the viewer shows the source next to the actor.
 5. **Hair quality**: MakeHuman's hair cards are game-grade; strand-level or higher-density hair would need new assets.
 6. **Download size**: the 9 system hair meshes still sit in the base blob (3.5 MB); the pack hairstyles are already loaded on demand.
-7. **WebGPU**: the skin, eye, DQS, hem and collider shaders are GLSL patches for WebGL; WebGPU needs TSL ports.
+7. **WebGPU**: done for three's WebGPURenderer (`@actors/three/webgpu`, node materials). Gaps: its shadow pass skins with linear blending (three draws shadows with its own depth material), and skin patterns read the bind pose before face morphs.

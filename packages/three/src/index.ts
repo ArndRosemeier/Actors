@@ -29,7 +29,7 @@ import {
 } from "./materials";
 import { SkinComposer } from "./skincompose";
 import { type ColliderUniforms, MAX_COLLIDERS, createColliderUniforms, useColliders } from "./colliders";
-import { createPartMesh } from "./parts";
+import { createPartMaterial, createPartMesh } from "./parts";
 
 export * from "./materials";
 export * from "./dqs";
@@ -90,6 +90,48 @@ export const defaultMaterials: MaterialFactory = (data, actor) => {
   }
 };
 
+/**
+ * Everything renderer-specific about how an actor is drawn. `webglMaterials`
+ * (the default) patches three's WebGL materials; `@actors/three/webgpu`
+ * exports `nodeMaterials` for three's WebGPURenderer (node materials, both
+ * of its backends).
+ */
+export interface ActorMaterialKit {
+  /** Material for a pack mesh (body, eyes, hair, garments...). */
+  mesh: MaterialFactory;
+  /** Material for a generated add-on (horns, beards, tails...). */
+  part(part: PartMesh, actor: ThreeActor): THREE.Material;
+  /**
+   * Shadow-map material for a mesh drawn with `material`, when the shadow pass
+   * needs its own (WebGL: dual-quaternion skinning, hem cuts, alpha cards).
+   * Null: the material casts its own shadow.
+   */
+  depth(material: THREE.Material, clip: boolean): THREE.Material | null;
+  /** Shows a blend of photographic skins (same UV layout; loaded textures, weights summing to 1) as the skin's albedo. */
+  blendSkins(actor: ThreeActor, layers: { texture: THREE.Texture; weight: number }[], renderer: unknown): void;
+}
+
+const sharedDepth = new WeakMap<object, THREE.Material>();
+
+/** The WebGL kit: three's built-in materials with GLSL patches (see materials.ts). */
+export const webglMaterials: ActorMaterialKit = {
+  mesh: defaultMaterials,
+  part: (part, actor) => createPartMaterial(part, actor.skin),
+  depth(material, clip) {
+    const hairMap = material.userData.alphaShadow ? (material as THREE.MeshPhysicalMaterial).map : null;
+    if (hairMap) return createAlphaDepthMaterial(hairMap);
+    if (clip) return useClipAttribute(createDepthMaterial());
+    let d = sharedDepth.get(webglMaterials);
+    if (!d) sharedDepth.set(webglMaterials, (d = createDepthMaterial()));
+    return d;
+  },
+  blendSkins(actor, layers, renderer) {
+    const composer = (actor.userData.skinComposer ??= new SkinComposer()) as SkinComposer;
+    composer.compose(renderer as THREE.WebGLRenderer, layers);
+    actor.skin.uAlbedo.value = composer.target.texture;
+  },
+};
+
 export type PlayableClip = AxisClip | Clip;
 const isRetargetClip = (c: PlayableClip): c is Clip => "def" in c;
 
@@ -133,13 +175,18 @@ export class ThreeActor {
   private readonly data = new Map<string, MeshData>();
   /** Meshes that are drawn (internal helper meshes are skipped). */
   private readonly rendered: MeshData[];
-  private readonly depth = createDepthMaterial();
   private readonly slotsSeen = new Set<string>();
+  /** How this actor is drawn (see ActorMaterialKit). */
+  readonly kit: ActorMaterialKit;
+  /** Free for the kit (e.g. the WebGL skin compositor). */
+  readonly userData: Record<string, unknown> = {};
 
+  /** `materials`: a kit (`webglMaterials`, the default, or `nodeMaterials` from `@actors/three/webgpu`), or just a mesh material factory for WebGL. */
   constructor(
     readonly runtime: ActorRuntime,
-    private readonly materials: MaterialFactory = defaultMaterials,
+    materials: MaterialFactory | ActorMaterialKit = webglMaterials,
   ) {
+    this.kit = typeof materials === "function" ? { ...webglMaterials, mesh: materials } : materials;
     this.rendered = runtime.meshes.filter((m) => !m.def.internal);
     const skel = runtime.manifest.skeleton;
     if (skel) {
@@ -165,7 +212,7 @@ export class ThreeActor {
    * that includes them (re-evaluate) before showing them.
    */
   addMeshes(list: MeshData[]): void {
-    const materials = this.materials;
+    const materials = this.kit.mesh;
     for (const data of list) {
       if (data.def.internal || this.data.has(data.def.name)) continue;
       this.rendered.push(data);
@@ -194,9 +241,8 @@ export class ThreeActor {
       const transparent = (mesh.material as THREE.Material).transparent;
       mesh.castShadow = !transparent;
       mesh.receiveShadow = true;
-      const hairMap = (mesh.material as THREE.MeshPhysicalMaterial).userData.hair ? (mesh.material as THREE.MeshPhysicalMaterial).map : null;
-      if (hairMap && !transparent) mesh.customDepthMaterial = createAlphaDepthMaterial(hairMap);
-      else if (!transparent) mesh.customDepthMaterial = data.clip ? useClipAttribute(createDepthMaterial()) : this.depth;
+      const depth = transparent ? null : this.kit.depth(mesh.material as THREE.Material, !!data.clip);
+      if (depth) mesh.customDepthMaterial = depth;
       mesh.frustumCulled = false; // bounds change with morphs and animation
       // Optional meshes start hidden; of several meshes in a slot, the first is shown.
       const slot = data.def.slot;
@@ -243,7 +289,8 @@ export class ThreeActor {
     const skeletonChanged = hadExtra || this.extraHeads.size > 0;
     if (skeletonChanged && this.skeleton) this.skeleton = new THREE.Skeleton(this.bones);
     for (const part of parts) {
-      const mesh = createPartMesh(part, this.skin);
+      const material = this.kit.part(part, this);
+      const mesh = createPartMesh(part, this.skin, material, this.kit.depth(material, false));
       this.object.add(mesh);
       this.parts.set(part.name, mesh);
       if (this.skeleton && !skeletonChanged) mesh.bind(this.skeleton, new THREE.Matrix4());
@@ -333,7 +380,6 @@ export class ThreeActor {
     this.updateHiddenSkin();
   }
 
-  private composer?: SkinComposer;
   private readonly loading = new Map<string, Promise<THREE.Texture>>();
   private skinKey = "";
 
@@ -342,7 +388,7 @@ export class ThreeActor {
    * on the GPU and uses the result as the skin's albedo. Null or an empty list
    * switches back to the procedural tone (`setSkinTone`).
    */
-  async setSkinTextures(renderer: THREE.WebGLRenderer, layers: { file: string; weight: number }[] | null): Promise<void> {
+  async setSkinTextures(renderer: unknown, layers: { file: string; weight: number }[] | null): Promise<void> {
     const key = layers?.map((l) => `${l.file}:${l.weight.toFixed(3)}`).join("|") ?? "";
     if (key === this.skinKey) return;
     this.skinKey = key;
@@ -364,9 +410,7 @@ export class ThreeActor {
       }),
     );
     if (key !== this.skinKey) return; // a newer request won
-    this.composer ??= new SkinComposer();
-    this.composer.compose(renderer, layers.map((l, i) => ({ texture: textures[i], weight: l.weight })));
-    this.skin.uAlbedo.value = this.composer.target.texture;
+    this.kit.blendSkins(this, layers.map((l, i) => ({ texture: textures[i], weight: l.weight })), renderer);
     this.skin.uAlbedoMix.value = 1;
   }
 
@@ -521,7 +565,7 @@ export class ThreeActor {
       const g = mesh.geometry;
       if (!g.morphAttributes.position) continue;
       const mp = g.morphAttributes.position[k].array as Float32Array;
-      const mn = g.morphAttributes.normal[k].array as Float32Array;
+      const mn = g.morphAttributes.normal![k].array as Float32Array;
       if (!delta) {
         mp.fill(0);
         mn.fill(0);

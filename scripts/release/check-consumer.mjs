@@ -63,11 +63,15 @@ writeFileSync(
 import { ActorRuntime } from "@actors/core";
 import { sanitizeParams } from "@actors/human";
 import HumanWorker from "@actors/human/worker?worker";
+import { nodeMaterials } from "@actors/three/webgpu";
 
 async function main(): Promise<void> {
-const pack = new URLSearchParams(location.search).get("pack") ?? "/packs/human/manifest.json";
+const params = new URLSearchParams(location.search);
+const pack = params.get("pack") ?? "/packs/human/manifest.json";
+console.log("node kit", typeof nodeMaterials.mesh);
 const { character } = await createCharacterGenerator({
   pack,
+  renderer: params.has("webgpu") ? "webgpu" : "webgl",
   view: document.getElementById("view")!,
   panel: document.getElementById("panel")!,
   worker: new HumanWorker(),
