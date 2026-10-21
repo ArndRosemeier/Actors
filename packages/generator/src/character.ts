@@ -393,6 +393,8 @@ export class Character {
     if (added.length) {
       this.actor.addMeshes(added);
       this.applied.shape = ""; // the next shape must include the new garments
+      // They can be shown now (the look was applied before their data existed), so the shape fits them.
+      this.applyLook();
     }
     const r = c.robotLook;
     // Robot parts are built with the shape (in the worker when there is one).
