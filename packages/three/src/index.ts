@@ -39,6 +39,7 @@ import {
 import { SkinComposer } from "./skincompose";
 import { type ColliderUniforms, MAX_COLLIDERS, createColliderUniforms, useColliders } from "./colliders";
 import { createPartMaterial, createPartMesh } from "./parts";
+import { morphArrays, morphAttribute, morphsChanged } from "./morphs";
 import { createCrowdMaterial } from "./crowd";
 
 export * from "./materials";
@@ -48,6 +49,7 @@ export * from "./skincompose";
 export * from "./colliders";
 export * from "./racepatterns";
 export * from "./parts";
+export * from "./morphs";
 export * from "./crowd";
 export * from "./fur";
 export * from "./drone";
@@ -129,6 +131,8 @@ export interface ActorMaterialKit {
    * `crowdClip` is below 0 (garment hems). Default: the WebGL one (`createCrowdMaterial`).
    */
   crowd?(actor: ThreeActor): THREE.Material;
+  /** Face morphs as plain attributes its materials blend themselves (see morphs.ts), not three's morph targets. */
+  attributeMorphs?: boolean;
 }
 
 const sharedDepth = new WeakMap<object, THREE.Material>();
@@ -261,14 +265,21 @@ export class ThreeActor {
       g.setIndex(new THREE.BufferAttribute(data.indices, 1));
       // Face morph channels only on base-following meshes (body, lashes, teeth...), not garments.
       const morphable = data.def.source.kind === "base" && data.def.role !== "garment";
-      if (morphable) {
+      const attributeMorphs = morphable && !!this.kit.attributeMorphs;
+      if (attributeMorphs) {
+        ThreeActor.MORPHS.forEach((_, k) => {
+          g.setAttribute(morphAttribute(k), new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+          g.setAttribute(morphAttribute(k, true), new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+        });
+      } else if (morphable) {
         g.morphAttributes.position = ThreeActor.MORPHS.map(() => new THREE.BufferAttribute(new Float32Array(n * 3), 3));
         g.morphAttributes.normal = ThreeActor.MORPHS.map(() => new THREE.BufferAttribute(new Float32Array(n * 3), 3));
         g.morphTargetsRelative = true;
       }
       const mesh = new THREE.SkinnedMesh(g, materials(data, this));
       mesh.name = data.def.name;
-      if (morphable) mesh.updateMorphTargets();
+      if (attributeMorphs) mesh.morphTargetInfluences = ThreeActor.MORPHS.map(() => 0);
+      else if (morphable) mesh.updateMorphTargets();
       const transparent = (mesh.material as THREE.Material).transparent;
       mesh.castShadow = !transparent;
       mesh.receiveShadow = true;
@@ -323,7 +334,7 @@ export class ThreeActor {
     if (skeletonChanged && this.skeleton) this.skeleton = new THREE.Skeleton(this.bones);
     for (const part of parts) {
       const material = this.kit.part(part, this);
-      const mesh = createPartMesh(part, this.skin, material, this.kit.depth(material, false));
+      const mesh = createPartMesh(part, this.skin, material, this.kit.depth(material, false), !!this.kit.attributeMorphs);
       this.object.add(mesh);
       this.parts.set(part.name, mesh);
       if (this.skeleton && !skeletonChanged) mesh.bind(this.skeleton, new THREE.Matrix4());
@@ -340,8 +351,9 @@ export class ThreeActor {
     for (const mesh of this.parts.values()) {
       const anchors = mesh.userData.anchors as Uint32Array | undefined;
       const g = mesh.geometry;
-      if (!anchors || !g.morphAttributes.position) continue;
-      const mp = g.morphAttributes.position[k].array as Float32Array;
+      const arrays = anchors && morphArrays(g, k);
+      if (!arrays) continue;
+      const mp = arrays.positions;
       mp.fill(0);
       if (delta)
         for (let i = 0; i < anchors.length; i++) {
@@ -351,7 +363,7 @@ export class ThreeActor {
           mp[i * 3 + 1] = delta.positions[a * 3 + 1];
           mp[i * 3 + 2] = delta.positions[a * 3 + 2];
         }
-      g.dispose();
+      morphsChanged(g, k);
     }
   }
 
@@ -668,9 +680,10 @@ export class ThreeActor {
     for (const data of this.rendered) {
       const mesh = this.meshes.get(data.def.name)!;
       const g = mesh.geometry;
-      if (!g.morphAttributes.position) continue;
-      const mp = g.morphAttributes.position[k].array as Float32Array;
-      const mn = g.morphAttributes.normal![k].array as Float32Array;
+      const arrays = morphArrays(g, k);
+      if (!arrays) continue;
+      const mp = arrays.positions;
+      const mn = arrays.normals!;
       if (!delta) {
         mp.fill(0);
         mn.fill(0);
@@ -687,8 +700,7 @@ export class ThreeActor {
           mn[i * 3 + 2] = src.normals[s + 2];
         }
       }
-      // three caches morph data in a texture; disposing forces a re-upload (attributes are re-created on demand).
-      g.dispose();
+      morphsChanged(g, k);
     }
     this.lastDeltas.set(channel, delta);
     this.setPartMorph(channel, delta);
