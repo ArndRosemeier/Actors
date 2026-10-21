@@ -96,8 +96,8 @@ export function createPartMaterial(part: PartMesh, skin: SkinUniforms): THREE.Ma
       return m;
     }
     case "hair":
-    case "leaf":
-      return useDualQuaternionSkinning(
+    case "leaf": {
+      const mat = useDualQuaternionSkinning(
         new THREE.MeshPhysicalMaterial({
           color,
           map: part.kind === "leaf" ? leafTexture() : strandTexture(),
@@ -112,6 +112,9 @@ export function createPartMaterial(part: PartMesh, skin: SkinUniforms): THREE.Ma
           specularIntensity: 0.35,
         }),
       );
+      mat.userData.alphaShadow = true;
+      return mat;
+    }
     case "fur":
       return useDualQuaternionSkinning(new THREE.MeshStandardMaterial({ color, vertexColors: true, roughness: 0.9 }));
     case "tusk":
@@ -121,8 +124,8 @@ export function createPartMaterial(part: PartMesh, skin: SkinUniforms): THREE.Ma
   }
 }
 
-/** A skinned three.js mesh for a part (bind it to the actor's skeleton). */
-export function createPartMesh(part: PartMesh, skin: SkinUniforms): THREE.SkinnedMesh {
+/** A part's geometry: positions, normals, uvs, shade (vertex colour), skinning and, for skin-following parts, two face-morph channels. */
+export function createPartGeometry(part: PartMesh): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.BufferAttribute(part.positions, 3));
   g.setAttribute("normal", new THREE.BufferAttribute(part.normals, 3));
@@ -139,8 +142,12 @@ export function createPartMesh(part: PartMesh, skin: SkinUniforms): THREE.Skinne
     g.morphAttributes.position = [0, 1].map(() => new THREE.BufferAttribute(new Float32Array(n), 3));
     g.morphTargetsRelative = true;
   }
-  const material = createPartMaterial(part, skin);
-  const mesh = new THREE.SkinnedMesh(g, material);
+  return g;
+}
+
+/** A skinned three.js mesh for a part (bind it to the actor's skeleton). `material` defaults to the WebGL one; `depth` is its shadow-map material, if it needs one. */
+export function createPartMesh(part: PartMesh, skin: SkinUniforms, material: THREE.Material = createPartMaterial(part, skin), depth?: THREE.Material | null): THREE.SkinnedMesh {
+  const mesh = new THREE.SkinnedMesh(createPartGeometry(part), material);
   mesh.name = part.name;
   mesh.userData.partKind = part.kind;
   if (part.anchors) {
@@ -149,8 +156,10 @@ export function createPartMesh(part: PartMesh, skin: SkinUniforms): THREE.Skinne
   }
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-  const map = (material as THREE.MeshPhysicalMaterial).map;
-  mesh.customDepthMaterial = map ? createAlphaDepthMaterial(map) : createDepthMaterial();
+  if (depth === undefined) {
+    const map = (material as THREE.MeshPhysicalMaterial).map;
+    mesh.customDepthMaterial = map ? createAlphaDepthMaterial(map) : createDepthMaterial();
+  } else if (depth) mesh.customDepthMaterial = depth;
   mesh.frustumCulled = false;
   return mesh;
 }

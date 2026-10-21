@@ -1,12 +1,31 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import type { ActorMaterialKit } from "@actors/three";
 
 export interface StageOptions {
   /** Background colour (default a dark grey). */
   background?: THREE.ColorRepresentation;
   /** Show the round floor (default true). */
   ground?: boolean;
+  /**
+   * Which three.js renderer to use (`CharacterStage.create` only): "webgl"
+   * (default, THREE.WebGLRenderer), "webgpu" (three's WebGPURenderer, node
+   * materials) or "webgpu-gl" (the WebGPURenderer on its WebGL 2 backend).
+   */
+  renderer?: "webgl" | "webgpu" | "webgpu-gl";
+}
+
+/** The parts of a three.js renderer the stage uses (THREE.WebGLRenderer or three's WebGPURenderer). */
+export interface StageRenderer {
+  readonly domElement: HTMLCanvasElement;
+  toneMapping: THREE.ToneMapping;
+  shadowMap: { enabled: boolean; type: THREE.ShadowMapType };
+  setPixelRatio(ratio: number): void;
+  setSize(width: number, height: number, updateStyle?: boolean): void;
+  setAnimationLoop(callback: (() => void) | null): unknown;
+  render(scene: THREE.Object3D, camera: THREE.Camera): unknown;
+  dispose(): void;
 }
 
 /**
@@ -16,7 +35,9 @@ export interface StageOptions {
  * character's materials are tuned for (ACES tone mapping, an environment map).
  */
 export class CharacterStage {
-  readonly renderer: THREE.WebGLRenderer;
+  readonly renderer: StageRenderer;
+  /** How characters on this stage are drawn (pass it to `Character.load`). */
+  materials?: ActorMaterialKit;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(30, 1, 0.05, 50);
   readonly controls: OrbitControls;
@@ -24,11 +45,25 @@ export class CharacterStage {
   private readonly updaters = new Set<(dt: number) => void>();
   private readonly observer: ResizeObserver;
 
+  /** A stage with the renderer `options.renderer` asks for (WebGPU needs this async setup). */
+  static async create(container: HTMLElement, options: StageOptions = {}): Promise<CharacterStage> {
+    if (!options.renderer || options.renderer === "webgl") return new CharacterStage(container, options);
+    const [{ WebGPURenderer, PMREMGenerator }, { nodeMaterials }] = await Promise.all([import("three/webgpu"), import("@actors/three/webgpu")]);
+    const r = new WebGPURenderer({ antialias: true, forceWebGL: options.renderer === "webgpu-gl" });
+    await r.init();
+    const stage = new CharacterStage(container, options, r as unknown as StageRenderer, (scene) => new PMREMGenerator(r).fromScene(scene as THREE.Scene, 0.04).texture);
+    stage.materials = nodeMaterials;
+    return stage;
+  }
+
+  /** A WebGL stage; `CharacterStage.create` for the others. */
   constructor(
     readonly container: HTMLElement,
     options: StageOptions = {},
+    renderer?: StageRenderer,
+    environment?: (scene: THREE.Object3D) => THREE.Texture,
   ) {
-    const r = (this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }));
+    const r = (this.renderer = renderer ?? new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }));
     r.setPixelRatio(Math.min(devicePixelRatio, 2));
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.shadowMap.enabled = true;
@@ -39,7 +74,7 @@ export class CharacterStage {
 
     const scene = this.scene;
     scene.background = new THREE.Color(options.background ?? 0x2a2c31);
-    scene.environment = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = environment ? environment(new RoomEnvironment()) : new THREE.PMREMGenerator(r as THREE.WebGLRenderer).fromScene(new RoomEnvironment(), 0.04).texture;
     scene.environmentIntensity = 0.6;
 
     const key = new THREE.DirectionalLight(0xfff1e6, 2.2);

@@ -373,6 +373,7 @@ export function createHairMaterial(map: THREE.Texture | null, blended = false): 
   });
   const uniforms = { uHairTint: { value: new THREE.Color(1, 1, 1) }, uHairMix: { value: 0 }, uHairMeanLum: { value: 0.2 } };
   mat.userData.hair = uniforms;
+  mat.userData.alphaShadow = !blended;
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.fragmentShader = shader.fragmentShader

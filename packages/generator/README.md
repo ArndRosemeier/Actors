@@ -55,6 +55,21 @@ Large clip libraries in the pack (the 2,548 CMU motions) are listed in `catalog.
 
 `CharacterEditor` has two modes: **Simple** (body basics, ethnicity, hair, eyes, outfit preset, animation, face) for everyday users and **Detailed** (every control, garment by garment, the CMU library with search, detail sliders). Pick one with `mode`, hide the switch with `modeSwitch: false`; the viewer's last choice is remembered.
 
+## three's WebGPURenderer
+
+`Character` draws with WebGL materials by default. For three's `WebGPURenderer` (WebGPU, or its WebGL 2 backend with `forceWebGL`), pass the node-material kit; every look, pattern and clip works the same:
+
+```ts
+import { WebGPURenderer } from "three/webgpu";
+import { nodeMaterials } from "@actors/three/webgpu";
+
+const renderer = new WebGPURenderer({ antialias: true });
+await renderer.init();
+const character = await Character.load({ pack: "/packs/human/manifest.json", renderer, materials: nodeMaterials });
+```
+
+`CharacterStage.create(container, { renderer: "webgpu" })` (or `"webgpu-gl"`) builds such a stage, and `createCharacterGenerator` takes the same `renderer` option. All characters share one shader per material kind; per-character values are uniforms.
+
 Notes:
 * `set()` merges `body` and replaces every other field. It resolves once the change is visible; rapid calls (slider drags) are merged.
 * Garments in the same slot or on the same body layer replace each other: a dress (top + bottom) takes off a T-shirt and jeans, new shoes replace old ones.

@@ -12,10 +12,10 @@ The character generator ships as four installable packages, attached to each [Gi
 ## Install
 
 ```bash
-npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.1.0/actors-generator-0.1.0.tgz
+npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.2.0/actors-generator-0.2.0.tgz
 ```
 
-`@actors/generator` depends on the `core`, `human` and `three` tarballs of the same release, so npm fetches them too, and you can import from all four. `three` (0.160 or newer) is a peer dependency, so your app's copy is used. To upgrade, change both version numbers in the URL.
+`@actors/generator` depends on the `core`, `human` and `three` tarballs of the same release, so npm fetches them too, and you can import from all four. `three` (0.180 or newer) is a peer dependency, so your app's copy is used. To upgrade, change both version numbers in the URL.
 
 The packages are ES modules with type declarations, built for bundlers (Vite, webpack, esbuild, Rollup). Use `"moduleResolution": "Bundler"` in your `tsconfig.json`.
 
@@ -52,7 +52,7 @@ await character.wear("casual");
 await character.play("walk");
 ```
 
-Using your own three.js scene instead of the stage: see [packages/generator/README.md](../packages/generator/README.md).
+Using your own three.js scene instead of the stage, or three's `WebGPURenderer` (`materials: nodeMaterials` from `@actors/three/webgpu`, three 0.180 or newer): see [packages/generator/README.md](../packages/generator/README.md).
 
 Other bundlers: create the worker with `new Worker(new URL("@actors/human/worker", import.meta.url), { type: "module" })` (webpack 5), or leave `worker` out to evaluate shapes on the main thread.
 
