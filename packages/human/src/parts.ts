@@ -103,9 +103,11 @@ class Rng {
   }
 }
 
-type Weights = [number, number][];
+/** Skin influences as [bone index, weight] pairs (normalized when written). */
+export type Weights = [number, number][];
 
-class Builder {
+/** Collects a part's vertices, skinning and triangles (shared by the part builders and robot.ts). */
+export class Builder {
   pos: number[] = [];
   nrm: number[] = [];
   uv: number[] = [];
@@ -121,15 +123,18 @@ class Builder {
     return this.pos.length / 3;
   }
   vert(p: V3, n: V3, u: number, v: number, shade: number, w: Weights) {
-    this.pos.push(...p);
-    this.nrm.push(...n);
+    this.pos.push(p[0], p[1], p[2]);
+    this.nrm.push(n[0], n[1], n[2]);
     this.uv.push(u, v);
     this.shade.push(shade);
     this.anchor.push(this.follow);
-    const total = w.slice(0, 4).reduce((s, [, x]) => s + x, 0) || 1;
+    const m = Math.min(4, w.length);
+    let total = 0;
+    for (let k = 0; k < m; k++) total += w[k][1];
+    total = total || 1;
     for (let k = 0; k < 4; k++) {
-      this.ji.push(w[k]?.[0] ?? 0);
-      this.jw.push((w[k]?.[1] ?? 0) / total);
+      this.ji.push(k < m ? w[k][0] : 0);
+      this.jw.push(k < m ? w[k][1] / total : 0);
     }
   }
   build(name: string, kind: PartKind, color?: [number, number, number]): PartMesh {

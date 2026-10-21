@@ -3,10 +3,10 @@ import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { ActorShape, Clip, Fetcher, MessagePortLike } from "@actors/core";
 import { ADULT_MIN_AGE, BEARD_STYLES, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type RaceId, raceScale, sanitizeRace } from "@actors/human";
 import { type ActorMaterialKit, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
-import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, type RandomOptions, buildCatalog, defaultConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit } from "./catalog";
+import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, buildCatalog, defaultConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook } from "./catalog";
 
-/** A change to a character. `body` is merged into the current body; every other field replaces the current value. */
-export type CharacterPatch = Partial<Omit<CharacterConfig, "body">> & { body?: Partial<HumanParams> };
+/** A change to a character. `body` and `robotLook` are merged into the current body; every other field replaces the current value. */
+export type CharacterPatch = Partial<Omit<CharacterConfig, "body" | "robotLook">> & { body?: Partial<HumanParams>; robotLook?: Partial<RobotLook> };
 
 export interface CharacterOptions {
   /** URL of the pack's manifest.json (e.g. "/packs/human/manifest.json"). */
@@ -66,6 +66,8 @@ export class Character {
   private running: Promise<void> = Promise.resolve();
   private waiting?: Promise<void>;
   private time = 0;
+  /** How far the robot's soles reach below the body (it stands on them). */
+  private lift = 0;
   private nextBlink = 2;
   /** Freezes the animation (see `seek`). */
   paused = false;
@@ -128,7 +130,8 @@ export class Character {
     const body = { ...this.cfg.body, ...patch.body };
     body.ageYears = Math.min(MAX_AGE, Math.max(ADULT_MIN_AGE, body.ageYears));
     const defined = Object.fromEntries(Object.entries(structuredClone(patch)).filter(([, v]) => v !== undefined));
-    this.cfg = { ...this.cfg, ...defined, body, outfit: this.normalizeOutfit(patch.outfit ?? this.cfg.outfit) };
+    const robotLook = sanitizeRobotLook({ ...this.cfg.robotLook, ...patch.robotLook });
+    this.cfg = { ...this.cfg, ...defined, body, robotLook, robot: !!(patch.robot ?? this.cfg.robot), outfit: this.normalizeOutfit(patch.outfit ?? this.cfg.outfit) };
     const race = sanitizeRace({ race: this.cfg.race, race2: this.cfg.race2, mix: this.cfg.raceMix, size: this.cfg.raceSize });
     Object.assign(this.cfg, { race: race.race, race2: race.race2, raceMix: race.race2 ? race.mix : this.cfg.raceMix, raceSize: race.size });
     const c = this.cfg, clamp01 = (v: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
@@ -250,7 +253,21 @@ export class Character {
     await this.running;
     const names = animations === "all" ? this.catalog.animations.map((a) => a.id) : animations === "current" ? (this.cfg.animation ? [this.cfg.animation] : []) : animations;
     const clips = await Promise.all(names.map(async (n) => this.actor.toThreeClip(await this.loadClip(n))));
-    return (await new GLTFExporter().parseAsync(this.actor.object, { binary: true, animations: clips, onlyVisible: true })) as ArrayBuffer;
+    // The exporter redraws normal maps through a canvas, which raw-data textures (the generated fabric and frame maps) can't do: swap in canvas copies.
+    const swapped: [THREE.MeshStandardMaterial, THREE.Texture][] = [];
+    this.actor.object.traverse((o) => {
+      for (const m of ([] as THREE.Material[]).concat((o as THREE.Mesh).material ?? []) as THREE.MeshStandardMaterial[]) {
+        const copy = m.normalMap ? drawableTexture(m.normalMap) : null;
+        if (!copy) continue;
+        swapped.push([m, m.normalMap!]);
+        m.normalMap = copy;
+      }
+    });
+    try {
+      return (await new GLTFExporter().parseAsync(this.actor.object, { binary: true, animations: clips, onlyVisible: true })) as ArrayBuffer;
+    } finally {
+      for (const [m, t] of swapped) m.normalMap = t;
+    }
   }
 
   /** Removes the character from its parent and frees its GPU resources. */
@@ -328,6 +345,20 @@ export class Character {
     a.setVisible("genitals-male", c.anatomy && male);
     a.skin.uFemale.value = concealedCover ? 0 : c.anatomy && !male ? 1 : 0;
     a.setMorphWeight("expression", c.expressionIntensity);
+    // Robots: the generated parts stand in for every pack mesh.
+    a.hidePackMeshes(c.robot);
+    if (c.robot) {
+      const r = c.robotLook, f = ROBOT_FINISHES[r.finish];
+      a.setPartColor(["plate"], r.paint);
+      a.setPartColor(["trim"], r.trim);
+      a.setPartColor(["frame"], r.frame);
+      a.setPartColor(["joint"], r.metal);
+      a.setPartColor(["glow"], r.glow);
+      // Visor glass: near black with a hint of the light colour.
+      a.setPartColor(["visor"], new THREE.Color(r.glow).multiplyScalar(0.04));
+      a.setPartMaterial(["plate", "trim"], { metalness: f.metalness, roughness: f.roughness, clearcoat: f.clearcoat, clearcoatRoughness: f.clearcoatRoughness });
+      a.setPartMaterial(["glow"], { emissiveIntensity: r.glowStrength * 3.2 });
+    }
   }
 
   /** Brings shape, face, skin and clip up to date with the config; overlapping calls are merged. */
@@ -353,15 +384,19 @@ export class Character {
       this.actor.addMeshes(added);
       this.applied.shape = ""; // the next shape must include the new garments
     }
-    const shapeKey = JSON.stringify([c.body, c.details, c.race, c.race2, c.raceMix, c.raceSize]);
+    const r = c.robotLook;
+    // Robot parts are built with the shape (in the worker when there is one).
+    const robotConfig = c.robot ? { head: r.head, ears: r.ears, plating: r.plating, thickness: r.thickness, core: r.core } : null;
+    const shapeKey = JSON.stringify([c.body, c.details, c.race, c.race2, c.raceMix, c.raceSize, robotConfig]);
     if (shapeKey !== this.applied.shape) {
+      h.robotConfig = robotConfig;
       const t0 = performance.now();
       h.params = { ...c.body };
       h.race = sanitizeRace({ race: c.race, race2: c.race2, mix: c.raceMix, size: c.raceSize });
       h.modifierValues = { ...c.details };
       this.shape = await h.evaluate(this.shape);
       this.actor.applyShape(this.shape);
-      this.actor.object.position.y = this.actor.groundOffset();
+      this.actor.object.position.y = this.actor.groundOffset() + (c.robot ? this.lift : 0);
       this.height = this.actor.height();
       // Pattern space: feet at 0, body scale, head joint (skin patterns stay sized and placed per body).
       const sk = this.shape.skeleton;
@@ -379,9 +414,19 @@ export class Character {
       this.lastUpdateMs = performance.now() - t0;
       this.applyLook();
     }
-    const partsKey = JSON.stringify([shapeKey, c.hair, this.hidesHair(), c.beard, c.horns, c.hornSize, c.tusks, c.tail, c.tailLength, c.seed]);
-    if (partsKey !== this.applied.parts && this.shape) {
+    const partsKey = c.robot
+      ? shapeKey
+      : JSON.stringify([shapeKey, c.hair, this.hidesHair(), c.beard, c.horns, c.hornSize, c.tusks, c.tail, c.tailLength, c.seed]);
+    if (partsKey !== this.applied.parts && this.shape && c.robot) {
       this.applied.parts = partsKey;
+      const robot = h.robotParts ?? h.robot(this.shape, r);
+      this.lift = robot.lift;
+      this.actor.setParts(robot.parts);
+      this.actor.object.position.y = this.actor.groundOffset() + this.lift;
+      this.applyLook();
+    } else if (partsKey !== this.applied.parts && this.shape) {
+      this.applied.parts = partsKey;
+      this.actor.object.position.y = this.actor.groundOffset();
       const hair = (c.hair === "leaves" || c.hair === "crest") && !this.hidesHair() ? c.hair : "none";
       const rgb = new THREE.Color(c.hornColor ?? "#d9cfb4").convertLinearToSRGB();
       this.actor.setParts(await h.parts(this.shape, { seed: c.seed, horns: c.horns, hornSize: c.hornSize, hornColor: [rgb.r, rgb.g, rgb.b], tusks: c.tusks, tail: c.tail, tailLength: c.tailLength, beard: c.beard, hair }));
@@ -401,6 +446,30 @@ export class Character {
       this.actor.play(c.animation ? await this.loadClip(c.animation) : null);
     }
   }
+}
+
+const drawable = new WeakMap<THREE.Texture, THREE.Texture>();
+
+/** A canvas-backed copy of a raw RGBA data texture (null if the texture is already drawable). */
+function drawableTexture(t: THREE.Texture): THREE.Texture | null {
+  const img = t.image as { data?: ArrayBufferView; width: number; height: number } | undefined;
+  if (!img?.data || !(img.data instanceof Uint8Array) || img.data.length !== img.width * img.height * 4 || typeof document === "undefined") return null;
+  let copy = drawable.get(t);
+  if (!copy) {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+    canvas.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(img.data.buffer, img.data.byteOffset, img.data.length), img.width, img.height), 0, 0);
+    copy = new THREE.CanvasTexture(canvas);
+    copy.wrapS = t.wrapS;
+    copy.wrapT = t.wrapT;
+    copy.repeat.copy(t.repeat);
+    copy.offset.copy(t.offset);
+    copy.channel = t.channel;
+    copy.colorSpace = t.colorSpace;
+    drawable.set(t, copy);
+  }
+  return copy;
 }
 
 /** Iris shader factors (hue, saturation and lightness gain on the iris texture) for an sRGB colour. */

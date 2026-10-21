@@ -1,5 +1,5 @@
 import { ADULT_MIN_AGE, BEARD_STYLES, HORN_STYLES, type HumanParams, MAX_AGE, TAIL_STYLES } from "@actors/human";
-import { type CharacterConfig, PAINTED_BROWS, outfitGarments } from "./catalog";
+import { type CharacterConfig, PAINTED_BROWS, type RobotLook, outfitGarments } from "./catalog";
 import type { Character, CharacterPatch } from "./character";
 import { PUPILS, SKIN_PATTERNS } from "@actors/three";
 
@@ -9,7 +9,7 @@ const STYLE = `
 .actors-editor { --ae-panel: #1d1f24; --ae-text: #e6e6e6; --ae-muted: #9aa0a6; --ae-accent: #c98b6b; --ae-border: #2c2f36;
   box-sizing: border-box; background: var(--ae-panel); color: var(--ae-text); font: 13px/1.4 system-ui, sans-serif; padding: 12px 14px 20px; overflow-y: auto; }
 .actors-editor * { box-sizing: border-box; }
-.actors-editor [hidden], .actors-editor .ae-off { display: none !important; }
+.actors-editor [hidden], .actors-editor .ae-off, .actors-editor .ae-robot-off { display: none !important; }
 .actors-editor header { display: flex; align-items: baseline; justify-content: space-between; }
 .actors-editor h1 { font-size: 18px; margin: 0 0 8px; }
 .actors-editor h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ae-muted); margin: 16px 0 6px; }
@@ -53,7 +53,7 @@ const STYLE = `
 export type EditorMode = "simple" | "detailed";
 
 /** The editor's sections, in order. */
-export type EditorSection = "race" | "body" | "look" | "outfit" | "animation" | "details";
+export type EditorSection = "race" | "robot" | "body" | "look" | "outfit" | "animation" | "details";
 /** The footer's buttons. */
 export type EditorButton = "randomize" | "reset" | "save" | "load" | "export";
 
@@ -190,6 +190,40 @@ export class CharacterEditor {
     const mixRow = detailed(this.slider(raceSec, "Mix", 0, 1, 0.01, pct, (c) => c.raceMix, (v) => set({ raceMix: v }), "raceMix"));
     this.syncers.push((c) => (mixRow.hidden = !c.race2));
     detailed(this.slider(raceSec, "Size", 0, 1, 0.01, pct, (c) => c.raceSize, (v) => set({ raceSize: v }), "raceSize"));
+
+    // Robot: same skeleton and clips, shaped by the body and race sliders.
+    const robotOpts = cat.robot;
+    if (robotOpts) {
+      const sec = this.section("Robot", "robot");
+      const setRobot = (look: Partial<RobotLook>) => set({ robotLook: look });
+      this.check(sec, "Robot", (c) => c.robot, (v) => set({ robot: v }), "robot");
+      const rows: HTMLElement[] = [];
+      const add = <T extends HTMLElement>(node: T) => {
+        rows.push((node.closest(".ae-row, .ae-check") as HTMLElement | null) ?? node);
+        return node;
+      };
+      const pick = (list: { id: string; label: string }[]): [string, string][] => list.map((x) => [x.id, x.label]);
+      add(this.select(sec, "Colours", [["", "Custom"], ...pick(robotOpts.palettes)], (c) => robotOpts.palettes.find((p) => Object.entries(p.look).every(([k, v]) => c.robotLook[k as keyof RobotLook] === v))?.id ?? "", (v) => {
+        const p = robotOpts.palettes.find((x) => x.id === v);
+        if (p) setRobot(p.look);
+      }, "robotLook.palette"));
+      add(this.select(sec, "Head", pick(robotOpts.heads), (c) => c.robotLook.head, (v) => setRobot({ head: v as RobotLook["head"] }), "robotLook.head"));
+      add(this.select(sec, "Ears", pick(robotOpts.ears), (c) => c.robotLook.ears, (v) => setRobot({ ears: v as RobotLook["ears"] }), "robotLook.ears"));
+      add(this.select(sec, "Plating", pick(robotOpts.plating), (c) => c.robotLook.plating, (v) => setRobot({ plating: v as RobotLook["plating"] }), "robotLook.plating"));
+      add(detailed(this.slider(sec, "Plate thickness", 0, 1, 0.01, pct, (c) => c.robotLook.thickness, (v) => setRobot({ thickness: v }), "robotLook.thickness")));
+      add(this.select(sec, "Finish", pick(robotOpts.finishes), (c) => c.robotLook.finish, (v) => setRobot({ finish: v as RobotLook["finish"] }), "robotLook.finish"));
+      for (const [k, label] of [["paint", "Paint"], ["trim", "Trim"], ["frame", "Frame"], ["metal", "Metal"], ["glow", "Lights"]] as const) {
+        const row = add(this.color(sec, label, (c) => c.robotLook[k], (v) => setRobot({ [k]: v ?? undefined }), `robotLook.${k}`));
+        if (k === "frame" || k === "metal") detailed(row);
+      }
+      add(this.slider(sec, "Light strength", 0, 1, 0.01, pct, (c) => c.robotLook.glowStrength, (v) => setRobot({ glowStrength: v }), "robotLook.glowStrength"));
+      add(this.check(sec, "Chest light", (c) => c.robotLook.core, (v) => setRobot({ core: v }), "robotLook.core"));
+      // Robots wear no skin, hair or clothes: those sections hide, and the robot rows show.
+      this.syncers.push((c) => {
+        for (const row of rows) row.classList.toggle("ae-robot-off", !c.robot);
+        for (const id of ["look", "outfit"]) el.querySelector<HTMLElement>(`section[data-section="${id}"]`)?.classList.toggle("ae-robot-off", c.robot);
+      });
+    }
 
     // Body
     const body = this.section("Body", "body");

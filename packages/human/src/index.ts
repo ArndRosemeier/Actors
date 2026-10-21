@@ -9,3 +9,4 @@ export * from "./races";
 export * from "./raceshape";
 export * from "./muscle";
 export * from "./parts";
+export * from "./robot";

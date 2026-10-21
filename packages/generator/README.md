@@ -49,6 +49,19 @@ const saved = JSON.stringify(character.config); // restore with character.set(JS
 const glb = await character.exportGlb("all");   // mesh, rig, visible clothes/hair, every clip
 ```
 
+### Robots
+
+Any character can be a robot: same skeleton, so every clip plays on it, and it is shaped by the same body and race sliders (a heavy, muscular or female body makes a heavy, muscular or female robot). Armour plates, a flexible inner frame, joint housings and a helmet are generated from the current body; skin, hair and clothes are not drawn.
+
+```ts
+await character.set({ robot: true });
+await character.set({ robotLook: { head: "optics", ears: "antennae", plating: "armored", paint: "#a3161d", glow: "#ffe2b0", finish: "gloss" } });
+await character.set({ robotLook: character.catalog.robot!.palettes[3].look }); // a colour scheme
+await character.randomize({ robot: true });  // a random robot body and look
+```
+
+`robotLook` takes `head` (visor, optics, mono, android), `ears` (none, pods, antennae, fins), `plating` (sleek, segmented, armored), `thickness` (0..1), `core` (chest light), the colours `paint`, `trim`, `frame`, `metal` and `glow` (sRGB hex), `glowStrength` (0..1) and `finish` (gloss, satin, metallic, matte). Shape options rebuild the robot (in the worker, when there is one); colours, finish and light strength are instant.
+
 `character.catalog` lists every choice the pack offers (ids and labels): `animations`, `garments` (with category, body layers, slots and whether they cover the anatomy), `garmentColors` (a suggested palette; any hex colour works), `outfits` (presets), `hair`, `hairColors`, `brows`, `eyes`, `expressions` and the detail sliders. Build your own UI from it, or use `CharacterEditor`.
 
 Large clip libraries in the pack (the 2,548 CMU motions) are listed in `catalog.animations` too, with `library: "cmu"`, a `category` (the capture session) and a `description`; only their index is loaded up front, each clip on first play. Pass `clipLibraries: false` to `Character.load` to skip them.

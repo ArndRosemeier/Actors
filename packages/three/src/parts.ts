@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { PartMesh } from "@actors/core";
 import { useDualQuaternionSkinning } from "./dqs";
+import { fabricNormalMap } from "./procedural";
 import { createAlphaDepthMaterial, createDepthMaterial, createSkinMaterial, type SkinUniforms } from "./materials";
 
 /** Small deterministic PRNG so the generated textures are identical on every run. */
@@ -84,9 +85,53 @@ export function leafTexture(): THREE.DataTexture {
   return leaf;
 }
 
+/** Robot part kinds (see `@actors/human` robot.ts). */
+export const ROBOT_PART_KINDS = ["plate", "trim", "frame", "joint", "visor", "glow"] as const;
+
+let ribs: THREE.Texture | undefined;
+/** Fine ribbing for the robot's inner frame (synthetic muscle), on the body UVs. */
+function frameNormalMap(): THREE.Texture {
+  if (!ribs) {
+    ribs = fabricNormalMap("knit").clone();
+    ribs.wrapS = ribs.wrapT = THREE.RepeatWrapping;
+    ribs.repeat.set(10, 10);
+    ribs.needsUpdate = true;
+  }
+  return ribs;
+}
+
+/**
+ * Physical-material settings for a robot part kind, shared by the WebGL and
+ * node kits. Colours and finish are changed later with `ThreeActor.setPartColor`
+ * and `setPartMaterial`; "glow" parts take their colour as emissive
+ * (`userData.emissiveTint`).
+ */
+export function robotMaterialParams(kind: string): THREE.MeshPhysicalMaterialParameters | null {
+  switch (kind) {
+    case "plate":
+    case "trim":
+      return { color: 0xd8dade, vertexColors: true, metalness: 0.35, roughness: 0.3, clearcoat: 0.7, clearcoatRoughness: 0.12 };
+    case "frame":
+      return { color: 0x22252b, roughness: 0.5, metalness: 0.35, normalMap: frameNormalMap(), normalScale: new THREE.Vector2(0.6, 0.6) };
+    case "joint":
+      return { color: 0x9aa0a8, vertexColors: true, metalness: 1, roughness: 0.28 };
+    case "visor":
+      return { color: 0x07090c, metalness: 0.4, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02 };
+    case "glow":
+      return { color: 0x000000, emissive: 0x44d8ff, emissiveIntensity: 2.5, roughness: 0.3 };
+  }
+  return null;
+}
+
 /** Material for a generated part. Skin-like parts share the actor's skin uniforms (colour, photo albedo, pattern). */
 export function createPartMaterial(part: PartMesh, skin: SkinUniforms): THREE.Material {
   const color = new THREE.Color().setRGB(...(part.color ?? [0.3, 0.2, 0.12]), THREE.SRGBColorSpace);
+  const robot = robotMaterialParams(part.kind);
+  if (robot) {
+    const m = useDualQuaternionSkinning(new THREE.MeshPhysicalMaterial(robot));
+    if (part.kind === "glow") m.userData.emissiveTint = true;
+    return m;
+  }
   switch (part.kind) {
     case "skin":
       return createSkinMaterial(skin);

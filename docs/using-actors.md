@@ -5,7 +5,7 @@ The character generator ships as four installable packages, attached to each [Gi
 | Package | What it is |
 |---|---|
 | `@actors/generator` | `Character`, `CharacterStage`, `CharacterEditor`, `createCharacterGenerator` ([README](../packages/generator/README.md)). Pulls in the three below. |
-| `@actors/human` | Human sliders, races, expressions, and the `@actors/human/worker` Web Worker entry. |
+| `@actors/human` | Human sliders, races, robots, expressions, and the `@actors/human/worker` Web Worker entry. |
 | `@actors/three` | three.js adapter (materials, skinning, playback). |
 | `@actors/core` | Renderer-free runtime (pack format, morphs, fitting, retargeting). |
 

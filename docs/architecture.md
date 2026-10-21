@@ -49,6 +49,10 @@ One `SkinnedMesh` per pack mesh, sharing one `Skeleton`. When the shape changes,
 
 Materials (`materials.ts`) patch three's built-in shaders: hair cards (alpha to coverage, luminance-preserving recolour), leg colliders for skirt-skinned garments (`colliders.ts`), skin (mask tints, brows, pores, wrapped diffuse, procedural vulva detail), eyes (iris recolouring), lashes, cloth (weave or garment normal maps, per-pixel hem cut from the `clip` attribute, luminance-preserving recolour) and dual-quaternion skinning on all of them, including the shadow pass. `setLod(level)` / `updateLod(camera)` switch the detail level: index buffers per level are cached, stand-ins swap visibility, and the crowd level hides body and garments behind one merged `SkinnedMesh` (`crowd` material in the kit, linear skinning) and drops finger tracks from the playing clip. Two morph channels per face mesh ("expression", "blink") are filled from `surfaceDelta` and blended every frame.
 
+## Robots
+
+`@actors/human` robot.ts builds a robot from an evaluated human shape (`Human.robotConfig` makes every `evaluate` build it too; with a worker this runs as the `robot` shape task of `serveRuntime`, so the parts arrive with the shape). The skin is split into one region per bone by skin weights (twist bones join their parent, clavicles the chest); each region is clipped where its bone stops dominating by a margin, Taubin-smoothed and thickened into a closed shell rigid on its bone. The body surface is the inner frame (smooth skinning), the head is a helmet fitted per direction from the head centre (a low percentile of the skin distance in a cone, so the nose, lips and ears don't push it out). All of it is `PartMesh`es of kinds plate, trim, frame, joint, visor and glow, drawn by the adapter's part materials; the pack meshes are hidden (`ThreeActor.hidePackMeshes`).
+
 ## Adding another species
 
 Write an importer that emits an actor pack, plus a small package (like `@actors/human`) that maps that species' sliders to target weights. Core and adapters are reused unchanged.

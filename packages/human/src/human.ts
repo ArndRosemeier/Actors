@@ -7,6 +7,7 @@ import { DEFAULT_PARAMS, type HumanParams, sanitizeParams } from "./params";
 import { type SkinTextureDef, skinTextureWeights } from "./skins";
 import { DEFAULT_RACE, EAR_MASKS, type RaceSettings, raceHeadScale, raceScale, raceShapeOptions, raceTargetWeights, sanitizeRace, targetResolver } from "./raceshape";
 import { type PartsConfig, buildParts, hasParts, partsBody } from "./parts";
+import { ROBOT_TASK, type RobotConfig, type RobotParts, buildRobot, robotBody } from "./robot";
 
 export interface HumanExtra {
   macroTargets: MacroTargetDef[];
@@ -155,9 +156,35 @@ export class Human {
     return body ? buildParts(body, cfg) : [];
   }
 
-  evaluate(previous?: ActorShape): Promise<ActorShape> {
-    if (this.remote) return this.remote.evaluate(this.targetWeights(), this.shapeOptions());
-    return this.runtime.evaluate(this.targetWeights(), previous, this.shapeOptions());
+  /**
+   * Robot parts for a shape from `evaluate`: plates, frame, joints, head and
+   * lights, skinned to the pack skeleton (see robot.ts). Draw them instead of
+   * the body's own meshes.
+   */
+  robot(shape: ActorShape, config: Partial<RobotConfig>): RobotParts {
+    const body = robotBody(shape, this.runtime.meshes);
+    return body ? buildRobot(body, config) : { parts: [], lift: 0 };
+  }
+
+  /**
+   * Robot build options: while set, every `evaluate` also builds the robot's
+   * parts for the new shape (in the worker when one is used); read them from
+   * `robotParts`. Null: no robot parts.
+   */
+  robotConfig: Partial<RobotConfig> | null = null;
+  /** Robot parts of the last evaluated shape (see `robotConfig`). */
+  robotParts: RobotParts | null = null;
+
+  async evaluate(previous?: ActorShape): Promise<ActorShape> {
+    const robot = this.robotConfig;
+    if (this.remote && robot) {
+      const { shape, task } = await this.remote.evaluateWith<RobotParts>(this.targetWeights(), this.shapeOptions(), { name: ROBOT_TASK, args: robot });
+      this.robotParts = task;
+      return shape;
+    }
+    const shape = this.remote ? await this.remote.evaluate(this.targetWeights(), this.shapeOptions()) : await this.runtime.evaluate(this.targetWeights(), previous, this.shapeOptions());
+    this.robotParts = robot ? this.robot(shape, robot) : null;
+    return shape;
   }
 
   /**

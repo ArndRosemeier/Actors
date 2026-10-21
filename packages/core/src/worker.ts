@@ -17,10 +17,17 @@ export interface MessagePortLike {
 
 type Request =
   | { id: number; type: "load"; url: string }
-  | { id: number; type: "evaluate"; weights: [string, number][]; options?: ShapeOptions }
+  | { id: number; type: "evaluate"; weights: [string, number][]; options?: ShapeOptions; task?: { name: string; args: unknown } }
   | { id: number; type: "loadMeshes"; names: string[] };
 
-type Response = { id: number; ok: true; shape?: ActorShape } | { id: number; ok: false; error: string };
+type Response = { id: number; ok: true; shape?: ActorShape; task?: unknown } | { id: number; ok: false; error: string };
+
+/**
+ * Extra work a worker can do on each new shape before handing it over (e.g.
+ * building robot parts from it), so the main thread gets both at once.
+ * Returns the result and the buffers to transfer with it.
+ */
+export type ShapeTask = (runtime: ActorRuntime, shape: ActorShape, args: unknown) => { result: unknown; transfer?: ArrayBuffer[] };
 
 function shapeBuffers(shape: ActorShape): ArrayBuffer[] {
   const out: ArrayBuffer[] = [shape.positions.buffer as ArrayBuffer, shape.normals.buffer as ArrayBuffer];
@@ -28,8 +35,8 @@ function shapeBuffers(shape: ActorShape): ArrayBuffer[] {
   return out;
 }
 
-/** Call inside the worker. */
-export function serveRuntime(port: MessagePortLike): void {
+/** Call inside the worker. `tasks`: shape tasks the main thread can ask for by name (see `RemoteRuntime.evaluateWith`). */
+export function serveRuntime(port: MessagePortLike, tasks: Record<string, ShapeTask> = {}): void {
   let runtime: ActorRuntime | undefined;
   // Evaluations run one at a time, in order.
   let queue = Promise.resolve();
@@ -48,7 +55,10 @@ export function serveRuntime(port: MessagePortLike): void {
           if (!runtime) throw new Error("No actor pack loaded");
           // Fresh buffers every time: they are transferred (moved) to the main thread.
           const shape = await runtime.evaluate(new Map(req.weights), undefined, req.options);
-          port.postMessage({ id: req.id, ok: true, shape } satisfies Response, shapeBuffers(shape));
+          const fn = req.task ? tasks[req.task.name] : undefined;
+          if (req.task && !fn) throw new Error(`Unknown shape task ${req.task.name}`);
+          const task = fn?.(runtime, shape, req.task!.args);
+          port.postMessage({ id: req.id, ok: true, shape, task: task?.result } satisfies Response, [...shapeBuffers(shape), ...(task?.transfer ?? [])]);
         }
       } catch (e) {
         port.postMessage({ id: req.id, ok: false, error: (e as Error).message ?? String(e) } satisfies Response);
@@ -96,5 +106,11 @@ export class RemoteRuntime {
   async evaluate(weights: Map<string, number>, options?: ShapeOptions): Promise<ActorShape> {
     const res = await this.call({ type: "evaluate", weights: [...weights], options } as Request);
     return (res as { shape: ActorShape }).shape;
+  }
+
+  /** Evaluates a shape and runs a shape task (registered with `serveRuntime`) on it in the worker. */
+  async evaluateWith<T>(weights: Map<string, number>, options: ShapeOptions | undefined, task: { name: string; args: unknown }): Promise<{ shape: ActorShape; task: T }> {
+    const res = (await this.call({ type: "evaluate", weights: [...weights], options, task } as Request)) as { shape: ActorShape; task: T };
+    return { shape: res.shape, task: res.task };
   }
 }
