@@ -291,6 +291,8 @@ export function createNodeClothMaterial(
   const tint = { uTint: uniform(new THREE.Color(1, 1, 1)), uTintMix: uniform(0), uTintMeanLum: uniform(Math.max(0.01, meanLum)) };
   mat.userData.tint = tint;
   mat.colorNode = tinted(tint.uTint, tint.uTintMix, tint.uTintMeanLum, 3);
+  // Cut-outs from the texture's full-resolution alpha (see createClothMaterial: mip levels punched holes along seams).
+  if (map) mat.opacityNode = texture(map).level(0).a;
   return useNodeDqs(mat);
 }
 

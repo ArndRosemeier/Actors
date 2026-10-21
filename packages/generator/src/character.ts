@@ -407,7 +407,8 @@ export class Character {
     const h = this.human;
     // Garments and hairstyles with their own data file are loaded the first time they are worn.
     const lazy = new Set(h.runtime.manifest.meshes.filter((m) => m.blob).map((m) => m.name));
-    const added = await h.loadMeshes([...c.outfit, c.hair ?? ""].filter((g) => lazy.has(g) && !h.runtime.isLoaded(g)));
+    // (Also those the main thread already has: this character's worker may not, when characters share a pack through several workers.)
+    const added = await h.loadMeshes([...c.outfit, c.hair ?? ""].filter((g) => lazy.has(g)));
     if (added.length) {
       this.actor.addMeshes(added);
       this.applied.shape = ""; // the next shape must include the new garments
@@ -422,12 +423,18 @@ export class Character {
     if (shapeKey !== this.applied.shape || unfitted) {
       h.robotConfig = robotConfig;
       h.fit = needed;
-      this.fittedNames = new Set(needed);
       const t0 = performance.now();
       h.params = { ...c.body };
       h.race = sanitizeRace({ race: c.race, race2: c.race2, mix: c.raceMix, size: c.raceSize });
       h.modifierValues = { ...c.details };
       this.shape = await h.evaluate(this.shape);
+      const shape = this.shape;
+      this.fittedNames = new Set(needed.filter((n) => {
+        const m = h.runtime.meshes.find((x) => x.def.name === n);
+        if (!m) return false;
+        if (m.stencil) return shape.meshes.has(n);
+        return m.def.source.kind === "base" || shape.proxies.has(m.def.source.proxy);
+      }));
       this.actor.applyShape(this.shape);
       this.actor.object.position.y = this.actor.groundOffset() + (c.robot ? this.lift : 0);
       this.height = this.actor.height();
