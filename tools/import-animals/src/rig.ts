@@ -139,3 +139,15 @@ export function turnChain(rig: Rig, root: string, axis: Vec3, angle: number): vo
     b.roll = rollFromFrame(frame);
   });
 }
+
+/** Moves bone `root` and everything below it by `offset`. */
+export function shiftChain(rig: Rig, root: string, offset: Vec3): void {
+  const r = rig.index.get(root);
+  if (r === undefined) throw new Error(`No bone ${root}`);
+  const inChain = (i: number): boolean => i === r || (rig.bones[i].parent >= 0 && inChain(rig.bones[i].parent));
+  rig.bones.forEach((b, i) => {
+    if (!inChain(i)) return;
+    b.head = [b.head[0] + offset[0], b.head[1] + offset[1], b.head[2] + offset[2]];
+    b.tail = [b.tail[0] + offset[0], b.tail[1] + offset[1], b.tail[2] + offset[2]];
+  });
+}

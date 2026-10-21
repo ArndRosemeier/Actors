@@ -341,7 +341,7 @@ function coatRegions(body: DogBody, P: Float32Array, N: Float32Array, W: Float32
     const lipDist = Math.abs(p[1] - mouthLineY(m, p[2]));
     const lips = along > -0.08 && along < 1.05 && Math.abs(p[0]) < m.halfWidth + 0.01 ? smoothstep(0.011, 0.005, lipDist) * Math.min(1, muzzle[v] + jaw[v] + nose[v] + head[v]) : 0;
     const pads = paw[v] * smoothstep(-0.3, -0.75, nn[1]) * smoothstep(0.02, 0.008, p[1]);
-    const rim = Math.max(...eyes.map((e) => smoothstep(e.radius + 0.006, e.radius + 0.0015, Math.hypot(p[0] - e.center[0], p[1] - e.center[1], p[2] - e.center[2]))));
+    const rim = Math.max(...eyes.map((e) => smoothstep(e.radius + 0.0035, e.radius + 0.001, Math.hypot(p[0] - e.center[0], p[1] - e.center[1], p[2] - e.center[2]))));
     coatC.set([noseW, lips, pads, rim], v * 4);
     // Short fur along the lips, so shells from above and below don't bristle across the mouth line.
     if (along > -0.15 && along < 1.1) coatB[v * 4 + 1] *= smoothstep(0.004, 0.018, lipDist);

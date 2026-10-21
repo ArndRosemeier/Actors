@@ -6,7 +6,7 @@
  * one mesh (see targets.ts and @actors/animal).
  */
 import { type Vec3, normalize } from "@actors/core";
-import { type Rig, resizeRig, turnChain } from "./rig";
+import { type Rig, resizeRig, shiftChain, turnChain } from "./rig";
 import { type Frame, type LoftKey, type Part, type Primitive, bodyDistance, box, capsule, ellipsoid, frameFrom, loft } from "./sdf";
 
 /** Uniform scale from the source rig to the base dog. */
@@ -34,7 +34,7 @@ export const FUR = 0.012;
 /** Rest stance (degrees about +X; negative lifts a forward-pointing bone). */
 export const NECK_RAISE = -30;
 export const HEAD_TILT = 37;
-export const TAIL_DROP = [-62, -12, 8];
+export const TAIL_DROP = [-70, -8, 6];
 /** Ears turned forward, so they stand up rather than lean back. */
 export const EAR_TILT = 18;
 
@@ -94,6 +94,14 @@ export function dogBody(source: Rig): DogBody {
   for (const side of ["L", "R"]) turnChain(rig, `Ear_${side}`, [1, 0, 0], EAR_TILT * deg);
   turnChain(rig, "Spine_3", [1, 0, 0], NECK_RAISE * deg);
   turnChain(rig, "Head", [1, 0, 0], HEAD_TILT * deg);
+  // Legs stand under the sides of the chest and hips, not tucked under the middle.
+  for (const side of ["L", "R"]) {
+    const s = side === "L" ? 1 : -1;
+    shiftChain(rig, `Front_Leg_Shoulder_${side}`, [0.014 * s, 0, 0]);
+    shiftChain(rig, `Back_Leg_Pelvis_${side}`, [0.008 * s, 0, 0]);
+  }
+  // The tail sets on below the croup's top line, so it falls away from the back instead of rising first.
+  shiftChain(rig, "Tail_Base", [0, -0.035, -0.015]);
   turnChain(rig, "Tail_Base", [1, 0, 0], TAIL_DROP[0] * deg);
   turnChain(rig, "Tail_Mid", [1, 0, 0], TAIL_DROP[1] * deg);
   turnChain(rig, "Tail_End", [1, 0, 0], TAIL_DROP[2] * deg);
@@ -111,8 +119,8 @@ export function dogBody(source: Rig): DogBody {
   put(loft("trunk", [
     sec(0.36, 0.53, 0.37, 0.06),
     sec(0.3, 0.585, 0.33, 0.09),
-    sec(0.2, 0.615, 0.305, 0.108),
-    sec(0.08, 0.632, 0.302, 0.114),
+    sec(0.2, 0.615, 0.305, 0.108, 2.6),
+    sec(0.08, 0.632, 0.302, 0.114, 2.5),
     sec(-0.04, 0.618, 0.318, 0.115),
     sec(-0.15, 0.6, 0.355, 0.104),
     sec(-0.25, 0.593, 0.385, 0.097),
@@ -123,13 +131,21 @@ export function dogBody(source: Rig): DogBody {
 
   // --- Neck: a loft from inside the chest up to the back of the skull, deep with the ruff ---
   const occiput = H("Head"), stop = H("Nose"), tipN = T("Head.tip"), hinge = H("Chin");
-  const nk = (at: Vec3, w: number, up: number, down: number): LoftKey => ({ at, w: w - F, up: up - F, down: down - F, n: 2.1 });
+  // The neck's outline is two straight lines, as on a wolf standing alert: the crest from the withers to
+  // just behind the ears, the throat from under the jaw to the forechest. Each section reaches both.
+  const crestA: Vec3 = [0, 0.635, 0.12], crestB: Vec3 = [0, occiput[1] + 0.05, occiput[2] - 0.005];
+  const throatA: Vec3 = [0, hinge[1] - 0.06, hinge[2] - 0.035], throatB: Vec3 = [0, 0.47, 0.36];
+  const toLine = (p: Vec3, a: Vec3, b: Vec3) => {
+    const dy = b[1] - a[1], dz = b[2] - a[2];
+    return Math.abs((p[1] - a[1]) * dz - (p[2] - a[2]) * dy) / Math.hypot(dy, dz);
+  };
+  const nk = (at: Vec3, w: number): LoftKey => ({ at, w: w - F, up: toLine(at, crestA, crestB) - F, down: toLine(at, throatA, throatB) - F, n: 2.1 });
   put(loft("neck", [
-    nk([0, 0.47, 0.17], 0.095, 0.12, 0.12),
-    nk([0, 0.56, 0.27], 0.09, 0.1, 0.11),
-    nk(lerp(H("Spine_3"), H("Spine_4"), 0.5), 0.08, 0.083, 0.095),
-    nk(add(H("Spine_4"), [0, -0.012, 0.012]), 0.068, 0.065, 0.09),
-    nk(add(occiput, [0, -0.025, 0.045]), 0.058, 0.045, 0.07),
+    nk([0, 0.5, 0.2], 0.095),
+    nk([0, 0.58, 0.29], 0.09),
+    nk(lerp(H("Spine_3"), H("Spine_4"), 0.5), 0.08),
+    nk(add(H("Spine_4"), [0, -0.015, 0.015]), 0.07),
+    nk(add(occiput, [0, -0.03, 0.04]), 0.06),
   ]), 0.05, ["Spine_2.001", "Spine_3", "Spine_4", "Head"], "neck", () => [0, -0.6, -1], 1.25);
 
   // --- Head: skull and upper jaw as one wedge-shaped loft from the occiput to the nose ---
@@ -162,7 +178,7 @@ export function dogBody(source: Rig): DogBody {
   put(box("mouth", lerp(mouthBack, mouthFront, 0.5), slitFrame, [0.06, 0.0018, Math.hypot(mouthFront[1] - mouthBack[1], mouthFront[2] - mouthBack[2]) / 2]), 0.003, ["Chin"], "jaw", BACKWARD, 0, true);
 
   // Eyes in sockets.
-  const eyeR = 0.0118;
+  const eyeR = 0.0108;
   // On the skull's surface just behind the stop, looking forward and out; sunk by most of their radius.
   const eyes = [1, -1].map((s) => {
     const from: Vec3 = [0, stop[1] + 0.012, stop[2] - 0.03];
@@ -170,7 +186,7 @@ export function dogBody(source: Rig): DogBody {
     const out = normalize([0.85 * s, 0.14, 0.5]) as Vec3;
     let t = 0;
     while (t < 0.15 && bodyDistance(parts, add(from, out.map((c) => c * t) as Vec3)) < 0) t += 0.0005;
-    const center = add(from, out.map((c) => c * (t - eyeR * 0.62)) as Vec3);
+    const center = add(from, out.map((c) => c * (t - eyeR * 0.7)) as Vec3);
     return { center, radius: eyeR, look, out, side: s };
   });
   // Almond-shaped lids, set obliquely (the outer corner higher), and a brow ridge above.
@@ -178,7 +194,7 @@ export function dogBody(source: Rig): DogBody {
     const slant = normalize([0, 0.3, -1]) as Vec3;
     const frame = frameFrom(e.out, slant);
     put(ellipsoid("brow", add(e.center, [0.002 * e.side, 0.013, -0.006]), frameFrom([0, 0.2, 1]), [0.015, 0.008, 0.018]), 0.012, ["Head"], "head", BACKWARD, 0.4);
-    put(ellipsoid("socket", add(e.center, e.out.map((c) => c * 0.002) as Vec3), frame, [eyeR * 1.12, eyeR * 0.6, eyeR * 0.9]), 0.004, ["Head"], "head", BACKWARD, 0.3, true);
+    put(ellipsoid("socket", add(e.center, e.out.map((c) => c * 0.002) as Vec3), frame, [eyeR * 1.35, eyeR * 0.4, eyeR * 0.9]), 0.003, ["Head"], "head", BACKWARD, 0.3, true);
   }
 
   // Ears: pointed flaps along the ear bones (prick ears; floppy ears are a morph).
