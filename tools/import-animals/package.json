@@ -1,0 +1,15 @@
+{
+  "name": "@actors/import-animals",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "import": "tsx src/import.ts"
+  },
+  "dependencies": {
+    "@actors/core": "0.5.0"
+  },
+  "devDependencies": {
+    "meshoptimizer": "1.2.0"
+  }
+}

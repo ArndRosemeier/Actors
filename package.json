@@ -14,7 +14,8 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build:packages": "node scripts/release/build.mjs",
-    "check:consumer": "node scripts/release/check-consumer.mjs"
+    "check:consumer": "node scripts/release/check-consumer.mjs",
+    "import:animals": "tsx tools/import-animals/src/import.ts"
   },
   "devDependencies": {
     "@types/node": "22.9.0",
