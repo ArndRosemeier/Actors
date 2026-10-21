@@ -1,7 +1,9 @@
 /**
- * Dog parameters: body proportions (bone scales), breed morphs (target
+ * Animal parameters: body proportions (bone scales), shape morphs (target
  * weights) and the coat (colours and pattern amounts for the fur material),
- * plus presets for some well-known breeds and wild canids.
+ * plus presets: dog breeds and wild canids, and squirrel species. Dogs and
+ * squirrels share one rig and one parameter set; values whose morphs a pack
+ * lacks have no effect on it.
  */
 
 export type RGB = [number, number, number];
@@ -40,6 +42,10 @@ export interface DogShape {
   bellyTuck: number;
   /** Tail curled up over the back. */
   tailCurl: number;
+  /** Fuller tail plume (squirrels). */
+  tailPlume: number;
+  /** Puffed cheeks (full pouches, as in chipmunks). */
+  cheeks: number;
 }
 
 /** Coat colours and markings, read by the fur material. Amounts run 0..1. */
@@ -76,6 +82,18 @@ export interface DogCoat {
   length: number;
   /** How much the fur stands off the body (0: sleek, 1: fluffy). */
   fluff: number;
+  /** Pale ring around the eyes. */
+  eyeRing?: number;
+  /** Light (white) guard hair tips that frost the coat silver-grey. */
+  frost?: number;
+  /** Tail hairs banded dark with white tips: the frosted fringe of a squirrel's tail. */
+  tailFrost?: number;
+  /** Long hair tufts on the ear tips (red squirrel). */
+  earTufts?: number;
+  /** Size of the fur pattern detail (strands, locks) relative to a dog's (1). */
+  grain?: number;
+  /** Eye colour. */
+  iris?: RGB;
 }
 
 export interface DogParams {
@@ -103,6 +121,8 @@ export const DEFAULT_SHAPE: DogShape = {
   chestDeep: 0,
   bellyTuck: 0,
   tailCurl: 0,
+  tailPlume: 0,
+  cheeks: 0,
 };
 
 const hex = (h: string): RGB => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
@@ -151,6 +171,8 @@ export const SHAPE_RANGES: Record<keyof DogShape, [number, number]> = {
   chestDeep: [0, 1],
   bellyTuck: [0, 1],
   tailCurl: [0, 1],
+  tailPlume: [0, 1],
+  cheeks: [0, 1],
 };
 
 export interface BreedPreset {
@@ -239,6 +261,36 @@ export const BREEDS: Record<string, BreedPreset> = {
   },
 };
 
+/** Squirrel species on the squirrel pack (modelled on the eastern grey squirrel). */
+export const SQUIRRELS: Record<string, BreedPreset> = {
+  grey: {
+    name: "Eastern Grey Squirrel",
+    shape: {},
+    coat: { base: hex("#86785c"), second: hex("#2a241e"), tan: hex("#9a7a52"), white: hex("#ece4d4"), belly: 1, bib: 1, shade: 0.5, agouti: 0.85, frost: 0.7, tanLegs: 0.3, eyeRing: 0.55, tailFrost: 1, length: 0.006, fluff: 0.45, grain: 0.4, iris: hex("#0b0908") },
+  },
+  red: {
+    name: "Eurasian Red Squirrel",
+    shape: { size: 0.92, ears: 1.15, tailPlume: 0.3 },
+    coat: { base: hex("#7a3e22"), second: hex("#3e2014"), tan: hex("#9a5230"), white: hex("#ece2d2"), belly: 1, bib: 1, shade: 0.25, agouti: 0.3, frost: 0, eyeRing: 0.4, tailFrost: 0.05, earTufts: 1, length: 0.007, fluff: 0.5, grain: 0.4, iris: hex("#0b0908") },
+  },
+  fox: {
+    name: "Fox Squirrel",
+    shape: { size: 1.15, bulk: 1.2, tailPlume: 0.6 },
+    coat: { base: hex("#7f6a50"), second: hex("#2e2219"), tan: hex("#a06a3c"), white: hex("#c2905e"), belly: 1, bib: 1, shade: 0.6, agouti: 0.75, frost: 0.35, tanLegs: 0.5, eyeRing: 0.6, tailFrost: 0.5, length: 0.007, fluff: 0.5, grain: 0.4, iris: hex("#0b0908") },
+  },
+  black: {
+    name: "Black Squirrel (melanistic grey)",
+    shape: {},
+    coat: { base: hex("#1d1a18"), second: hex("#0c0b0a"), tan: hex("#3a2a20"), white: hex("#3a3330"), shade: 0.2, agouti: 0.3, frost: 0.08, tanLegs: 0.3, eyeRing: 0.15, tailFrost: 0.15, length: 0.006, fluff: 0.45, grain: 0.4, iris: hex("#0b0908") },
+  },
+};
+
+/** Presets per animal kind (the pack's `extra.animal.kind`). */
+export const PRESETS: Record<string, Record<string, BreedPreset>> = { dog: BREEDS, squirrel: SQUIRRELS };
+
+/** The preset an animal of this kind starts with. */
+export const DEFAULT_PRESET: Record<string, string> = { dog: "wolfdog", squirrel: "grey" };
+
 const clamp = (v: number, lo: number, hi: number) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);
 
 export function sanitizeShape(s: Partial<DogShape>): DogShape {
@@ -251,8 +303,8 @@ export function sanitizeShape(s: Partial<DogShape>): DogShape {
 }
 
 /** Params for a breed preset (defaults for everything it leaves out). */
-export function breedParams(id: string): DogParams {
-  const b = BREEDS[id];
+export function breedParams(id: string, kind = "dog"): DogParams {
+  const b = (PRESETS[kind] ?? BREEDS)[id];
   if (!b) throw new Error(`Unknown breed ${id}`);
   return { shape: sanitizeShape(b.shape), coat: { ...DEFAULT_COAT, ...b.coat } };
 }
@@ -265,7 +317,8 @@ export function mixParams(a: DogParams, b: DogParams, t: number): DogParams {
   const coat = { ...a.coat };
   for (const k of Object.keys(coat) as (keyof DogCoat)[]) {
     const x = a.coat[k], y = b.coat[k];
-    (coat as Record<string, unknown>)[k] = Array.isArray(x) ? (x.map((v, i) => lerp(v, (y as RGB)[i])) as RGB) : lerp(x, y as number);
+    if (x === undefined || y === undefined) (coat as Record<string, unknown>)[k] = x ?? y;
+    else (coat as Record<string, unknown>)[k] = Array.isArray(x) ? (x.map((v, i) => lerp(v, (y as RGB)[i])) as RGB) : lerp(x as number, y as number);
   }
   return { shape, coat };
 }

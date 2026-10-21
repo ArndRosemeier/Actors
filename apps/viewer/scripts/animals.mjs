@@ -1,6 +1,7 @@
-// Headless check of the dog actor: every breed preset side-on, close-ups of
+// Headless check of an animal actor: every preset side-on, close-ups of
 // head and coat, and frames of a few clips.
 // Usage: node scripts/animals.mjs [url] [outDir]   (SHOTS=breed-,walk to pick)
+// Squirrels: node scripts/animals.mjs "http://localhost:5173/animals.html?animal=squirrel" screenshots/squirrels
 import { chromium } from "playwright-core";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -32,15 +33,18 @@ const shot = async (name, wait = 500) => {
   writeFileSync(`${out}/${name}.png`, Buffer.from(png.split(",")[1], "base64"));
   console.log("saved", name);
 };
-// Frames the dog by its current size.
-const size = () => page.evaluate(() => window.__actors.animal.shape.size);
+// Frames the animal by its current size (squirrels are about 0.3 of a dog).
+const kind = await page.evaluate(() => window.__actors.kind);
+const H = kind === "squirrel" ? 0.3 : 1;
+const size = () => page.evaluate((h) => window.__actors.animal.shape.size * h, H);
 const side = async () => {
   const s = await size();
   await view([2.5 * s, 0.75 * s, 1.55 * s], [0, 0.38 * s, 0.05 * s]);
 };
 const head = async () => {
   const s = await size();
-  await view([0.7 * s, 0.82 * s, 1.25 * s], [0, 0.62 * s, 0.5 * s]);
+  if (kind === "squirrel") await view([0.9 * s, 0.7 * s, 1.7 * s], [0, 0.48 * s, 0.42 * s]);
+  else await view([0.7 * s, 0.82 * s, 1.25 * s], [0, 0.62 * s, 0.5 * s]);
 };
 
 const t0 = Date.now();
@@ -60,13 +64,13 @@ for (const id of breeds) {
   await call("setBreed", id);
   await side();
   await shot(`breed-${id}`);
-  if (want(`head-${id}`) && ["wolfdog", "germanShepherd", "labrador", "beagle", "husky"].includes(id)) {
+  if (want(`head-${id}`) && (kind === "squirrel" || ["wolfdog", "germanShepherd", "labrador", "beagle", "husky"].includes(id))) {
     await head();
     await shot(`head-${id}`);
   }
 }
-await call("setBreed", "wolfdog");
-for (const clip of ["walk", "run", "sit", "howl"]) {
+await call("setBreed", breeds[0]);
+for (const clip of kind === "squirrel" ? ["alert", "eat", "hop", "run", "flick", "walk"] : ["walk", "run", "sit", "howl"]) {
   if (!want(clip)) continue;
   await call("play", clip);
   await call("pose", 0.3);

@@ -151,3 +151,24 @@ export function shiftChain(rig: Rig, root: string, offset: Vec3): void {
     b.tail = [b.tail[0] + offset[0], b.tail[1] + offset[1], b.tail[2] + offset[2]];
   });
 }
+
+/**
+ * Re-poses the rig by placing bones directly: `place` gives each bone's new
+ * head and tail. Each bone's frame is turned (shortest arc) from its old
+ * direction to the new one, so rolls stay close to the source rig's.
+ */
+export function placeBones(rig: Rig, place: Record<string, [Vec3, Vec3]>): void {
+  for (const b of rig.bones) {
+    const p = place[b.name];
+    if (!p) throw new Error(`No placement for bone ${b.name}`);
+    const from = normalize(b.tail.map((v, k) => v - b.head[k]) as Vec3);
+    const to = normalize(p[1].map((v, k) => v - p[0][k]) as Vec3);
+    const axis = cross(from, to);
+    const s = Math.hypot(...axis), c = dot(from, to);
+    const turn = s < 1e-9 ? (c > 0 ? mat3AxisAngle([1, 0, 0], 0) : mat3AxisAngle(Math.abs(from[0]) < 0.9 ? normalize(cross(from, [1, 0, 0])) : normalize(cross(from, [0, 1, 0])), Math.PI)) : mat3AxisAngle(normalize(axis), Math.atan2(s, c));
+    const frame = mat3Mul(turn, boneFrame(b));
+    b.head = [...p[0]];
+    b.tail = [...p[1]];
+    b.roll = rollFromFrame(frame);
+  }
+}

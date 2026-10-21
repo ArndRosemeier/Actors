@@ -57,6 +57,8 @@ export function mouthLineY(m: DogBody["marks"]["mouth"], z: number): number {
 
 export interface DogBody {
   rig: Rig;
+  /** Length scale of the small details (blend widths, marking sizes) relative to the dog (1). */
+  unit?: number;
   parts: BodyPart[];
   /** Eye centres and radius (eyes are separate meshes in the sockets). */
   eyes: { center: Vec3; radius: number; look: Vec3 }[];

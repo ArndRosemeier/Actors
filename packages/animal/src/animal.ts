@@ -1,5 +1,5 @@
 import { type ActorShape, ActorRuntime, type BoneScale, type Fetcher, type MessagePortLike, RemoteRuntime, type ShapeOptions } from "@actors/core";
-import { DEFAULT_COAT, DEFAULT_SHAPE, type DogCoat, type DogParams, type DogShape, breedParams, sanitizeShape } from "./breeds";
+import { type BreedPreset, DEFAULT_COAT, DEFAULT_PRESET, DEFAULT_SHAPE, type DogCoat, type DogParams, type DogShape, PRESETS, breedParams, sanitizeShape } from "./breeds";
 
 /** What the animal importer writes into `manifest.extra.animal`. */
 export interface AnimalExtra {
@@ -36,6 +36,8 @@ export function dogTargetWeights(shape: DogShape): Map<string, number> {
   set("chest-deep", s.chestDeep);
   set("belly-tuck", s.bellyTuck);
   staged("tail-curl", s.tailCurl);
+  set("tail-plume", s.tailPlume);
+  set("cheeks", s.cheeks);
   // "bulk" adds 25 %; below 1 it runs backwards (slimmer).
   const bulk = (s.bulk - 1) / 0.25;
   if (Math.abs(bulk) > 1e-4) w.set("bulk", bulk);
@@ -70,7 +72,24 @@ export function dogShapeOptions(shape: DogShape, boneNames?: string[]): ShapeOpt
   return { bones, scale: s.size };
 }
 
-/** An animal actor (for now: dogs): breed parameters -> target weights and bone scales -> shape. */
+/** Morphs each morph-driven shape value needs (a pack without them ignores the value). */
+export const SHAPE_MORPHS: Partial<Record<keyof DogShape, string[]>> = {
+  earDrop: ["ears-drop"],
+  earFold: ["ears-fold"],
+  muzzle: ["muzzle-short", "muzzle-long"],
+  muzzleBroad: ["muzzle-broad"],
+  muzzleDeep: ["muzzle-deep"],
+  stop: ["stop"],
+  skullDome: ["skull-dome"],
+  chestDeep: ["chest-deep"],
+  bellyTuck: ["belly-tuck"],
+  tailCurl: ["tail-curl"],
+  bulk: ["bulk"],
+  tailPlume: ["tail-plume"],
+  cheeks: ["cheeks"],
+};
+
+/** An animal actor (dog or squirrel, one shared rig): preset parameters -> target weights and bone scales -> shape. */
 export class Animal {
   shape: DogShape = { ...DEFAULT_SHAPE };
   coat: DogCoat = { ...DEFAULT_COAT };
@@ -81,6 +100,21 @@ export class Animal {
     const extra = runtime.manifest.extra?.animal as AnimalExtra | undefined;
     if (!extra) throw new Error("Pack has no animal data");
     this.extra = extra;
+    const first = DEFAULT_PRESET[extra.kind];
+    if (first && this.presets[first]) this.params = breedParams(first, extra.kind);
+  }
+
+  /** The presets for this kind of animal (dog breeds, squirrel species). */
+  get presets(): Record<string, BreedPreset> {
+    return PRESETS[this.extra.kind] ?? {};
+  }
+
+  /** Whether a shape value does anything on this pack (its morphs are there, or it is a proportion). */
+  supports(key: keyof DogShape): boolean {
+    const need = SHAPE_MORPHS[key];
+    if (!need) return true;
+    const have = new Set(this.runtime.manifest.targets.map((t) => t.name));
+    return need.some((n) => have.has(n));
   }
 
   static async load(manifestUrl: string, fetcher?: Fetcher): Promise<Animal> {
@@ -103,9 +137,9 @@ export class Animal {
     this.coat = { ...p.coat };
   }
 
-  /** Applies a breed preset (see BREEDS). */
+  /** Applies a preset of this kind (see BREEDS, SQUIRRELS). */
   setBreed(id: string): void {
-    this.params = breedParams(id);
+    this.params = breedParams(id, this.extra.kind);
   }
 
   targetWeights(): Map<string, number> {

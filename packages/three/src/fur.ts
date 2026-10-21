@@ -44,6 +44,18 @@ export interface FurCoat {
   /** Guard hair length in meters. */
   length: number;
   fluff: number;
+  /** Pale ring around the eyes. */
+  eyeRing?: number;
+  /** White guard hair tips (silver-grey frosting). */
+  frost?: number;
+  /** Squirrel tail: hairs banded dark with white tips. */
+  tailFrost?: number;
+  /** Long hair tufts on the ear tips. */
+  earTufts?: number;
+  /** Size of strands and locks relative to a dog's (1); small animals have finer fur. */
+  grain?: number;
+  /** Eye colour (sRGB). */
+  iris?: RGB;
 }
 
 export interface FurUniforms {
@@ -60,6 +72,10 @@ export interface FurUniforms {
   uMarkC: THREE.IUniform<THREE.Vector4>;
   /** pale mask, agouti, tan legs, unused */
   uMarkD: THREE.IUniform<THREE.Vector4>;
+  /** eye ring, frost, tail frost, ear tufts */
+  uMarkE: THREE.IUniform<THREE.Vector4>;
+  /** Fur grain (pattern scale relative to a dog's). */
+  uGrain: THREE.IUniform<number>;
   /** length (m), fluff, strand spacing (m), actor scale */
   uFur: THREE.IUniform<THREE.Vector4>;
   /** Iris colour of the animal eye material. */
@@ -76,6 +92,8 @@ export function createFurUniforms(): FurUniforms {
     uMarkB: { value: new THREE.Vector4() },
     uMarkC: { value: new THREE.Vector4(0, 1, 0.3, 0) },
     uMarkD: { value: new THREE.Vector4() },
+    uMarkE: { value: new THREE.Vector4() },
+    uGrain: { value: 1 },
     uFur: { value: new THREE.Vector4(0.012, 0.2, 0.0019, 1) },
     uIris: { value: new THREE.Color().setRGB(0.32, 0.18, 0.06, THREE.SRGBColorSpace) },
   };
@@ -91,8 +109,12 @@ export function setFurCoat(u: FurUniforms, coat: FurCoat, scale = 1): void {
   u.uMarkB.value.set(coat.bib, coat.socks, coat.blaze, coat.tailTip);
   u.uMarkC.value.set(coat.spots, coat.spotSize, coat.shade, 0);
   u.uMarkD.value.set(coat.paleMask ?? 0, coat.agouti ?? 0, coat.tanLegs ?? 0, 0);
+  u.uMarkE.value.set(coat.eyeRing ?? 0, coat.frost ?? 0, coat.tailFrost ?? 0, coat.earTufts ?? 0);
+  const grain = coat.grain ?? 1;
+  u.uGrain.value = grain;
+  if (coat.iris) u.uIris.value.setRGB(...coat.iris, THREE.SRGBColorSpace);
   // The shape's size scales the whole body (fur included); divide it out so fur length is in meters.
-  u.uFur.value.set(coat.length / scale, coat.fluff, 0.0019, scale);
+  u.uFur.value.set(coat.length / scale, coat.fluff, 0.0019 * grain, scale);
 }
 
 const GLSL_VERT_PARS = /* glsl */ `
@@ -100,7 +122,7 @@ attribute vec4 coatA; attribute vec4 coatB; attribute vec4 coatC; attribute vec4
 attribute vec3 coatPos; attribute vec3 furFlow;
 varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoatD; varying vec4 vCoatE;
 varying vec3 vCoatPos; varying vec3 vFlow; varying float vShell;
-uniform vec4 uFur;
+uniform vec4 uFur; uniform vec4 uMarkE;
 #ifdef FUR_SHELL
 attribute float furShell;
 #endif
@@ -117,7 +139,8 @@ vCoatA = coatA; vCoatB = coatB; vCoatC = coatC; vCoatD = coatD; vCoatE = coatE; 
   #endif
   vec3 nrm = normalize( objectNormal );
   vec3 comb = fl - nrm * dot( fl, nrm );
-  float len = uFur.x * coatB.y;
+  // Ear tufts: long hair toward the ear tips.
+  float len = uFur.x * coatB.y * ( 1.0 + uMarkE.w * 5.0 * smoothstep( 0.55, 0.95, coatE.w ) );
   float h = furShell;
   // Out along the normal (more for fluffy coats), combed along the flow, sagging a little.
   transformed += nrm * len * h * ( 0.3 + 0.7 * uFur.y ) + comb * len * h * ( 1.0 - 0.55 * uFur.y ) - vec3( 0.0, 1.0, 0.0 ) * len * h * h * 0.3;
@@ -129,7 +152,8 @@ const GLSL_FRAG_PARS = /* glsl */ `
 varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoatD; varying vec4 vCoatE;
 varying vec3 vCoatPos; varying vec3 vFlow; varying float vShell;
 uniform vec3 uBase; uniform vec3 uSecond; uniform vec3 uTan; uniform vec3 uWhite;
-uniform vec4 uMarkA; uniform vec4 uMarkB; uniform vec4 uMarkC; uniform vec4 uMarkD; uniform vec4 uFur;
+uniform vec4 uMarkA; uniform vec4 uMarkB; uniform vec4 uMarkC; uniform vec4 uMarkD; uniform vec4 uMarkE; uniform vec4 uFur;
+uniform float uGrain;
 vec3 furHash( vec3 p ) {
   p = fract( p * vec3( 0.1031, 0.1030, 0.0973 ) );
   p += dot( p, p.yxz + 33.33 );
@@ -165,8 +189,10 @@ float furSpots( vec3 p ) {
 vec3 furCoat() {
   float legT = vCoatA.x, headW = vCoatA.y, muzzleT = vCoatA.z, tailT = vCoatA.w;
   float ear = vCoatB.x, brow = vCoatB.z, bib = vCoatB.w;
-  float back = vCoatD.x, under = vCoatD.y, mask = vCoatD.z, blaze = vCoatD.w;
-  vec3 p = vCoatPos;
+  float back = vCoatD.x, mask = vCoatD.z, blaze = vCoatD.w;
+  // (A frosted squirrel tail has no pale underside: its colour comes from the banded hairs.)
+  float under = vCoatD.y * ( 1.0 - vCoatE.z * step( 0.01, uMarkE.z ) );
+  vec3 p = vCoatPos / uGrain;
   float n = furFbm( p * 22.0 ) - 0.5;
   vec3 col = uBase;
   // Lighter underside and inner legs; a slightly darker topline (agouti shading).
@@ -201,6 +227,17 @@ vec3 furCoat() {
   white = max( white, smoothstep( 0.25, 0.5, blaze * 1.4 * uMarkB.z + muzzleT * uMarkB.z * 0.6 * step( 0.5, uMarkB.z ) + n * 0.1 ) * step( 0.01, uMarkB.z ) );
   white = max( white, smoothstep( 1.0 - 0.3 * uMarkB.w, 1.0 - 0.24 * uMarkB.w, tailT ) * step( 0.01, uMarkB.w ) );
   col = mix( col, uWhite, white );
+  // Frosted (grizzled) coats: salt-and-pepper flecks of light and dark hair tips, big enough to read from afar.
+  {
+    float fleck = furStreak( p * 0.9 + 2.3 );
+    float where = ( 1.0 - under ) * ( 1.0 - vCoatE.y ) * ( 1.0 - vCoatC.x );
+    col = mix( col, mix( uWhite, uBase, 0.25 ), smoothstep( 0.5, 0.68, fleck ) * where * uMarkE.y * 0.75 );
+    col = mix( col, uSecond, smoothstep( 0.4, 0.26, fleck ) * where * uMarkE.y * uMarkD.y * 0.7 );
+  }
+  // Squirrel tail: the dark band of the hairs shows through near the skin.
+  col = mix( col, uSecond * 0.8, vCoatE.z * uMarkE.z * 0.2 );
+  // Pale eye ring.
+  col = mix( col, uWhite * 0.96, smoothstep( 0.25, 0.6, vCoatE.y + n * 0.15 ) * uMarkE.x );
   // Bare skin: nose leather, lips, pads, eye rims.
   col = mix( col, vec3( 0.025, 0.02, 0.02 ), clamp( vCoatC.x + vCoatC.y + vCoatC.z + vCoatC.w, 0.0, 1.0 ) );
   // Clumps of lighter and darker hair (larger than single strands, so they read from afar).
@@ -214,7 +251,8 @@ float furMeanCover( float h ) {
 }
 /** Strand coverage at this shell height: tapered strands of random length on two offset grids. */
 float furStrands() {
-  vec3 p = vCoatPos / uFur.z;
+  // Fine-furred small animals: long hair grows in thicker locks (a squirrel's tail plume).
+  vec3 p = vCoatPos / ( uFur.z * mix( 1.0, max( vCoatB.y, 1.0 ), 0.6 * step( uGrain, 0.99 ) ) );
   float cov = 0.0;
   for ( int k = 0; k < 2; k++ ) {
     vec3 q = p + float( k ) * 0.5;
@@ -241,9 +279,23 @@ float furBare = clamp( vCoatC.x + vCoatC.y + vCoatC.z + vCoatC.w, 0.0, 1.0 );
   diffuseColor.rgb *= mix( 0.72, 1.06, vShell );
   // Agouti: dark guard hair tips, strongest along the back, faint on the underside and legs.
   {
-    float tipBand = smoothstep( 0.45, 0.8, vShell ) * smoothstep( 0.3, 0.6, furStreak( vCoatPos + 0.37 ) );
-    float where = ( 1.0 - vCoatD.y ) * ( 0.35 + 0.65 * vCoatD.x ) * ( 1.0 - 0.7 * vCoatD.z );
+    float tipBand = smoothstep( 0.45, 0.8, vShell ) * smoothstep( 0.3, 0.6, furStreak( vCoatPos / uGrain + 0.37 ) );
+    float where = ( 1.0 - vCoatD.y ) * ( 0.35 + 0.65 * vCoatD.x ) * ( 1.0 - 0.7 * vCoatD.z ) * ( 1.0 - vCoatE.z * step( 0.01, uMarkE.z ) );
     diffuseColor.rgb = mix( diffuseColor.rgb, uSecond * 0.6, tipBand * where * uMarkD.y * 0.75 );
+  }
+  // Frost: white tips on some guard hairs, silvering the coat (not on the white underside).
+  {
+    float tipBand = smoothstep( 0.62, 0.9, vShell ) * smoothstep( 0.45, 0.7, furStreak( vCoatPos / uGrain + 1.91 ) );
+    diffuseColor.rgb = mix( diffuseColor.rgb, uWhite, tipBand * ( 1.0 - vCoatD.y ) * ( 1.0 - vCoatE.y ) * uMarkE.y * 0.8 );
+  }
+  // Squirrel tail: each hair brown at the root, then a dark band, then a white tip, so the plume
+  // shows a dark inner zone and a white fringe.
+  {
+    float t = vCoatE.z * uMarkE.z;
+    float band = smoothstep( 0.1, 0.2, vShell ) * ( 1.0 - smoothstep( 0.3, 0.4, vShell ) );
+    float tipW = smoothstep( 0.34, 0.48, vShell );
+    diffuseColor.rgb = mix( diffuseColor.rgb, uSecond * 0.7, band * t * 0.6 );
+    diffuseColor.rgb = mix( diffuseColor.rgb, uWhite, tipW * t * ( 0.7 + 0.3 * furStreak( vCoatPos / uGrain + 4.2 ) ) );
   }
 #else
   diffuseColor.rgb *= mix( uFur.x > 0.002 ? 0.75 : 0.9, 1.0, furBare );
