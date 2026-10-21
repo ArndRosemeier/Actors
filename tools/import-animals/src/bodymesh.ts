@@ -24,6 +24,7 @@ export interface BodyMesh {
   coatC: Float32Array;
   coatD: Float32Array;
   coatE: Float32Array;
+  coatF: Float32Array;
   uv: Float32Array;
 }
 
@@ -294,12 +295,13 @@ function smooth(values: Float32Array, stride: number, nb: number[][], iterations
  * - coatC: nose leather, lips and mouth, paw pads, eye rims
  * - coatD: back (saddle), underside and inner legs, mask (muzzle and around the eyes), blaze (white stripe over forehead and muzzle)
  * - coatE: light (wolf) mask (cheeks, muzzle sides and lower jaw, below the eyes), eye ring, tail, ear tip (0 root .. 1 tip)
+ * - coatF: position seen from in front of the nose (side, up, depth; in dog-sized meters, i.e. divided by the body's unit), for nose leather detail (nostrils, philtrum), unused
  */
 function coatRegions(body: DogBody, P: Float32Array, N: Float32Array, W: Float32Array, B: number, regions: Map<Region, Float32Array>, furLen: Float32Array) {
   const { rig, marks, eyes } = body;
   const u = body.unit ?? 1;
   const n = P.length / 3;
-  const coatA = new Float32Array(n * 4), coatB = new Float32Array(n * 4), coatC = new Float32Array(n * 4), coatD = new Float32Array(n * 4), coatE = new Float32Array(n * 4);
+  const coatA = new Float32Array(n * 4), coatB = new Float32Array(n * 4), coatC = new Float32Array(n * 4), coatD = new Float32Array(n * 4), coatE = new Float32Array(n * 4), coatF = new Float32Array(n * 4);
   // The light mask's upper edge: from just below the eyes down to the upper lip at the nose.
   const eyeY = Math.max(...eyes.map((e) => e.center[1])), eyeZ = Math.max(...eyes.map((e) => e.center[2]));
   const lineY = (z: number) => eyeY - 0.02 * u + ((z - eyeZ) * (tip[1] - 0.014 * u - (eyeY - 0.02 * u))) / (tip[2] - eyeZ);
@@ -308,6 +310,9 @@ function coatRegions(body: DogBody, P: Float32Array, N: Float32Array, W: Float32
   const bone = (name: string) => rig.bones[rig.index.get(name)!];
   const elbowY = bone("Front_Leg_Lower_L").head[1];
   const stop = bone("Nose").head, tip = bone("Head.tip").tail;
+  // The nose's own frame: forward along the nose bone, up perpendicular to it (and to the side).
+  const noseFwd = normalize(bone("Head.tip").tail.map((c, k) => c - bone("Head.tip").head[k]) as Vec3);
+  const noseUp = normalize([0, noseFwd[2], -noseFwd[1]]);
   const tailBones = ["Tail_Base", "Tail_Mid", "Tail_Mid.001", "Tail_End", "Tail_Tip"].map((b) => rig.index.get(b)!);
   const smoothstep = (a: number, b: number, x: number) => {
     const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
@@ -372,8 +377,10 @@ function coatRegions(body: DogBody, P: Float32Array, N: Float32Array, W: Float32
       earT = ear[v] * segmentDistance(p, a, b).t;
     }
     coatE.set([pale, ring, Math.min(1, tail[v]), earT], v * 4);
+    const q: Vec3 = [p[0] - marks.nose[0], p[1] - marks.nose[1], p[2] - marks.nose[2]];
+    coatF.set([q[0] / u, dot(q, noseUp) / u, dot(q, noseFwd) / u, 0], v * 4);
   }
-  return { coatA, coatB, coatC, coatD, coatE };
+  return { coatA, coatB, coatC, coatD, coatE, coatF };
 }
 
 /** A simple cylindrical UV layout around the body's long axis (for exports; the fur material works without UVs). */
