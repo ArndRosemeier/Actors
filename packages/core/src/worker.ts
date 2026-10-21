@@ -17,7 +17,7 @@ export interface MessagePortLike {
 
 type Request =
   | { id: number; type: "load"; url: string }
-  | { id: number; type: "evaluate"; weights: [string, number][]; options?: ShapeOptions; task?: { name: string; args: unknown } }
+  | { id: number; type: "evaluate"; weights: [string, number][]; options?: ShapeOptions; fit?: string[]; task?: { name: string; args: unknown } }
   | { id: number; type: "loadMeshes"; names: string[] };
 
 type Response = { id: number; ok: true; shape?: ActorShape; task?: unknown } | { id: number; ok: false; error: string };
@@ -54,7 +54,7 @@ export function serveRuntime(port: MessagePortLike, tasks: Record<string, ShapeT
         } else {
           if (!runtime) throw new Error("No actor pack loaded");
           // Fresh buffers every time: they are transferred (moved) to the main thread.
-          const shape = await runtime.evaluate(new Map(req.weights), undefined, req.options);
+          const shape = await runtime.evaluate(new Map(req.weights), undefined, req.options, req.fit);
           const fn = req.task ? tasks[req.task.name] : undefined;
           if (req.task && !fn) throw new Error(`Unknown shape task ${req.task.name}`);
           const task = fn?.(runtime, shape, req.task!.args);
@@ -98,19 +98,33 @@ export class RemoteRuntime {
     return remote;
   }
 
-  /** Loads on-demand meshes in the worker too, so its shapes include their proxies (see ActorRuntime.loadMeshes). */
+  /** On-demand meshes this worker has loaded (or is loading). */
+  private readonly loaded = new Map<string, Promise<unknown>>();
+
+  /**
+   * Loads on-demand meshes in the worker too, so its shapes include their proxies (see
+   * ActorRuntime.loadMeshes). Names this worker already has are skipped, so several workers can
+   * serve one main-thread runtime (each is told about every mesh once).
+   */
   async loadMeshes(names: string[]): Promise<void> {
-    await this.call({ type: "loadMeshes", names } as Request);
+    const missing = [...new Set(names)].filter((n) => !this.loaded.has(n));
+    if (missing.length) {
+      const job = this.call({ type: "loadMeshes", names: missing } as Request);
+      for (const n of missing) this.loaded.set(n, job);
+      job.catch(() => missing.forEach((n) => this.loaded.delete(n)));
+    }
+    await Promise.all(names.map((n) => this.loaded.get(n)));
   }
 
-  async evaluate(weights: Map<string, number>, options?: ShapeOptions): Promise<ActorShape> {
-    const res = await this.call({ type: "evaluate", weights: [...weights], options } as Request);
+  /** `fit`: the meshes the shape is needed for (see ActorRuntime.evaluateLoaded); absent: all. */
+  async evaluate(weights: Map<string, number>, options?: ShapeOptions, fit?: string[]): Promise<ActorShape> {
+    const res = await this.call({ type: "evaluate", weights: [...weights], options, fit } as Request);
     return (res as { shape: ActorShape }).shape;
   }
 
   /** Evaluates a shape and runs a shape task (registered with `serveRuntime`) on it in the worker. */
-  async evaluateWith<T>(weights: Map<string, number>, options: ShapeOptions | undefined, task: { name: string; args: unknown }): Promise<{ shape: ActorShape; task: T }> {
-    const res = (await this.call({ type: "evaluate", weights: [...weights], options, task } as Request)) as { shape: ActorShape; task: T };
+  async evaluateWith<T>(weights: Map<string, number>, options: ShapeOptions | undefined, task: { name: string; args: unknown }, fit?: string[]): Promise<{ shape: ActorShape; task: T }> {
+    const res = (await this.call({ type: "evaluate", weights: [...weights], options, fit, task } as Request)) as { shape: ActorShape; task: T };
     return { shape: res.shape, task: res.task };
   }
 }

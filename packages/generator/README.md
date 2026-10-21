@@ -82,7 +82,15 @@ character.lodBias = 1.5;          // keep detail longer
 const extra = await Character.load({ pack, renderer, shareWith: character });
 await extra.randomize();
 await extra.set({ skin: "procedural" }); // WebGL photo skins cost a 2k texture per actor
+
+// A worker pool: one lead per worker, crowd members share with the leads in turn.
+const leads = [character, await Character.load({ pack, renderer, shareWith: character, worker: new HumanWorker() })];
+const next = await Character.load({ pack, renderer, shareWith: leads[i++ % leads.length] });
 ```
+
+Only what a character wears is fitted and drawn: garment and hair meshes are made the first time they are shown, and shapes fit just the worn garments (`ThreeActor.neededMeshes`), however much of the wardrobe the shared pack has loaded.
+
+`character.actor.crowdMesh()` returns the "Crowd" level's merged mesh and which vertex range came from which garment, e.g. to bake vertex-animation textures for instanced crowds.
 
 "Medium" uses the base mesh instead of the subdivided body and garments, hair and eyes with about half their triangles. "Crowd" draws MakeHuman's 741-vertex proxy body and the garments as one merged mesh (one draw call plus the hair) and doesn't animate the fingers.
 

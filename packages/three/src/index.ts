@@ -240,11 +240,51 @@ export class ThreeActor {
    * that includes them (re-evaluate) before showing them.
    */
   addMeshes(list: MeshData[]): void {
-    const materials = this.kit.mesh;
     for (const data of list) {
       if (data.def.internal || this.data.has(data.def.name)) continue;
       this.rendered.push(data);
       this.data.set(data.def.name, data);
+      // Optional meshes start hidden; of several meshes in a slot, the first is shown.
+      const slot = data.def.slot;
+      const visible = !data.def.optional && !(slot && this.slotsSeen.has(slot));
+      if (slot && visible) this.slotsSeen.add(slot);
+      this.wanted.set(data.def.name, visible);
+      // Scene meshes (and their buffers) are only made for what is shown: a garment or hairstyle
+      // nobody wears costs nothing (see ensureMesh).
+      if (visible) this.ensureMesh(data);
+    }
+    this.visDirty = true;
+    if (this.level > 0) this.flushVisibility();
+  }
+
+  /** Whether a shape includes the surface a mesh follows (garments are only fitted when needed, see `neededMeshes`). */
+  private includes(shape: ActorShape, data: MeshData): boolean {
+    if (data.stencil) return shape.meshes.has(data.def.name);
+    return data.def.source.kind === "base" || shape.proxies.has(data.def.source.proxy);
+  }
+
+  /**
+   * Names of the meshes a shape is needed for: everything that is or would be drawn (worn
+   * garments, the chosen hair, the body and its stand-ins). Pass them to `Human.fit`.
+   */
+  neededMeshes(): string[] {
+    const out = new Set<string>();
+    for (const [n, d] of this.data) {
+      if (!this.wanted.get(n)) continue;
+      out.add(n);
+      // Stand-ins drawn at other detail levels (the low body, the crowd body).
+      for (const [m, e] of this.data) if (e.def.lodOf === n) out.add(m);
+      if (d.def.lodOf) out.add(d.def.lodOf);
+    }
+    return [...out];
+  }
+
+  /** The scene mesh of a mesh, made on first use (filled from the last shape when it includes it). */
+  private ensureMesh(data: MeshData): THREE.SkinnedMesh {
+    const existing = this.meshes.get(data.def.name);
+    if (existing) return existing;
+    const materials = this.kit.mesh;
+    {
       const n = data.map.length;
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
@@ -274,19 +314,17 @@ export class ThreeActor {
       const depth = transparent ? null : this.kit.depth(mesh.material as THREE.Material, !!data.clip);
       if (depth) mesh.customDepthMaterial = depth;
       mesh.frustumCulled = false; // bounds change with morphs and animation
-      // Optional meshes start hidden; of several meshes in a slot, the first is shown.
-      const slot = data.def.slot;
-      mesh.visible = !data.def.optional && !(slot && this.slotsSeen.has(slot));
-      if (slot && mesh.visible) this.slotsSeen.add(slot);
-      this.wanted.set(data.def.name, mesh.visible);
-      if (mesh.visible && drawnAt(data.def, 0)) this.shown.add(data.def.name);
+      mesh.visible = false;
       this.object.add(mesh);
       this.meshes.set(data.def.name, mesh);
       if (this.skeleton) mesh.bind(this.skeleton, new THREE.Matrix4());
       const tint = this.tints.get(data.def.name);
       if (tint !== undefined) this.setGarmentColor(data.def.name, tint);
+      if (this.hairColor !== undefined && data.def.role === "hair") this.setHairColor(this.hairColor);
+      if (this.lastShape && this.includes(this.lastShape, data)) this.fillMesh(mesh, data, this.lastShape);
+      if (morphable) for (const [channel, delta] of this.lastDeltas) this.fillMorph(mesh, data, ThreeActor.MORPHS.indexOf(channel as (typeof ThreeActor.MORPHS)[number]), delta);
+      return mesh;
     }
-    if (this.level > 0) this.updateVisibility();
   }
 
   /** Generated add-ons (horns, beards, tails...; see `Human.parts`), by name. */
@@ -374,7 +412,7 @@ export class ThreeActor {
   hidePackMeshes(hidden: boolean): void {
     if (hidden === this.packHidden) return;
     this.packHidden = hidden;
-    this.updateVisibility();
+    this.visDirty = true;
   }
 
   /** A texture shipped with the pack (cached). */
@@ -401,7 +439,7 @@ export class ThreeActor {
     const slot = data.def.slot;
     if (visible && slot) for (const [n, d] of this.data) if (n !== name && d.def.slot === slot) this.wanted.set(n, false);
     this.wanted.set(name, visible);
-    this.updateVisibility();
+    this.visDirty = true;
   }
 
   /** Whether the mesh was asked to be shown (it may still be covered, see setVisible). */
@@ -420,10 +458,19 @@ export class ThreeActor {
     if (concealed === this.concealed.has(name)) return;
     if (concealed) this.concealed.add(name);
     else this.concealed.delete(name);
-    this.updateVisibility();
+    this.visDirty = true;
+  }
+
+  /** Visibility changes (setVisible, setConcealed, …) wait for the next update, shape or level change, so a whole outfit costs one pass. */
+  private visDirty = false;
+
+  /** Applies pending visibility changes now (they are otherwise applied by the next `update`, `applyShape` or `setLod`). */
+  flushVisibility(): void {
+    if (this.visDirty) this.updateVisibility();
   }
 
   private updateVisibility(): void {
+    this.visDirty = false;
     const level = this.level;
     const on = (n: string) => !!this.wanted.get(n) && !this.concealed.has(n);
     this.shown.clear();
@@ -442,6 +489,10 @@ export class ThreeActor {
     const covered = [...this.data.values()].some((d) => d.def.tags?.includes("covers:anatomy") && this.wanted.get(d.def.name));
     if (covered) for (const d of this.data.values()) if (d.def.tags?.includes("anatomy")) this.shown.delete(d.def.name);
     if (this.packHidden) this.shown.clear();
+    // Not drawn until a shape includes it (a garment worn since the last shape waits for the next one).
+    const shape = this.lastShape;
+    if (shape) for (const n of [...this.shown]) if (!this.includes(shape, this.data.get(n)!)) this.shown.delete(n);
+    for (const n of this.shown) this.ensureMesh(this.data.get(n)!);
     for (const [n, mesh] of this.meshes) mesh.visible = this.shown.has(n);
     this.updateHiddenSkin();
   }
@@ -458,6 +509,7 @@ export class ThreeActor {
    */
   setLod(level: number): void {
     level = Math.max(0, Math.min(this.lods.length - 1, Math.round(level)));
+    this.flushVisibility();
     if (level === this.level) return;
     const bonesBefore = this.lods[this.level].bones;
     this.level = level;
@@ -520,6 +572,7 @@ export class ThreeActor {
    * to its texture's own colour; null restores the texture's colour.
    */
   setHairColor(color: THREE.ColorRepresentation | null): void {
+    this.hairColor = color;
     for (const mesh of this.meshes.values()) {
       const mat = mesh.material as THREE.Material;
       const u = mat.userData.hair as { uHairTint: { value: THREE.Color }; uHairMix: { value: number }; uHairMeanLum: { value: number } } | undefined;
@@ -532,6 +585,8 @@ export class ThreeActor {
   }
 
   private readonly tints = new Map<string, THREE.ColorRepresentation | null>();
+  /** Last setHairColor (also given to hair meshes made later). */
+  private hairColor?: THREE.ColorRepresentation | null;
 
   /**
    * Recolours a garment (sRGB hex or THREE.Color), keeping its texture's
@@ -570,31 +625,37 @@ export class ThreeActor {
   applyShape(shape: ActorShape): void {
     this.lastShape = shape;
     for (const data of this.rendered) {
-      const mesh = this.meshes.get(data.def.name)!;
-      const src = this.source(shape, data);
-      const pos = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
-      const nor = mesh.geometry.getAttribute("normal") as THREE.BufferAttribute;
-      const p = pos.array as Float32Array, nn = nor.array as Float32Array;
-      const map = data.map;
-      const inflate = data.def.inflate ?? 0;
-      for (let i = 0; i < map.length; i++) {
-        const s = map[i] * 3;
-        const nx = src.normals[s], ny = src.normals[s + 1], nz = src.normals[s + 2];
-        p[i * 3] = src.positions[s] + nx * inflate;
-        p[i * 3 + 1] = src.positions[s + 1] + ny * inflate;
-        p[i * 3 + 2] = src.positions[s + 2] + nz * inflate;
-        nn[i * 3] = nx;
-        nn[i * 3 + 1] = ny;
-        nn[i * 3 + 2] = nz;
-      }
-      pos.needsUpdate = true;
-      nor.needsUpdate = true;
+      const mesh = this.meshes.get(data.def.name);
+      // Meshes not made yet are filled when they are; meshes the shape doesn't include keep their last fit (and are not drawn).
+      if (mesh && this.includes(shape, data)) this.fillMesh(mesh, data, shape);
     }
-    this.updateHiddenSkin();
+    this.updateVisibility();
     if (shape.skeleton && this.skeleton) this.rebind(shape.skeleton);
     if (shape.skeleton) this.measureLegs(shape);
     if (this.crowdDirty) this.buildCrowd();
     else this.fillCrowd();
+  }
+
+  /** Writes a shape into a mesh's position and normal buffers. */
+  private fillMesh(mesh: THREE.SkinnedMesh, data: MeshData, shape: ActorShape): void {
+    const src = this.source(shape, data);
+    const pos = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const nor = mesh.geometry.getAttribute("normal") as THREE.BufferAttribute;
+    const p = pos.array as Float32Array, nn = nor.array as Float32Array;
+    const map = data.map;
+    const inflate = data.def.inflate ?? 0;
+    for (let i = 0; i < map.length; i++) {
+      const s = map[i] * 3;
+      const nx = src.normals[s], ny = src.normals[s + 1], nz = src.normals[s + 2];
+      p[i * 3] = src.positions[s] + nx * inflate;
+      p[i * 3 + 1] = src.positions[s + 1] + ny * inflate;
+      p[i * 3 + 2] = src.positions[s + 2] + nz * inflate;
+      nn[i * 3] = nx;
+      nn[i * 3 + 1] = ny;
+      nn[i * 3 + 2] = nz;
+    }
+    pos.needsUpdate = true;
+    nor.needsUpdate = true;
   }
 
   private static readonly LEGS: [string, string][] = [
@@ -665,32 +726,40 @@ export class ThreeActor {
   setMorph(channel: (typeof ThreeActor.MORPHS)[number], delta: SurfaceDelta | null): void {
     const k = ThreeActor.MORPHS.indexOf(channel);
     for (const data of this.rendered) {
-      const mesh = this.meshes.get(data.def.name)!;
-      const g = mesh.geometry;
-      if (!g.morphAttributes.position) continue;
-      const mp = g.morphAttributes.position[k].array as Float32Array;
-      const mn = g.morphAttributes.normal![k].array as Float32Array;
-      if (!delta) {
-        mp.fill(0);
-        mn.fill(0);
-      } else {
-        const src = data.stencil ? delta.meshes.get(data.def.name)! : delta;
-        const map = data.map;
-        for (let i = 0; i < map.length; i++) {
-          const s = map[i] * 3;
-          mp[i * 3] = src.positions[s];
-          mp[i * 3 + 1] = src.positions[s + 1];
-          mp[i * 3 + 2] = src.positions[s + 2];
-          mn[i * 3] = src.normals[s];
-          mn[i * 3 + 1] = src.normals[s + 1];
-          mn[i * 3 + 2] = src.normals[s + 2];
-        }
-      }
-      // three caches morph data in a texture; disposing forces a re-upload (attributes are re-created on demand).
-      g.dispose();
+      const mesh = this.meshes.get(data.def.name);
+      if (mesh) this.fillMorph(mesh, data, k, delta);
     }
     this.lastDeltas.set(channel, delta);
     this.setPartMorph(channel, delta);
+  }
+
+  /** Writes a face-morph delta into one mesh's morph channel `k` (zero for null, or a delta that lacks the mesh). */
+  private fillMorph(mesh: THREE.SkinnedMesh, data: MeshData, k: number, delta: SurfaceDelta | null): void {
+    const g = mesh.geometry;
+    if (!g.morphAttributes.position) return;
+    const mp = g.morphAttributes.position[k].array as Float32Array;
+    const mn = g.morphAttributes.normal![k].array as Float32Array;
+    const src = delta && (data.stencil ? delta.meshes.get(data.def.name) : delta);
+    if (!src) {
+      mp.fill(0);
+      mn.fill(0);
+    } else {
+      const map = data.map;
+      for (let i = 0; i < map.length; i++) {
+        const s = map[i] * 3;
+        mp[i * 3] = src.positions[s];
+        mp[i * 3 + 1] = src.positions[s + 1];
+        mp[i * 3 + 2] = src.positions[s + 2];
+        mn[i * 3] = src.normals[s];
+        mn[i * 3 + 1] = src.normals[s + 1];
+        mn[i * 3 + 2] = src.normals[s + 2];
+      }
+    }
+    // three caches morph data in a texture; disposing forces a re-upload (attributes are re-created on demand).
+    g.dispose();
+    // Keep the weights of the other channels (a new mesh starts at 0).
+    const body = [...this.meshes.values()].find((m) => m !== mesh && m.morphTargetInfluences);
+    if (mesh.morphTargetInfluences && body?.morphTargetInfluences) mesh.morphTargetInfluences.splice(0, body.morphTargetInfluences.length, ...body.morphTargetInfluences);
   }
 
   setMorphWeight(channel: (typeof ThreeActor.MORPHS)[number], weight: number): void {
@@ -720,7 +789,8 @@ export class ThreeActor {
       if (data.hidesBaseVertices && this.shown.has(data.def.name)) covers.push({ layer: ThreeActor.layerOf(data.def), verts: data.hidesBaseVertices });
     for (const data of this.rendered) {
       const { def } = data;
-      const mesh = this.meshes.get(def.name)!;
+      const mesh = this.meshes.get(def.name);
+      if (!mesh) continue;
       const isGarment = def.role === "garment" && def.source.kind === "base";
       if (def.role !== "body" && !isGarment) {
         this.useIndices(mesh, data, level);
@@ -838,6 +908,18 @@ export class ThreeActor {
     this.crowd = { mesh, merged };
     this.colorCrowd();
     this.fillCrowd();
+  }
+
+  /**
+   * The crowd level's merged mesh (body and garments in one draw call) and which vertex range
+   * came from which mesh, or null when the actor is not drawn at a merging level. For tools that
+   * bake it, e.g. into vertex-animation textures.
+   */
+  crowdMesh(): { mesh: THREE.SkinnedMesh; parts: { name: string; role: string; offset: number; count: number }[] } | null {
+    this.flushVisibility();
+    if (this.crowdDirty) this.buildCrowd();
+    if (!this.crowd) return null;
+    return { mesh: this.crowd.mesh, parts: this.crowd.merged.parts.map((p) => ({ name: p.data.def.name, role: p.data.def.role, offset: p.offset, count: p.count })) };
   }
 
   private dropCrowd(disposeMaterial = true): void {
@@ -1014,6 +1096,7 @@ export class ThreeActor {
   }
 
   update(dt: number): void {
+    this.flushVisibility();
     if (this.crowdDirty) this.buildCrowd();
     this.mixer.update(dt);
     // Leg colliders only matter while a skirt-skinned garment is drawn.

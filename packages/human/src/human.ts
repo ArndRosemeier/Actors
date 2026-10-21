@@ -135,8 +135,9 @@ export class Human {
    */
   async loadMeshes(names: string[]): Promise<MeshData[]> {
     const missing = names.filter((n) => !this.runtime.isLoaded(n));
-    if (!missing.length) return [];
-    const [loaded] = await Promise.all([this.runtime.loadMeshes(missing), this.remote?.loadMeshes(missing)]);
+    // The worker is asked even when the main thread has them: another human sharing this pack
+    // through its own worker may have loaded them (each worker skips what it already has).
+    const [loaded] = await Promise.all([missing.length ? this.runtime.loadMeshes(missing) : [], names.length ? this.remote?.loadMeshes(names) : undefined]);
     return loaded;
   }
 
@@ -175,14 +176,21 @@ export class Human {
   /** Robot parts of the last evaluated shape (see `robotConfig`). */
   robotParts: RobotParts | null = null;
 
+  /**
+   * Meshes the next shapes are needed for (e.g. the body and what is worn): only their
+   * garments and hair are fitted (see ActorRuntime.evaluateLoaded). Null: every loaded mesh.
+   */
+  fit: string[] | null = null;
+
   async evaluate(previous?: ActorShape): Promise<ActorShape> {
     const robot = this.robotConfig;
+    const fit = this.fit ?? undefined;
     if (this.remote && robot) {
-      const { shape, task } = await this.remote.evaluateWith<RobotParts>(this.targetWeights(), this.shapeOptions(), { name: ROBOT_TASK, args: robot });
+      const { shape, task } = await this.remote.evaluateWith<RobotParts>(this.targetWeights(), this.shapeOptions(), { name: ROBOT_TASK, args: robot }, fit);
       this.robotParts = task;
       return shape;
     }
-    const shape = this.remote ? await this.remote.evaluate(this.targetWeights(), this.shapeOptions()) : await this.runtime.evaluate(this.targetWeights(), previous, this.shapeOptions());
+    const shape = this.remote ? await this.remote.evaluate(this.targetWeights(), this.shapeOptions(), fit) : await this.runtime.evaluate(this.targetWeights(), previous, this.shapeOptions(), fit);
     this.robotParts = robot ? this.robot(shape, robot) : null;
     return shape;
   }
