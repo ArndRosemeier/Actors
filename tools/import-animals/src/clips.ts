@@ -51,18 +51,31 @@ function quatPow(q: Quat, t: number): Quat {
  */
 const TAIL_MOTION = 0.3;
 
-export function convertClips(g: Gltf, rig: Rig, source = "Mesh2Motion fox rig (CC0)"): { def: ClipDef; data: Float32Array }[] {
+/** What differs between source rigs (defaults: the Mesh2Motion fox rig and the dog's clips). */
+export interface ClipOptions {
+  clips?: [string, string, boolean, string][];
+  /** Bone whose world position gives the root motion. */
+  rootBone?: string;
+  /** Bones at the ground in the rest pose (for the hip height that root motion is measured in). */
+  feet?: (name: string) => boolean;
+  /** Share of the tail's motion relative to the root that is kept. */
+  tailMotion?: number;
+  isTail?: (name: string) => boolean;
+}
+
+export function convertClips(g: Gltf, rig: Rig, source = "Mesh2Motion fox rig (CC0)", options: ClipOptions = {}): { def: ClipDef; data: Float32Array }[] {
+  const { clips = DOG_CLIPS, rootBone = "Hips", feet = (n: string) => /Tip_[LR]$/.test(n) && /Leg/.test(n), tailMotion = TAIL_MOTION, isTail = (n: string) => n.startsWith("Tail") } = options;
   const nodes = rig.bones.map((b) => b.node);
   const names = rig.bones.map((b) => b.name);
-  const hipsK = rig.index.get("Hips")!;
+  const hipsK = rig.index.get(rootBone)!;
   const hips = rig.bones[hipsK].node;
   const rest = worldPose(g, restLocals(g));
   const refDirs = nodes.flatMap((j) => normalize(rotate(rest.rot[j], [0, 1, 0])));
   const restInv = nodes.map((j) => quatConjugate(rest.rot[j]));
-  const footY = Math.min(...rig.bones.filter((b) => /Tip_[LR]$/.test(b.name) && /Leg/.test(b.name)).map((b) => rest.pos[b.node][1]));
+  const footY = Math.min(...rig.bones.filter((b) => feet(b.name)).map((b) => rest.pos[b.node][1]));
   const hipHeight = rest.pos[hips][1] - footY;
   const out: { def: ClipDef; data: Float32Array }[] = [];
-  for (const [name, animation, loop, category] of DOG_CLIPS) {
+  for (const [name, animation, loop, category] of clips) {
     const anim = g.animations.find((a) => a.name === animation);
     if (!anim) throw new Error(`No animation ${animation}`);
     const frameCount = Math.max(2, Math.round(anim.duration * FPS) + 1);
@@ -74,7 +87,7 @@ export function convertClips(g: Gltf, rig: Rig, source = "Mesh2Motion fox rig (C
       const hipsDelta = quatMul(pose.rot[hips], restInv[hipsK]);
       nodes.forEach((j, k) => {
         let q = quatMul(pose.rot[j], restInv[k]);
-        if (names[k].startsWith("Tail")) q = quatMul(hipsDelta, quatPow(quatMul(quatConjugate(hipsDelta), q), TAIL_MOTION));
+        if (isTail(names[k])) q = quatMul(hipsDelta, quatPow(quatMul(quatConjugate(hipsDelta), q), tailMotion));
         if (f > 0) {
           const o = (f - 1) * stride + k * 4;
           if (q[0] * data[o] + q[1] * data[o + 1] + q[2] * data[o + 2] + q[3] * data[o + 3] < 0) q.forEach((v, c) => (q[c] = -v));
@@ -93,7 +106,7 @@ export function convertClips(g: Gltf, rig: Rig, source = "Mesh2Motion fox rig (C
         loop,
         bones: names,
         refDirs,
-        rootBone: "Hips",
+        rootBone,
         source: `${source}: ${animation}`,
         category,
       },

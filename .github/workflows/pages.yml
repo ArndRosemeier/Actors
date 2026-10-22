@@ -51,7 +51,7 @@ jobs:
           restore-keys: import-cache-
       - if: steps.packs.outputs.cache-hit != 'true'
         run: npm run import:human
-      # Dog and squirrel packs: Mesh2Motion's CC0 quadruped rig and clips plus generated bodies.
+      # Dog, squirrel and deer packs: CC0 rigs and clips (Mesh2Motion quadruped, Quaternius Deer) plus generated bodies.
       - if: steps.packs.outputs.cache-hit != 'true'
         run: npm run import:animals
       - run: npm run build

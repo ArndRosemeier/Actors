@@ -2,6 +2,7 @@
 // head and coat, and frames of a few clips.
 // Usage: node scripts/animals.mjs [url] [outDir]   (SHOTS=breed-,walk to pick)
 // Squirrels: node scripts/animals.mjs "http://localhost:5173/animals.html?animal=squirrel" screenshots/squirrels
+// Deer: node scripts/animals.mjs "http://localhost:5173/animals.html?animal=deer" screenshots/deer
 import { chromium } from "playwright-core";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -33,9 +34,9 @@ const shot = async (name, wait = 500) => {
   writeFileSync(`${out}/${name}.png`, Buffer.from(png.split(",")[1], "base64"));
   console.log("saved", name);
 };
-// Frames the animal by its current size (squirrels are about 0.3 of a dog).
+// Frames the animal by its current size (squirrels are about 0.3 of a dog, the deer about 1.35 times its height).
 const kind = await page.evaluate(() => window.__actors.kind);
-const H = kind === "squirrel" ? 0.3 : 1;
+const H = kind === "squirrel" ? 0.3 : kind === "deer" ? 1.35 : 1;
 const size = () => page.evaluate((h) => window.__actors.animal.shape.size * h, H);
 const side = async () => {
   const s = await size();
@@ -44,8 +45,13 @@ const side = async () => {
 const head = async () => {
   const s = await size();
   if (kind === "squirrel") await view([0.9 * s, 0.7 * s, 1.7 * s], [0, 0.48 * s, 0.42 * s]);
+  else if (kind === "deer") await view([0.55 * s, 0.82 * s, 0.85 * s], [0, 0.73 * s, 0.42 * s]);
   else await view([0.7 * s, 0.82 * s, 1.25 * s], [0, 0.62 * s, 0.5 * s]);
 };
+const base = await page.evaluate(() => window.__actors.animal.species.base);
+// Head close-ups: every squirrel, a few dogs and deer.
+const closeUp = (id) => kind === "squirrel" || (kind === "deer" ? ["sika", "red", "whitetail"] : ["wolfdog", "germanShepherd", "labrador", "beagle", "husky"]).includes(id);
+const clips = kind === "deer" ? ["walk", "gallop", "eat", "headbutt"] : kind === "squirrel" ? ["alert", "eat", "hop", "run", "flick", "walk"] : ["walk", "run", "sit", "howl"];
 
 const t0 = Date.now();
 const ms = await page.evaluate(async () => {
@@ -64,13 +70,13 @@ for (const id of breeds) {
   await call("setBreed", id);
   await side();
   await shot(`breed-${id}`);
-  if (want(`head-${id}`) && (kind === "squirrel" || ["wolfdog", "germanShepherd", "labrador", "beagle", "husky"].includes(id))) {
+  if (want(`head-${id}`) && closeUp(id)) {
     await head();
     await shot(`head-${id}`);
   }
 }
-await call("setBreed", breeds[0]);
-for (const clip of kind === "squirrel" ? ["alert", "eat", "hop", "run", "flick", "walk"] : ["walk", "run", "sit", "howl"]) {
+await call("setBreed", base);
+for (const clip of clips) {
   if (!want(clip)) continue;
   await call("play", clip);
   await call("pose", 0.3);
