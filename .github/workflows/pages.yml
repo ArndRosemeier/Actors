@@ -35,15 +35,25 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # The generated packs only change with the importers, the packages they import and the
+      # lockfile, so a run that touches none of them reuses the last packs (exact key only).
+      - id: packs
+        uses: actions/cache@v4
+        with:
+          path: apps/viewer/public/packs
+          key: packs-${{ hashFiles('tools/import-makehuman/src/**', 'tools/import-animals/src/**', 'packages/core/src/**', 'packages/human/src/**', 'package-lock.json') }}
       # Downloads (MPFB2 clone, MakeHuman asset packs, Quaternius and Mesh2Motion animations) are cached between runs.
-      - uses: actions/cache@v4
+      - if: steps.packs.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
         with:
           path: .cache
           key: import-cache-${{ hashFiles('tools/import-makehuman/src/**', 'tools/import-animals/src/**') }}
           restore-keys: import-cache-
-      - run: npm run import:human
+      - if: steps.packs.outputs.cache-hit != 'true'
+        run: npm run import:human
       # Dog and squirrel packs: Mesh2Motion's CC0 quadruped rig and clips plus generated bodies.
-      - run: npm run import:animals
+      - if: steps.packs.outputs.cache-hit != 'true'
+        run: npm run import:animals
       - run: npm run build
       # A fresh Vite + TypeScript app installs the package tarballs, typechecks and builds.
       - run: npm run check:consumer
