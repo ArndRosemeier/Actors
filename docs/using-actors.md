@@ -69,6 +69,7 @@ Code is MIT. Most assets are CC0, but some garments and hairstyles are **CC-BY**
 ## Publishing a new version (maintainers)
 
 1. Bump `version` in all `packages/*/package.json` (and `tools/*`, `apps/viewer`) (and the `@actors/*` dependency versions) to the same new number; run `npm install` to update the lockfile.
-2. Merge to `main`. The Pages workflow builds the packages, checks them in a fresh Vite app (`npm run check:consumer`), and creates release `v<version>` with the six tarballs and `actors-packs-<version>.tar.gz`. A version that already has a release is skipped.
+2. Optionally write the release notes in `docs/releases/<version>.md` (what's new, how to use it); they go under the install line on the release page, and editing the file later updates the page on the next push to `main`.
+3. Merge to `main`. The Pages workflow builds the packages, checks them in a fresh Vite app (`npm run check:consumer`), and creates release `v<version>` with the six tarballs and `actors-packs-<version>.tar.gz`. A version that already has a release is skipped.
 
 Locally, `npm run build:packages` writes the tarballs to `release/`, and `npm run check:consumer [dir]` installs them into a throwaway app and builds it.

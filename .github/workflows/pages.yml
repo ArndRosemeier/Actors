@@ -65,12 +65,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p "require('./packages/generator/package.json').version")
+          # Release notes: the install line, then docs/releases/<version>.md if there is one.
+          notes=$(mktemp)
+          echo "Install: \`npm install https://github.com/${GITHUB_REPOSITORY}/releases/download/v$version/actors-generator-$version.tgz three\`. Assets: \`npx actors-packs\` or the hosted packs. See docs/using-actors.md." > "$notes"
+          if [ -f "docs/releases/$version.md" ]; then printf '\n' >> "$notes"; cat "docs/releases/$version.md" >> "$notes"; fi
           if gh release view "v$version" > /dev/null 2>&1; then
-            echo "release v$version exists; bump the package versions to publish a new one"
+            # Existing release: only its notes follow the file (bump the package versions to publish a new one).
+            gh release edit "v$version" --notes-file "$notes"
           else
             gh release create "v$version" release/*.tgz release/actors-packs-*.tar.gz \
-              --target "$GITHUB_SHA" --title "Actors $version" \
-              --notes "Install: \`npm install https://github.com/${GITHUB_REPOSITORY}/releases/download/v$version/actors-generator-$version.tgz three\`. Assets: \`npx actors-packs\` or the hosted packs. See docs/using-actors.md."
+              --target "$GITHUB_SHA" --title "Actors $version" --notes-file "$notes"
           fi
       - uses: actions/upload-pages-artifact@v3
         with:
