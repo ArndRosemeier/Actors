@@ -14,10 +14,10 @@ The character generator ships as six installable packages, attached to each [Git
 ## Install
 
 ```bash
-npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.6.1/actors-generator-0.6.1.tgz
+npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.6.2/actors-generator-0.6.2.tgz
 ```
 
-`@actors/generator` depends on the `core`, `human` and `three` tarballs of the same release, so npm fetches them too, and you can import from all four. For animals or drones, add `.../v0.6.1/actors-animal-0.6.1.tgz` or `.../v0.6.1/actors-drone-0.6.1.tgz` to the same command. `three` (0.180 or newer) is a peer dependency, so your app's copy is used. To upgrade, change both version numbers in the URL.
+`@actors/generator` depends on the `core`, `human` and `three` tarballs of the same release, so npm fetches them too, and you can import from all four. For animals or drones, add `.../v0.6.2/actors-animal-0.6.2.tgz` or `.../v0.6.2/actors-drone-0.6.2.tgz` to the same command. `three` (0.180 or newer) is a peer dependency, so your app's copy is used. To upgrade, change both version numbers in the URL.
 
 The packages are ES modules with type declarations, built for bundlers (Vite, webpack, esbuild, Rollup). Use `"moduleResolution": "Bundler"` in your `tsconfig.json`.
 
