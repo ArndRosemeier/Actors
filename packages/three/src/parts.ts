@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { PartMesh } from "@actors/core";
 import { useDualQuaternionSkinning } from "./dqs";
-import { morphAttribute } from "./morphs";
+import { addMorphAttributes } from "./morphs";
 import { fabricNormalMap } from "./procedural";
 import { createAlphaDepthMaterial, createDepthMaterial, createSkinMaterial, type SkinUniforms } from "./materials";
 
@@ -185,7 +185,7 @@ export function createPartGeometry(part: PartMesh, attributeMorphs = false): THR
   // Parts that follow the skin in face morphs get the two morph channels (see ThreeActor.MORPHS).
   if (part.anchors) {
     const n = part.positions.length;
-    if (attributeMorphs) for (const k of [0, 1]) g.setAttribute(morphAttribute(k), new THREE.BufferAttribute(new Float32Array(n), 3));
+    if (attributeMorphs) addMorphAttributes(g, n / 3, 2, false);
     else {
       g.morphAttributes.position = [0, 1].map(() => new THREE.BufferAttribute(new Float32Array(n), 3));
       g.morphTargetsRelative = true;

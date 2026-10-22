@@ -40,7 +40,7 @@ import {
 import { SkinComposer } from "./skincompose";
 import { type ColliderUniforms, MAX_COLLIDERS, createColliderUniforms, useColliders } from "./colliders";
 import { createPartMaterial, createPartMesh } from "./parts";
-import { morphArrays, morphAttribute, morphsChanged } from "./morphs";
+import { addMorphAttributes, clearDeltas, morphArrays, morphsChanged, setDelta } from "./morphs";
 import { createCrowdMaterial } from "./crowd";
 import { garmentLayer } from "./layers";
 
@@ -348,10 +348,7 @@ export class ThreeActor {
       const morphable = data.def.source.kind === "base" && data.def.role !== "garment";
       const attributeMorphs = morphable && !!this.kit.attributeMorphs;
       if (attributeMorphs) {
-        ThreeActor.MORPHS.forEach((_, k) => {
-          g.setAttribute(morphAttribute(k), new THREE.BufferAttribute(new Float32Array(n * 3), 3));
-          g.setAttribute(morphAttribute(k, true), new THREE.BufferAttribute(new Float32Array(n * 3), 3));
-        });
+        addMorphAttributes(g, n, ThreeActor.MORPHS.length, true);
       } else if (morphable) {
         g.morphAttributes.position = ThreeActor.MORPHS.map(() => new THREE.BufferAttribute(new Float32Array(n * 3), 3));
         g.morphAttributes.normal = ThreeActor.MORPHS.map(() => new THREE.BufferAttribute(new Float32Array(n * 3), 3));
@@ -433,14 +430,12 @@ export class ThreeActor {
       const arrays = anchors && morphArrays(g, k);
       if (!arrays) continue;
       const mp = arrays.positions;
-      mp.fill(0);
+      clearDeltas(mp, anchors.length);
       if (delta)
         for (let i = 0; i < anchors.length; i++) {
           const a = anchors[i];
           if (a === 0xffffffff) continue;
-          mp[i * 3] = delta.positions[a * 3];
-          mp[i * 3 + 1] = delta.positions[a * 3 + 1];
-          mp[i * 3 + 2] = delta.positions[a * 3 + 2];
+          setDelta(mp, i, delta.positions[a * 3], delta.positions[a * 3 + 1], delta.positions[a * 3 + 2]);
         }
       morphsChanged(g, k);
     }
@@ -910,19 +905,15 @@ export class ThreeActor {
     const mp = arrays.positions;
     const mn = arrays.normals!;
     const src = delta && (data.stencil ? delta.meshes.get(data.def.name) : delta);
+    const map = data.map;
     if (!src) {
-      mp.fill(0);
-      mn.fill(0);
+      clearDeltas(mp, map.length);
+      clearDeltas(mn, map.length);
     } else {
-      const map = data.map;
       for (let i = 0; i < map.length; i++) {
         const s = map[i] * 3;
-        mp[i * 3] = src.positions[s];
-        mp[i * 3 + 1] = src.positions[s + 1];
-        mp[i * 3 + 2] = src.positions[s + 2];
-        mn[i * 3] = src.normals[s];
-        mn[i * 3 + 1] = src.normals[s + 1];
-        mn[i * 3 + 2] = src.normals[s + 2];
+        setDelta(mp, i, src.positions[s], src.positions[s + 1], src.positions[s + 2]);
+        setDelta(mn, i, src.normals[s], src.normals[s + 1], src.normals[s + 2]);
       }
     }
     morphsChanged(g, k);
@@ -1139,9 +1130,9 @@ export class ThreeActor {
     this.placeExtraBones();
     const rootInv = this.object.matrixWorld.clone().invert();
     this.skeleton!.boneInverses = this.bones.map((b) => new THREE.Matrix4().multiplyMatrices(rootInv, b.matrixWorld).invert());
-    for (const mesh of this.meshes.values()) mesh.bind(this.skeleton!, new THREE.Matrix4());
-    for (const mesh of this.parts.values()) mesh.bind(this.skeleton!, new THREE.Matrix4());
-    this.crowd?.mesh.bind(this.skeleton!, new THREE.Matrix4());
+    for (const mesh of this.meshes.values()) bindSkeleton(mesh, this.skeleton!);
+    for (const mesh of this.parts.values()) bindSkeleton(mesh, this.skeleton!);
+    if (this.crowd) bindSkeleton(this.crowd.mesh, this.skeleton!);
     // Joint positions moved, so rebuild the clip against the new bind pose.
     if (this.clip) this.play(this.clip);
   }
@@ -1302,4 +1293,17 @@ export class ThreeActor {
     for (const v of body.map) min = Math.min(min, p[v * 3 + 1]);
     return -min;
   }
+}
+
+/**
+ * Binds `mesh` to `skeleton`. When the bone count changes (a tail's bones come
+ * or go), three's node renderer must rebuild the mesh's draws: it sizes their
+ * bone buffer by the bone count but does not notice the change itself, and
+ * WebGPU then rejects the larger bone upload. The mesh's `dispose` event drops
+ * those draws (every pass, shadows included); the WebGL renderer ignores it.
+ */
+function bindSkeleton(mesh: THREE.SkinnedMesh, skeleton: THREE.Skeleton): void {
+  const before = mesh.skeleton?.bones.length;
+  mesh.bind(skeleton, new THREE.Matrix4());
+  if (before !== undefined && before !== skeleton.bones.length) mesh.dispatchEvent({ type: "dispose" } as never);
 }
