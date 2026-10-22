@@ -130,9 +130,20 @@ export interface ActorMaterialKit {
    * `crowdClip` is below 0 (garment hems). Default: the WebGL one (`createCrowdMaterial`).
    */
   crowd?(actor: ThreeActor): THREE.Material;
+  /** Frees what the kit holds for an actor that is going away (e.g. its share of a composed skin). */
+  release?(actor: ThreeActor): void;
 }
 
 const sharedDepth = new WeakMap<object, THREE.Material>();
+
+/** Composed photo skins by blend (see webglMaterials.blendSkins), with the number of actors showing each. */
+const composedSkins = new Map<string, { composer: SkinComposer; users: number }>();
+function releaseSkin(key: string | undefined): void {
+  const shared = key === undefined ? undefined : composedSkins.get(key);
+  if (!shared || --shared.users > 0) return;
+  shared.composer.dispose();
+  composedSkins.delete(key!);
+}
 
 /** The WebGL kit: three's built-in materials with GLSL patches (see materials.ts). */
 export const webglMaterials: ActorMaterialKit = {
@@ -148,11 +159,41 @@ export const webglMaterials: ActorMaterialKit = {
   },
   crowd: (actor) => createCrowdMaterial(actor.skin),
   blendSkins(actor, layers, renderer) {
-    const composer = (actor.userData.skinComposer ??= new SkinComposer()) as SkinComposer;
-    composer.compose(renderer as THREE.WebGLRenderer, layers);
-    actor.skin.uAlbedo.value = composer.target.texture;
+    // Actors with (nearly) the same blend share one composed texture: a 2k render target each would add up fast.
+    const key = layers.map((l) => `${l.texture.uuid}:${l.weight.toFixed(2)}`).join("|");
+    const previous = actor.userData.skinBlend as string | undefined;
+    if (previous === key) return;
+    let shared = composedSkins.get(key);
+    const own = previous === undefined ? undefined : composedSkins.get(previous);
+    if (!shared && own?.users === 1) {
+      // Nobody else shows the old blend (e.g. while an age slider moves): recompose in place.
+      composedSkins.delete(previous!);
+      own.composer.compose(renderer as THREE.WebGLRenderer, layers);
+      composedSkins.set(key, own);
+    } else {
+      if (!shared) {
+        shared = { composer: new SkinComposer(), users: 0 };
+        shared.composer.compose(renderer as THREE.WebGLRenderer, layers);
+        composedSkins.set(key, shared);
+      }
+      shared.users++;
+      releaseSkin(previous);
+    }
+    shared ??= own!;
+    actor.userData.skinBlend = key;
+    actor.skin.uAlbedo.value = shared.composer.target.texture;
+  },
+  release(actor) {
+    releaseSkin(actor.userData.skinBlend as string | undefined);
+    delete actor.userData.skinBlend;
   },
 };
+
+/** Pack textures, shared by every actor on the page (by URL and colour space). */
+const packTextures = new Map<string, THREE.Texture>();
+/** Photographic skin sources (see setSkinTextures), shared the same way. */
+const skinTextures = new Map<string, Promise<THREE.Texture>>();
+const textureLoader = new THREE.TextureLoader();
 
 export type PlayableClip = AxisClip | Clip;
 const isRetargetClip = (c: PlayableClip): c is Clip => "def" in c;
@@ -192,8 +233,6 @@ export class ThreeActor {
   private clip?: PlayableClip;
   private action?: THREE.AnimationAction;
   private lastShape?: ActorShape;
-  private readonly textures = new Map<string, THREE.Texture>();
-  private readonly loader = new THREE.TextureLoader();
   private readonly data = new Map<string, MeshData>();
   /** Meshes that are drawn (internal helper meshes are skipped). */
   private readonly rendered: MeshData[];
@@ -379,14 +418,15 @@ export class ThreeActor {
     this.updateVisibility();
   }
 
-  /** A texture shipped with the pack (cached). */
+  /** A texture shipped with the pack (loaded, decoded and uploaded once per page; every actor shares it). */
   texture(file: string, srgb = false): THREE.Texture {
-    let t = this.textures.get(file);
+    const key = `${srgb ? "srgb" : "raw"}|${this.runtime.url}${file}`;
+    let t = packTextures.get(key);
     if (!t) {
-      t = this.loader.load(this.runtime.url + file);
+      t = textureLoader.load(this.runtime.url + file);
       t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
       t.anisotropy = 4;
-      this.textures.set(file, t);
+      packTextures.set(key, t);
     }
     return t;
   }
@@ -425,7 +465,29 @@ export class ThreeActor {
     this.updateVisibility();
   }
 
+  private batching = 0;
+  private visibilityDirty = false;
+  private shownKey = "";
+
+  /**
+   * Runs `fn` (many setVisible/setConcealed calls, say) and updates what is
+   * drawn once at the end, instead of after every call.
+   */
+  batch<T>(fn: () => T): T {
+    this.batching++;
+    try {
+      return fn();
+    } finally {
+      if (--this.batching === 0 && this.visibilityDirty) this.updateVisibility();
+    }
+  }
+
   private updateVisibility(): void {
+    if (this.batching > 0) {
+      this.visibilityDirty = true;
+      return;
+    }
+    this.visibilityDirty = false;
     const level = this.level;
     const on = (n: string) => !!this.wanted.get(n) && !this.concealed.has(n);
     this.shown.clear();
@@ -445,6 +507,10 @@ export class ThreeActor {
     if (covered) for (const d of this.data.values()) if (d.def.tags?.includes("anatomy")) this.shown.delete(d.def.name);
     if (this.packHidden) this.shown.clear();
     for (const [n, mesh] of this.meshes) mesh.visible = this.shown.has(n);
+    // Cutting the skin under garments is the slow part: only redo it when what is drawn changed.
+    const key = `${level}|${this.data.size}|${[...this.shown].sort().join(",")}`;
+    if (key === this.shownKey) return;
+    this.shownKey = key;
     this.updateLifts();
     this.updateHiddenSkin();
   }
@@ -484,8 +550,12 @@ export class ThreeActor {
     return this.level;
   }
 
-  private readonly loading = new Map<string, Promise<THREE.Texture>>();
   private skinKey = "";
+
+  /** Frees what this actor holds besides its meshes (its share of a composed photo skin). */
+  dispose(): void {
+    this.kit.release?.(this);
+  }
 
   /**
    * Photographic skin: blends the given pack textures (e.g. `Human.skinTextures()`)
@@ -502,15 +572,17 @@ export class ThreeActor {
     }
     const textures = await Promise.all(
       layers.map((l) => {
-        if (!this.loading.has(l.file))
-          this.loading.set(
-            l.file,
-            this.loader.loadAsync(this.runtime.url + l.file).then((t) => {
-              t.colorSpace = THREE.SRGBColorSpace;
-              return t;
-            }),
-          );
-        return this.loading.get(l.file)!;
+        const url = this.runtime.url + l.file;
+        let job = skinTextures.get(url);
+        if (!job) {
+          job = textureLoader.loadAsync(url).then((t) => {
+            t.colorSpace = THREE.SRGBColorSpace;
+            return t;
+          });
+          job.catch(() => skinTextures.delete(url));
+          skinTextures.set(url, job);
+        }
+        return job;
       }),
     );
     if (key !== this.skinKey) return; // a newer request won

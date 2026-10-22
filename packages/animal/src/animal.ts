@@ -117,8 +117,13 @@ export class Animal {
     return need.some((n) => have.has(n));
   }
 
-  static async load(manifestUrl: string, fetcher?: Fetcher): Promise<Animal> {
-    return new Animal(await ActorRuntime.load(manifestUrl, fetcher));
+  /**
+   * Loads the pack once per page: later calls with the same URL (and fetcher)
+   * reuse the loaded data, so only the first one downloads anything.
+   * `fresh` loads a private copy instead.
+   */
+  static async load(manifestUrl: string, fetcher?: Fetcher, fresh = false): Promise<Animal> {
+    return new Animal(await (fresh ? ActorRuntime.load(manifestUrl, fetcher) : ActorRuntime.shared(manifestUrl, fetcher)));
   }
 
   /** Another animal on the same loaded pack (and worker), e.g. for a pack of dogs. */

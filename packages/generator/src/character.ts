@@ -270,8 +270,23 @@ export class Character {
     }
   }
 
-  /** Removes the character from its parent and frees its GPU resources. */
+  /**
+   * Compiles the character's shaders ahead of time, without drawing it, so the
+   * frame that first shows it doesn't stall (three's `renderer.compileAsync`;
+   * WebGL compiles in parallel where the browser supports it). Pass the camera
+   * and scene you will draw it in (their lights are part of the shaders). Only
+   * the first character with a given garment, hair or add-on kind compiles
+   * anything: later ones reuse the same shaders.
+   */
+  async compile(renderer: unknown, camera: THREE.Camera, scene?: THREE.Object3D): Promise<void> {
+    await this.running;
+    const r = renderer as { compileAsync?: (object: THREE.Object3D, camera: THREE.Camera, scene?: THREE.Object3D | null) => Promise<unknown> };
+    await r.compileAsync?.(this.actor.object, camera, scene ?? null);
+  }
+
+  /** Removes the character from its parent and frees its GPU resources (textures shared with other characters stay). */
   dispose(): void {
+    this.actor.dispose();
     this.actor.object.removeFromParent();
     this.actor.object.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -294,6 +309,10 @@ export class Character {
   }
 
   private applyLook(): void {
+    this.actor.batch(() => this.applyLookNow());
+  }
+
+  private applyLookNow(): void {
     const c = this.cfg;
     const a = this.actor;
     // Underwear under outer clothes is not drawn at all, so it can't peek through them.

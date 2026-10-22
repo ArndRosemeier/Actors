@@ -3,6 +3,7 @@ import { applyTarget, decodeTarget, encodeTarget } from "./target";
 import { boneRotationFromRoll } from "./skeleton";
 import { mat3Apply, normalize } from "./math";
 import { fitProxy } from "./proxy";
+import { RemoteRuntime } from "./worker";
 
 describe("morph targets", () => {
   it("round-trips sparse targets within quantization error", () => {
@@ -146,5 +147,39 @@ describe("on-demand meshes", () => {
     const p = shape.proxies.get("cape")!.positions;
     expect(p[0]).toBeCloseTo(1 / 3, 5);
     expect(p[2]).toBeCloseTo(0.01, 5);
+
+    // A shared runtime loads the pack once, however often it is asked for.
+    fetched.length = 0;
+    const fetcher = async (url: string) => {
+      fetched.push(url);
+      return files[url];
+    };
+    const [a, b] = await Promise.all([ActorRuntime.shared("p/m.json", fetcher), ActorRuntime.shared("p/m.json", fetcher)]);
+    expect(a).toBe(b);
+    expect(await ActorRuntime.shared("p/m.json", fetcher)).toBe(a);
+    expect(fetched.filter((u) => u === "p/base.bin")).toHaveLength(1);
+    ActorRuntime.clearShared();
+    expect(await ActorRuntime.shared("p/m.json", fetcher)).not.toBe(a);
+  });
+});
+
+describe("worker", () => {
+  it("shares one connection per worker, so message ids never collide", async () => {
+    const listeners: ((e: { data: unknown }) => void)[] = [];
+    const posted: { type: string; id: number }[] = [];
+    const port = {
+      postMessage(msg: unknown) {
+        const m = msg as { type: string; id: number };
+        posted.push(m);
+        queueMicrotask(() => listeners.forEach((l) => l({ data: { id: m.id, ok: true } })));
+      },
+      addEventListener(_: "message", l: (e: { data: unknown }) => void) {
+        listeners.push(l);
+      },
+    };
+    const [a, b] = await Promise.all([RemoteRuntime.connect(port, "https://x/m.json"), RemoteRuntime.connect(port, "https://x/m.json")]);
+    expect(a).toBe(b);
+    expect(posted.filter((m) => m.type === "load")).toHaveLength(1);
+    expect(listeners).toHaveLength(1);
   });
 });

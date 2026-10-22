@@ -78,13 +78,24 @@ character.lodCamera = camera;     // or pick by camera distance every frame
 character.setLod("auto");         // switch distances in character.lods, scaled for the camera's field of view
 character.lodBias = 1.5;          // keep detail longer
 
-// Crowd members share one loaded pack (no download of their own):
+// Every character on the same pack URL shares one loaded pack (only the first load downloads it).
+// `shareWith` does the same and also reuses the other character's worker:
 const extra = await Character.load({ pack, renderer, shareWith: character });
 await extra.randomize();
-await extra.set({ skin: "procedural" }); // WebGL photo skins cost a 2k texture per actor
+await extra.set({ skin: "procedural" }); // WebGL photo skins cost a 2k texture per distinct blend
 ```
 
 "Medium" uses the base mesh instead of the subdivided body and garments, hair and eyes with about half their triangles. "Crowd" draws MakeHuman's 741-vertex proxy body and the garments as one merged mesh (one draw call plus the hair) and doesn't animate the fingers.
+
+## Spawning many characters quickly
+
+What a character needs is loaded once per page and shared: the pack (mesh, morph targets, garments, hair), clips, textures and the shaders. So the first character costs the most, and later ones only build their own shape and meshes.
+
+- **Load the pack once at startup.** Load one character while the game boots (a loading screen) and keep it, or spawn later ones with `shareWith` it.
+- **One worker for all.** Pass the same `worker` to every `Character.load` (or none); a new worker per character loads the whole pack again inside it.
+- **Compile shaders before showing.** `await character.compile(renderer, camera, scene)` compiles the character's shaders in the background (`renderer.compileAsync`), so the frame that first draws it doesn't freeze. Each new garment, hairstyle or add-on kind compiles once per page; warm up a few typical outfits behind the loading screen to cover most of them.
+- **Photo skins** (WebGL) are blended into a 2k texture; characters with nearly the same blend share one. `skin: "procedural"` needs none.
+- `apps/viewer/bench.html` (also on the demo site as `bench.html`) times loading several characters in a row: `?n=8`, `?compile`, `?same`, `?worker`, `?webgpu`.
 
 ## A game's own character creator
 
