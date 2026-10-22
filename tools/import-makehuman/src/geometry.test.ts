@@ -23,3 +23,13 @@ describe("closestOnTriangle", () => {
     expect(closestOnTriangle([2, -1, 0], tri).feature).toEqual([1]);
   });
 });
+
+describe("closestOnTriangle point", () => {
+  it("returns the closest point itself", () => {
+    const tri: [Vec3, Vec3, Vec3] = [[0, 0, 0], [1, 0, 0], [0, 1, 0]];
+    const round = (p: Vec3) => p.map((x) => +x.toFixed(6));
+    expect(round(closestOnTriangle([0.2, 0.3, 1], tri).point)).toEqual([0.2, 0.3, 0]);
+    expect(round(closestOnTriangle([0.5, -1, 0], tri).point)).toEqual([0.5, 0, 0]);
+    expect(round(closestOnTriangle([2, 2, 0], tri).point)).toEqual([0.5, 0.5, 0]);
+  });
+});

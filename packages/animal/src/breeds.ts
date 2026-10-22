@@ -78,6 +78,18 @@ export interface DogCoat {
   agouti: number;
   /** Lower legs in the tan colour (fawn legs of wolves and wolfdogs). */
   tanLegs: number;
+  /** Tabby stripes in the second colour (mackerel: rings on legs and tail, bars down the sides, lines on the forehead). */
+  tabby?: number;
+  /** Tortoiseshell: patches of the tan colour (red or cream) over the coat. */
+  patches?: number;
+  /** Lighter fur inside the ears (ear furnishings). */
+  innerEar?: number;
+  /** Pupil shape: 0 round (dogs) .. 1 a narrow vertical slit (cats in daylight). */
+  pupil?: number;
+  /** Nose leather colour (default: near black). */
+  nose?: RGB;
+  /** Strand spacing in metres (default 1.9 mm; finer for small animals). */
+  strand?: number;
   /** Fur length in meters (guard hair). */
   length: number;
   /** How much the fur stands off the body (0: sleek, 1: fluffy). */
@@ -287,11 +299,60 @@ export const SQUIRRELS: Record<string, BreedPreset> = {
   },
 };
 
-/** Presets per animal kind (the pack's `extra.animal.kind`). */
-export const PRESETS: Record<string, Record<string, BreedPreset>> = { dog: BREEDS, squirrel: SQUIRRELS };
+/** Cat breeds. The base cat is modelled on a Maine Coon; values not given stay at the defaults. */
+export const CAT_BREEDS: Record<string, BreedPreset> = {
+  mainecoon: {
+    name: "Maine Coon (brown tortie tabby)",
+    shape: {},
+    coat: {
+      base: hex("#584638"), second: hex("#1a120d"), tan: hex("#5e3f2c"), white: hex("#968574"),
+      tabby: 0.85, patches: 0.6, agouti: 0.7, saddle: 0, belly: 0, bib: 0.35, shade: 0.25, paleMask: 0.4, innerEar: 0.55,
+      iris: hex("#a8862c"), pupil: 0.7, nose: hex("#7a4a3c"), length: 0.022, fluff: 0.5, strand: 0.0012,
+    },
+  },
+  // Colour variants of the same body (coat only).
+  brownTabby: {
+    name: "Maine Coon (brown tabby)",
+    shape: {},
+    coat: {
+      base: hex("#5c4a3a"), second: hex("#1a120d"), tan: hex("#5e3f2c"), white: hex("#9a8a78"),
+      tabby: 0.9, agouti: 0.7, bib: 0.5, shade: 0.3, paleMask: 0.5, innerEar: 0.55,
+      iris: hex("#8f8a32"), pupil: 0.7, nose: hex("#7a4a3c"), length: 0.022, fluff: 0.5, strand: 0.0012,
+    },
+  },
+  redTabby: {
+    name: "Maine Coon (red tabby)",
+    shape: {},
+    coat: {
+      base: hex("#8a5532"), second: hex("#4a2612"), tan: hex("#9a6a44"), white: hex("#b29d80"),
+      tabby: 0.8, agouti: 0.25, bib: 0.5, belly: 0.3, shade: 0.4, paleMask: 0.6, innerEar: 0.5,
+      iris: hex("#b58a2a"), pupil: 0.7, nose: hex("#a0584a"), length: 0.022, fluff: 0.5, strand: 0.0012,
+    },
+  },
+  silverTabby: {
+    name: "Maine Coon (silver tabby)",
+    shape: {},
+    coat: {
+      base: hex("#7a7874"), second: hex("#1c1b1a"), tan: hex("#6e6a64"), white: hex("#aeaba4"),
+      tabby: 0.9, agouti: 0.35, bib: 0.6, belly: 0.3, shade: 0.4, paleMask: 0.7, innerEar: 0.6,
+      iris: hex("#7d9a3a"), pupil: 0.7, nose: hex("#8a5a52"), length: 0.022, fluff: 0.5, strand: 0.0012,
+    },
+  },
+  black: {
+    name: "Maine Coon (black)",
+    shape: {},
+    coat: {
+      base: hex("#1a1716"), second: hex("#0e0c0b"), tan: hex("#2a2420"), white: hex("#3a3532"),
+      shade: 0.15, innerEar: 0.25, iris: hex("#c08a22"), pupil: 0.7, nose: hex("#1c1716"), length: 0.022, fluff: 0.5, strand: 0.0012,
+    },
+  },
+};
+
+/** Dog-shaped presets per animal kind (the pack's `extra.animal.kind`); deer presets are DEER_PRESETS. */
+export const PRESETS: Record<string, Record<string, BreedPreset>> = { dog: BREEDS, squirrel: SQUIRRELS, cat: CAT_BREEDS };
 
 /** The preset an animal of this kind starts with. */
-export const DEFAULT_PRESET: Record<string, string> = { dog: "wolfdog", squirrel: "grey" };
+export const DEFAULT_PRESET: Record<string, string> = { dog: "wolfdog", squirrel: "grey", cat: "mainecoon", deer: "sika" };
 
 const clamp = (v: number, lo: number, hi: number) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);
 

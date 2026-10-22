@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Builds the installable packages (@actors/core, human, three, generator) into release/.
+// Builds the installable packages (@actors/core, human, animal, drone, three, generator) into release/.
 //
 // For each package: esbuild bundles every `exports` entry into dist/*.js (three and the other
 // @actors packages stay external), tsc writes the .d.ts files, and a package.json pointing at
@@ -23,10 +23,12 @@ const local = process.argv.includes("--local");
 const REPO = "https://github.com/ArndRosemeier/Actors";
 
 // Dependency order: each package's types are built before the packages that import it.
-const PACKAGES = ["core", "human", "three", "generator"];
+const PACKAGES = ["core", "human", "animal", "drone", "three", "generator"];
 const DESCRIPTIONS = {
   core: "Renderer-free actor runtime: pack format, morphs, skeleton and garment fitting, clip retargeting, Web Worker evaluation.",
   human: "Adult human actor on the MakeHuman CC0 assets: macro and detail sliders, races, expressions, worker entry.",
+  animal: "Generated animal actors (dog breeds, squirrels and a Maine Coon cat on a shared CC0 quadruped rig, deer on Quaternius' CC0 deer rig): shape sliders, coats, clips, worker entry.",
+  drone: "Procedural futuristic drones from building blocks: roles, palettes, rotor rigs and opt-in weapons.",
   three: "three.js adapter for Actors: skinned meshes, skin/eye/cloth materials, dual-quaternion skinning, clip playback.",
   generator: "Reusable three.js character generator: one JSON config for shape, looks, outfit and animation, plus stage, editor and glTF export.",
 };

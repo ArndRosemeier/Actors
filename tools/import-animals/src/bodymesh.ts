@@ -28,6 +28,17 @@ export interface BodyMesh {
   uv: Float32Array;
 }
 
+/** Per-vertex coat data from part membership (the dog's coatRegions, or an animal's own). */
+export type CoatFunction = (
+  body: DogBody,
+  positions: Float32Array,
+  normals: Float32Array,
+  weights: Float32Array,
+  boneCount: number,
+  regions: Map<Region, Float32Array>,
+  furLength: Float32Array,
+) => { coatA: Float32Array; coatB: Float32Array; coatC: Float32Array; coatD: Float32Array; coatE: Float32Array; coatF: Float32Array };
+
 const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 /** Distance from p to segment a-b, and the parameter of the closest point. */
@@ -119,7 +130,7 @@ export async function meshBody(body: DogBody, cell: number, triangles: number): 
 function taubin(body: DogBody, P: Float64Array, nb: number[][], iterations: number): void {
   const n = P.length / 3;
   const u = body.unit ?? 1;
-  const keepShape = body.parts.filter((q) => q.carve || q.region === "ear" || q.region === "nose");
+  const keepShape = body.parts.filter((q) => q.carve || q.region === "ear" || q.region === "nose" || q.region === "hoof");
   const strength = new Float64Array(n);
   for (let v = 0; v < n; v++) {
     const p: Vec3 = [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]];
@@ -186,7 +197,7 @@ function membership(parts: BodyPart[], p: Vec3, out: number[], mouth: DogBody["m
 }
 
 /** Skin weights, fur flow and coat regions for every vertex. */
-export function skinBody(body: DogBody, mesh: { positions: Float32Array; indices: Uint32Array }): BodyMesh {
+export function skinBody(body: DogBody, mesh: { positions: Float32Array; indices: Uint32Array }, coat: CoatFunction = coatRegions): BodyMesh {
   const { rig, parts } = body;
   const u = body.unit ?? 1;
   const n = mesh.positions.length / 3;
@@ -268,8 +279,8 @@ export function skinBody(body: DogBody, mesh: { positions: Float32Array; indices
     });
   }
 
-  const coat = coatRegions(body, mesh.positions, normals, W, B, regionW, furLen);
-  return { positions: mesh.positions, normals, indices: mesh.indices, joints, weights, flow, ...coat, uv: cylinderUV(mesh.positions) };
+  const coatData = coat(body, mesh.positions, normals, W, B, regionW, furLen);
+  return { positions: mesh.positions, normals, indices: mesh.indices, joints, weights, flow, ...coatData, uv: cylinderUV(mesh.positions) };
 }
 
 function smooth(values: Float32Array, stride: number, nb: number[][], iterations: number, lambda: number): void {
@@ -297,7 +308,7 @@ function smooth(values: Float32Array, stride: number, nb: number[][], iterations
  * - coatE: light (wolf) mask (cheeks, muzzle sides and lower jaw, below the eyes), eye ring, tail, ear tip (0 root .. 1 tip)
  * - coatF: position seen from in front of the nose (side, up, depth; in dog-sized meters, i.e. divided by the body's unit), for nose leather detail (nostrils, philtrum), unused
  */
-function coatRegions(body: DogBody, P: Float32Array, N: Float32Array, W: Float32Array, B: number, regions: Map<Region, Float32Array>, furLen: Float32Array) {
+export function coatRegions(body: DogBody, P: Float32Array, N: Float32Array, W: Float32Array, B: number, regions: Map<Region, Float32Array>, furLen: Float32Array) {
   const { rig, marks, eyes } = body;
   const u = body.unit ?? 1;
   const n = P.length / 3;

@@ -85,12 +85,44 @@ These scratch scripts are not committed. Copies are in the thread's scratchpad; 
 - `cmp.py`: puts the reference and the renders side by side at equal height.
 - The photo-matching camera for the wolfdog was about `[-2.5, 0.5, 1.35] → [0, 0.45, 0.08]` (front-left quarter view).
 
+## Lessons from the deer
+
+The deer (`deer.ts`, `deercoat.ts`) followed the workflow above on a side photo of a sika hind, with Quaternius' CC0 low-poly Deer as the blueprint for rig, clips and proportions.
+
+- **Check the blueprint against the photo first.** The low-poly deer's chest depth, head height and neck angle already matched the photo within a few percent, so its rig only needed scaling, raised ears and a hanging tail. Keeping the source proportions keeps the clips clean.
+- **Read the source rig's weights, not just its hierarchy.** Quaternius' "IK" bones are the weighted pasterns and hooves, parented to the armature. Re-parented under the cannon bones (where the IK chain ends), they follow the legs in every clip. The unweighted root (`Body`) and the pole targets go.
+- **Ellipsoid radii are (u, v, w) of the frame, and `frameFrom(axis)` puts the axis in w.** The long radius goes last. Getting this wrong turned the hams into lobes sticking out backwards.
+- **Keep loft paths straight.** A path that follows (top + bottom) / 2 wiggles, and the nearest-section search then jumps on the concave side, leaving seams across the back. Use a straight (or gently inclined) path and put the profile into `up`/`down`. Keep every `down` positive: a path above the under line gives negative depths and a bulge.
+- **Details smaller than the voxel size come out jagged.** A 2 mm lip groove at 3 mm cells looked like a torn slit. Draw such lines in the coat instead.
+- **Coat colours mix in linear space,** so 30 % white over a dark chestnut looks almost white after tone mapping. The deer markings use `furMixP` (a mix in √ space) so amounts read as they should; dog-era amounts (belly, bib, pale mask) need low values on dark coats.
+- **Pattern coordinates need care.** Distances to the nearest point of a spine polyline are constant in wedges around its ends and corners, which smeared spots into rings. Spots use z along the body and the in-plane distance to the spine line at the vertex's own z instead.
+- **Flat loft end caps show.** End a loft in a small section buried under another part (the deer's trunk ends under the tail root).
+
 ## Applying this to other animals
 
 - Mesh2Motion's rig and clips also fit cats and foxes. Re-pose the rig toward the species' natural stance (cats: lower head, tail up and curved).
 - **Squirrel (done on the same rig):** when the stance is far from the fox's, place every joint directly from the photo (`placeBones` in rig.ts, pixel coordinates converted by one scale) instead of chains of `turnChain`. The fox's clips then still play (limbs are aligned to the fox's directions, so they look like a fox gait), and the species gets its own clips made with forward kinematics plus two-bone IK (`squirrelclips.ts`); its rest pose is the reference, so a clip of zero turns is exactly the rest.
 - Small animals: set the body's `unit` (squirrel 0.3) so blend widths, lip, rim and marking sizes shrink with it, mesh at about 1 mm, and set the coat's `grain` (squirrel 0.4) for finer strands and locks. Salt-and-pepper grizzle (`frost`) must be streaks a couple of millimetres wide or it averages away at viewing distance.
 - A plume tail is a loft along the tail bones with `upHint` [1, 0, 0] (sections wide in the plane of the S, thinner to the sides) plus an ellipsoid over the flat end cap.
+## The cat (second animal)
+
+The cat (`cat.ts`) followed the workflow above with one Maine Coon photo (a clean side view on white, supplied by Arnd as a reference; the photo itself is not in the repo). What was different or new:
+
+- **Measure the silhouette automatically.** On a white background a threshold plus the largest connected component gives the outline mask. Reading top and under lines per column, and distances perpendicular to the head axis, replaced most hand measuring.
+- **Work in photo pixels.** `ph(x, y)` maps a photo pixel to pack space (ground line, metres per pixel, an origin column). The lofts and parts are written in pixels, so a value can be checked against the photo directly.
+- **Fit the rig to the photo instead of re-posing by angles.** `reachChain` turns and stretches a midline chain so its end lands on a measured point (neck to the back of the skull, head to the stop, nose to the tip, each tail bone along the tail's centre line); `placeBone` puts the jaw between hinge and chin. The bone names stay the same, so all clips still play.
+- **Overlay before importing.** A side-on ray march of `bodyDistance` drawn over the faded photo with the photo outline in red and the bones in green (`tools/import-animals/scratch`, git-ignored) takes about 40 s and showed every proportion problem; the gap between the model and the outline is the fur.
+- **The visible coat is thinner than the fur length.** The outer shells are sparse, so subtracting the full fur length from the outline left thin legs and a thin tail. The cat subtracts about a third of its fur length (`CAT_FUR`), less on the tail.
+- **Eyes need a shaped opening, not a round socket.** Arnd's feedback: "eyes pop too much and should be in an eye-shaped cavity". Sinking the eyeball by 0.86 R and carving the lids with a lens (the intersection of two spheres: pointed corners, half width 1.3 R, half height 0.56 R, slanted) fixed it; an ellipsoid carve always looks round.
+- **The fox's wrist is very low.** A pastern capsule between wrist and toes made a bulge at the back of the paw, and a wide flat paw ellipsoid looked like a hoof. A narrower bun with four toe ellipsoids in an arc, and short fur on them, reads as a paw.
+- **Small parts need a finer grid.** The cat meshes at 2 mm (the dog at 3.5 mm); ear tufts and the mouth slit need walls of at least two cells.
+- **Scale the fixed distances.** `bodymesh.ts` had distances tuned for the dog (membership softness, lip and pad bands, bib and mask extents). `DogBody.unit` scales them; the dog is 1, the cat 0.5.
+- **Patterns:** tabby stripes are a shader function of per-vertex stripe coordinates (`coatF`) the importer writes per region (along the trunk, up the legs, across the forehead) plus the tail position, warped and broken by noise. Blending stripe *values* by region weight works; blending the *coordinates* compresses stripes where regions meet.
+- **Tortoiseshell patches are sensitive to the noise threshold.** A shift of 0.05 took them from almost none to almost everywhere; check the coverage on a side shot after every change.
+- **Whiskers sell the face.** Thin tubes (four sides, 0.4 mm at the root, drooping) on the whisker pads and above the eyes, rigid on the nose and head bones.
+
+Tooling traps on this machine: `pkill -f vite` and `pgrep -f` match the shell running them, because the pattern is in the command line, so the shell gets killed. Kill vite by its exact node process instead.
+
 - Keep the per-vertex coat channels generic (regions, back, underside, masks). Species-specific patterns (stripes, rosettes) can be shader functions driven by `coatPos` and the flow.
 - Small animals need shorter fur and a finer strand spacing (`uFur.z`), or strands become blobs.
 - Check every existing preset or animation after a stance change. A screenshot sheet from `apps/viewer/scripts/animals.mjs` is the quickest check.

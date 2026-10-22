@@ -45,7 +45,7 @@ export function serveRuntime(port: MessagePortLike, tasks: Record<string, ShapeT
     queue = queue.then(async () => {
       try {
         if (req.type === "load") {
-          runtime = await ActorRuntime.load(req.url);
+          if (runtime?.manifestUrl !== req.url) runtime = await ActorRuntime.load(req.url);
           port.postMessage({ id: req.id, ok: true } satisfies Response);
         } else if (req.type === "loadMeshes") {
           if (!runtime) throw new Error("No actor pack loaded");
@@ -66,6 +66,8 @@ export function serveRuntime(port: MessagePortLike, tasks: Record<string, ShapeT
     });
   });
 }
+
+const remotes = new WeakMap<MessagePortLike, { remote: RemoteRuntime; url: string; ready: Promise<RemoteRuntime> }>();
 
 /** Main-thread handle to a runtime living in a worker. */
 export class RemoteRuntime {
@@ -91,11 +93,20 @@ export class RemoteRuntime {
     });
   }
 
-  /** `manifestUrl` must be absolute (the worker resolves relative URLs against its own script). */
-  static async connect(port: MessagePortLike, manifestUrl: string): Promise<RemoteRuntime> {
-    const remote = new RemoteRuntime(port);
-    await remote.call({ type: "load", url: manifestUrl } as Request);
-    return remote;
+  /**
+   * `manifestUrl` must be absolute (the worker resolves relative URLs against its own script).
+   * Connecting the same worker to the same pack again returns the existing handle, so many
+   * characters can share one worker and the pack is loaded there only once.
+   */
+  static connect(port: MessagePortLike, manifestUrl: string): Promise<RemoteRuntime> {
+    const known = remotes.get(port);
+    if (known?.url === manifestUrl) return known.ready;
+    // One handle per port: two handles would both answer each other's message ids.
+    const remote = known?.remote ?? new RemoteRuntime(port);
+    const ready = remote.call({ type: "load", url: manifestUrl } as Request).then(() => remote);
+    remotes.set(port, { remote, url: manifestUrl, ready });
+    ready.catch(() => remotes.get(port)?.ready === ready && remotes.set(port, { remote, url: "", ready }));
+    return ready;
   }
 
   /** Loads on-demand meshes in the worker too, so its shapes include their proxies (see ActorRuntime.loadMeshes). */

@@ -35,15 +35,25 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # The generated packs only change with the importers, the packages they import and the
+      # lockfile, so a run that touches none of them reuses the last packs (exact key only).
+      - id: packs
+        uses: actions/cache@v4
+        with:
+          path: apps/viewer/public/packs
+          key: packs-${{ hashFiles('tools/import-makehuman/src/**', 'tools/import-animals/src/**', 'packages/core/src/**', 'packages/human/src/**', 'package-lock.json') }}
       # Downloads (MPFB2 clone, MakeHuman asset packs, Quaternius and Mesh2Motion animations) are cached between runs.
-      - uses: actions/cache@v4
+      - if: steps.packs.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
         with:
           path: .cache
           key: import-cache-${{ hashFiles('tools/import-makehuman/src/**', 'tools/import-animals/src/**') }}
           restore-keys: import-cache-
-      - run: npm run import:human
-      # Dog and squirrel packs: Mesh2Motion's CC0 quadruped rig and clips plus generated bodies.
-      - run: npm run import:animals
+      - if: steps.packs.outputs.cache-hit != 'true'
+        run: npm run import:human
+      # Dog, squirrel and deer packs: CC0 rigs and clips (Mesh2Motion quadruped, Quaternius Deer) plus generated bodies.
+      - if: steps.packs.outputs.cache-hit != 'true'
+        run: npm run import:animals
       - run: npm run build
       # A fresh Vite + TypeScript app installs the package tarballs, typechecks and builds.
       - run: npm run check:consumer
@@ -55,12 +65,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p "require('./packages/generator/package.json').version")
+          # Release notes: the install line, then docs/releases/<version>.md if there is one.
+          notes=$(mktemp)
+          echo "Install: \`npm install https://github.com/${GITHUB_REPOSITORY}/releases/download/v$version/actors-generator-$version.tgz three\`. Assets: \`npx actors-packs\` or the hosted packs. See docs/using-actors.md." > "$notes"
+          if [ -f "docs/releases/$version.md" ]; then printf '\n' >> "$notes"; cat "docs/releases/$version.md" >> "$notes"; fi
           if gh release view "v$version" > /dev/null 2>&1; then
-            echo "release v$version exists; bump the package versions to publish a new one"
+            # Existing release: only its notes follow the file (bump the package versions to publish a new one).
+            gh release edit "v$version" --notes-file "$notes"
           else
             gh release create "v$version" release/*.tgz release/actors-packs-*.tar.gz \
-              --target "$GITHUB_SHA" --title "Actors $version" \
-              --notes "Install: \`npm install https://github.com/${GITHUB_REPOSITORY}/releases/download/v$version/actors-generator-$version.tgz three\`. Assets: \`npx actors-packs\` or the hosted packs. See docs/using-actors.md."
+              --target "$GITHUB_SHA" --title "Actors $version" --notes-file "$notes"
           fi
       - uses: actions/upload-pages-artifact@v3
         with:

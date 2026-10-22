@@ -38,7 +38,7 @@ export const TAIL_DROP = [-70, -8, 6];
 /** Ears turned forward, so they stand up rather than lean back. */
 export const EAR_TILT = 18;
 
-export type Region = "torso" | "neck" | "head" | "muzzle" | "jaw" | "nose" | "ear" | "leg" | "paw" | "tail" | "eye";
+export type Region = "torso" | "neck" | "head" | "muzzle" | "jaw" | "nose" | "ear" | "leg" | "paw" | "hoof" | "tail" | "eye";
 
 export interface BodyPart extends Part {
   /** Bones that carry this part; each vertex is shared between them by distance to the bone. */
@@ -64,6 +64,8 @@ export interface DogBody {
   eyes: { center: Vec3; radius: number; look: Vec3 }[];
   /** Points that place coat markings: brow spots, nose tip, mouth corner. */
   marks: { brows: Vec3[]; nose: Vec3; mouth: { y0: number; y1: number; z0: number; z1: number; halfWidth: number } };
+  /** Whiskers (cats): root on the skin, direction, length, root radius, carrying bone. */
+  whiskers?: { root: Vec3; dir: Vec3; length: number; radius: number; bone: string }[];
 }
 
 const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];

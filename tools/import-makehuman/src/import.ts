@@ -21,12 +21,13 @@ import {
   type ProxyDef,
   type TargetRef,
   encodeTarget,
+  fitProxy,
 } from "@actors/core";
 import { BlobWriter } from "./blob";
 import { fetchCached, fetchText, fetchZipEntry, fetchZipText } from "./fetch";
 import { GARMENTS, garmentCut, insideFaces, selectGarmentFaces } from "./garments";
 import { type Gray, blankGray, blurGray, loadGray, maxGray, meanColor, rasterizeUV, resizeGray, writeJpeg, writeRgbaDownsampled, writeRgbaPng, tintPng } from "./image";
-import { parseMhclo } from "./mhclo";
+import { type Mhclo, parseMhclo } from "./mhclo";
 import { type ObjData, type ObjFace, buildRenderMesh, parseObj } from "./obj";
 import { CLIP_SPECS, UAL_ARCHIVES, type UalArchive, importClip } from "./clips";
 import { type Gltf, parseGlb } from "./gltf";
@@ -214,12 +215,65 @@ async function main() {
   };
 
   /**
+   * A MakeHuman garment as the runtime places it on the base shape (its binding to the body). The
+   * garment's .obj can sit centimetres away from that, so skin hiding must not measure against it.
+   */
+  const fittedOnBase = (clo: Mhclo): number[] =>
+    Array.from(
+      fitProxy(
+        {
+          def: { vertexCount: clo.refs.length / 3, scaleRefs: clo.scale.map(([a, b, l]) => [a, b, l * SCALE]) } as ProxyDef,
+          refs: Uint32Array.from(clo.refs),
+          weights: Float32Array.from(clo.weights),
+          offsets: Float32Array.from(clo.offsets.map((v) => v * SCALE)),
+        },
+        Float32Array.from(P),
+      ),
+    );
+  // The tights helper vertex at each skin vertex (within 3 cm), so fitted garments can sit on top of body-cut ones.
+  // MakeHuman clothes are bound to skin or helper vertices.
+  const garmentVertexOf = new Uint32Array(vertexCount).fill(0xffffffff);
+  {
+    const cell = 0.03;
+    const key = (v: number) => [0, 1, 2].map((c) => Math.floor(P[v * 3 + c] / cell));
+    const grid = new Map<string, number[]>();
+    for (const v of groupVerts.get("helper-tights") ?? []) {
+      garmentVertexOf[v] = v; // garments bound to the helper itself
+      const k = key(v).join(",");
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k)!.push(v);
+    }
+    for (const v of groupVerts.get("body")!) {
+      const [x, y, z] = key(v);
+      let best = cell;
+      for (let dx = -1; dx <= 1; dx++)
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dz = -1; dz <= 1; dz++)
+            for (const t of grid.get(`${x + dx},${y + dy},${z + dz}`) ?? []) {
+              const d = Math.hypot(P[t * 3] - P[v * 3], P[t * 3 + 1] - P[v * 3 + 1], P[t * 3 + 2] - P[v * 3 + 2]);
+              if (d < best) {
+                best = d;
+                garmentVertexOf[v] = t;
+              }
+            }
+    }
+  }
+  /**
    * Base vertices hidden while a garment is worn: skin and body-cut garments
    * (tights helper: briefs, bra, …) within `radius` of the garment's surface,
    * and not near its edges (so no holes show at hems). Renderers hide them
    * only under garments on a higher layer, so underwear disappears under a
    * shirt but not the other way round.
    */
+  // Vertex normals of the tights helper (area-weighted), to tell "under a garment" from "beside its hem".
+  const tightsNormals = new Float32Array(P.length);
+  for (const f of facesOf("helper-tights"))
+    for (let i = 1; i + 1 < f.v.length; i++) {
+      const [a, b, c] = [f.v[0], f.v[i], f.v[i + 1]];
+      const u = [0, 1, 2].map((k) => P[b * 3 + k] - P[a * 3 + k]), w = [0, 1, 2].map((k) => P[c * 3 + k] - P[a * 3 + k]);
+      const n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+      for (const v of [a, b, c]) for (let k = 0; k < 3; k++) tightsNormals[v * 3 + k] += n[k];
+    }
   const coveredBody = (gPos: number[], gFaces: number[][], radius = 0.015, margin = 0.035): number[] => {
     const edges = new Map<string, number>();
     for (const f of gFaces)
@@ -265,6 +319,7 @@ async function main() {
       // For body-cut garments: is the closest garment point on its rim? Then the vertex sits beside the
       // garment (e.g. briefs above low-rise trousers), not under it, and stays visible.
       let onRim = false;
+      let along = 1; // how straight out from the body the closest garment point lies (1 = along the normal)
       for (const ti of triGrid.get(`${cx},${cy},${cz}`) ?? []) {
         const t = tris[ti];
         const hit = closestOnTriangle(p, t.map((i) => [gPos[i * 3], gPos[i * 3 + 1], gPos[i * 3 + 2]] as Vec3) as [Vec3, Vec3, Vec3]);
@@ -272,12 +327,17 @@ async function main() {
           near = hit.distance;
           const f = hit.feature.map((k) => t[k]);
           onRim = f.length === 1 ? boundary.has(f[0]) : f.length === 2 && edges.get(f[0] < f[1] ? `${f[0]}_${f[1]}` : `${f[1]}_${f[0]}`) === 1;
+          if (garmentLayer && near > 0.005) {
+            const n = [0, 1, 2].map((k) => tightsNormals[v * 3 + k]);
+            along = Math.abs(n.reduce((s, x, k) => s + x * (hit.point[k] - p[k]), 0)) / (near * (Math.hypot(n[0], n[1], n[2]) || 1));
+          } else along = 1;
         }
         if (!garmentLayer && near < radius * 0.25) break;
       }
       if (near >= (garmentLayer ? Math.max(radius, 0.035) : radius)) continue;
       if (garmentLayer) {
-        if (!onRim) out.push(v);
+        // Only what lies under the garment, not beside its hem (e.g. jeans below a T-shirt's hem).
+        if (!onRim && along > 0.7) out.push(v);
         continue;
       }
       let nearEdge = Infinity;
@@ -451,7 +511,7 @@ async function main() {
     inflate: 0.002,
     tags: ["fabric:knit"],
     // The asset's own delete list is a placeholder (mostly face vertices), so derive one.
-    hidesBaseVertices: blob.add("u32", coveredBody(sockObj.positions.map((v) => v * SCALE), sockObj.faces.map((f) => f.v), 0.03, 0.03)),
+    hidesBaseVertices: blob.add("u32", coveredBody(fittedOnBase(sockClo), sockObj.faces.map((f) => f.v), 0.03, 0.03)),
   });
   garmentLabels.socks = "Socks";
 
@@ -557,8 +617,8 @@ async function main() {
       optional: true,
       // MakeHuman clothes already sit off the skin; a little extra keeps them above the base garments.
       inflate: 0.002,
-      tags: [`fabric:${item.fabric ?? "smooth"}`, ...(item.coversAnatomy ? ["covers:anatomy"] : []), ...(item.hidesHair ? ["covers:hair"] : []), `license:${item.license ?? "CC0"}`],
-      hidesBaseVertices: writer.add("u32", coveredBody(gPos, cloObj.faces.map((f) => f.v), item.hideRadius ?? 0.015)),
+      tags: [`fabric:${item.fabric ?? "smooth"}`, ...(item.coversAnatomy ? ["covers:anatomy"] : []), ...(item.hidesHair ? ["covers:hair"] : []), ...(item.tucked ? ["tucked"] : []), `license:${item.license ?? "CC0"}`],
+      hidesBaseVertices: writer.add("u32", coveredBody(fittedOnBase(clo), cloObj.faces.map((f) => f.v), item.hideRadius ?? 0.015)),
     });
     const bin = writer.toBuffer();
     writeFileSync(join(out, file), bin);
@@ -859,6 +919,7 @@ async function main() {
     blob: "base.bin",
     vertexCount,
     basePositions,
+    garmentVertexOf: blob.add("u32", Array.from(garmentVertexOf)),
     meshes,
     proxies,
     skeleton: { name: RIG, bones },

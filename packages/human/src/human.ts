@@ -61,8 +61,13 @@ export class Human {
     this.resolveTarget = targetResolver(runtime.manifest.targets.map((t) => t.name));
   }
 
-  static async load(manifestUrl: string, fetcher?: Fetcher): Promise<Human> {
-    return new Human(await ActorRuntime.load(manifestUrl, fetcher));
+  /**
+   * Loads the pack once per page: later calls with the same URL (and fetcher)
+   * reuse the loaded data, so only the first one downloads anything.
+   * `fresh` loads a private copy instead.
+   */
+  static async load(manifestUrl: string, fetcher?: Fetcher, fresh = false): Promise<Human> {
+    return new Human(await (fresh ? ActorRuntime.load(manifestUrl, fetcher) : ActorRuntime.shared(manifestUrl, fetcher)));
   }
 
   /** Another human on the same loaded pack (and worker): for crowds, each actor needs no download of its own. */

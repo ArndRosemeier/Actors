@@ -1,13 +1,17 @@
 /**
- * Builds the animal actor packs (dog, squirrel): Mesh2Motion's CC0 quadruped
- * rig and clips, plus a body generated around that rig (implicit surface, see
- * dog.ts and squirrel.ts), shape morphs (targets.ts) and coat data for the fur
- * material. Both animals share the rig's bones, so clips play on either.
+ * Builds the animal actor packs:
+ * - dog, squirrel and cat: Mesh2Motion's CC0 quadruped rig and clips, plus a
+ *   body generated around that rig (implicit surface, see dog.ts, squirrel.ts
+ *   and cat.ts), shape morphs (targets.ts, cattargets.ts) and coat data for the
+ *   fur material. They share the rig's bones, so clips play on each; the
+ *   squirrel adds its own clips, the cat renames a few (catcoat.ts: tabby);
+ * - deer: the rig and clips of Quaternius' CC0 low-poly Deer, a sika hind body
+ *   generated the same way (deer.ts, deercoat.ts, deermorphs.ts).
  *
- *   npm run import:animals [-- --only dog|squirrel] [--out <dir>] [--cell <meters>] [--triangles <n>]
+ *   npm run import:animals [-- --only dog|squirrel|cat|deer] [--out <dir>] [--cell <meters>] [--triangles <n>]
  *
- * The rig file is downloaded once into .cache/. No mesh is taken from the
- * source; only its skeleton and animations.
+ * Source files are downloaded once into .cache/. No mesh is taken from the
+ * sources; only their skeletons and animations.
  */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -17,13 +21,20 @@ import { BlobWriter } from "../../import-makehuman/src/blob";
 import { fetchCached } from "../../import-makehuman/src/fetch";
 import { parseGlb } from "../../import-makehuman/src/gltf";
 import { ready as meshoptReady, simplifyLevels } from "../../import-makehuman/src/lod";
-import { meshBody, skinBody } from "./bodymesh";
-import { convertClips } from "./clips";
+import { type CoatFunction, meshBody, skinBody } from "./bodymesh";
+import { catBody } from "./cat";
+import { catCoat } from "./catcoat";
+import { catMorphs } from "./cattargets";
+import { CAT_CLIPS, type ClipOptions, convertClips } from "./clips";
+import { DEER_SKIP, deerBody } from "./deer";
+import { deerCoat } from "./deercoat";
+import { deerMorphs } from "./deermorphs";
 import { type DogBody, dogBody } from "./dog";
-import { type Rig } from "./rig";
+import type { Gltf } from "../../import-makehuman/src/gltf";
+import { QUATERNIUS_NOTE, QUATERNIUS_PACK, deerGlb } from "./quaternius";
+import { type Rig, readRig } from "./rig";
 import { squirrelBody } from "./squirrel";
 import { squirrelClips } from "./squirrelclips";
-import { readRig } from "./rig";
 import { FOX_ANIMATIONS, MESH2MOTION_COMMIT, SOURCE_NOTE } from "./source";
 import { type Morph, type MorphInput, dogMorphs, squirrelMorphs } from "./targets";
 
@@ -59,43 +70,157 @@ function eyeSphere(center: Vec3, radius: number, look: Vec3, rings = 14, segment
   return { positions, uv, indices };
 }
 
-interface AnimalKind {
-  body(source: Rig): DogBody;
-  /** Surface Nets cell (meters) and target triangle count. */
+/** What one animal pack is built from. */
+interface AnimalSpec {
+  id: string;
+  glb: Gltf;
+  /** Rig as read from the source (its bones keep their glTF nodes, for the clips). */
+  source: Rig;
+  body: DogBody;
+  coat?: CoatFunction;
+  morphs: (input: MorphInput) => Morph[];
+  /** Base vertex of the nose tip and of the "stop" (between the eyes) for morphs. */
+  noseTip: Vec3;
+  stop: Vec3;
+  clipSource: string;
+  clipOptions?: ClipOptions;
+  /** Clips of its own (made on its re-posed rig); they win over the source's where names clash. */
+  ownClips?(rig: Rig): ReturnType<typeof convertClips>;
+  /** Bones the crowd level leaves out. */
+  crowdDrops: RegExp;
+  /** Camera distances of the medium and crowd levels (default 5 and 16 m). */
+  lodDistances?: [number, number];
+  furColor: [number, number, number];
+  eyeColor: [number, number, number];
+  manifestSource: ActorPackManifest["source"];
   cell: number;
   triangles: number;
-  morphs(input: MorphInput): Morph[];
-  /** Clips of its own (made on its re-posed rig), besides the source rig's. */
-  clips?(rig: Rig): ReturnType<typeof convertClips>;
-  coat: [number, number, number];
-  iris: [number, number, number];
-  name: string;
 }
 
-const KINDS: Record<string, AnimalKind> = {
-  dog: { body: dogBody, cell: 0.0035, triangles: 44000, morphs: dogMorphs, coat: [0.55, 0.38, 0.22], iris: [0.35, 0.2, 0.08], name: "Generated dog body" },
-  squirrel: { body: squirrelBody, cell: 0.0011, triangles: 40000, morphs: squirrelMorphs, clips: squirrelClips, coat: [0.5, 0.45, 0.38], iris: [0.02, 0.018, 0.016], name: "Generated grey squirrel body" },
-};
-
-async function main(): Promise<void> {
-  const only = arg("only");
-  for (const id of Object.keys(KINDS)) if (!only || only === id) await buildPack(id, KINDS[id]);
+/** A whisker: a 4-sided tube along a drooping curve, tapering to a point (v runs root to tip). */
+function whiskerTube(w: { root: Vec3; dir: Vec3; length: number; radius: number }, segments = 8, sides = 4) {
+  const d = normalize(w.dir);
+  const positions: number[] = [], uv: number[] = [], indices: number[] = [];
+  // Centre line: straight out, sagging (quadratically) towards the tip.
+  const at = (t: number): Vec3 => [w.root[0] + d[0] * w.length * t, w.root[1] + d[1] * w.length * t - 0.18 * w.length * t * t, w.root[2] + d[2] * w.length * t];
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const c = at(t), n = at(Math.min(1, t + 0.01)), q = at(Math.max(0, t - 0.01));
+    const tan = normalize([n[0] - q[0], n[1] - q[1], n[2] - q[2]]);
+    const u = normalize(Math.abs(tan[1]) < 0.9 ? [tan[2], 0, -tan[0]] : [1, 0, 0]);
+    const v: Vec3 = [tan[1] * u[2] - tan[2] * u[1], tan[2] * u[0] - tan[0] * u[2], tan[0] * u[1] - tan[1] * u[0]];
+    const r = w.radius * (1 - 0.85 * t);
+    for (let k = 0; k < sides; k++) {
+      const a = (k / sides) * Math.PI * 2;
+      positions.push(...[0, 1, 2].map((j) => c[j] + (u[j] * Math.cos(a) + v[j] * Math.sin(a)) * r));
+      uv.push(k / sides, t);
+    }
+  }
+  for (let i = 0; i < segments; i++)
+    for (let k = 0; k < sides; k++) {
+      const a = i * sides + k, b = i * sides + ((k + 1) % sides);
+      indices.push(a, a + sides, b, b, a + sides, b + sides);
+    }
+  return { positions, uv, indices };
 }
 
-async function buildPack(id: string, kind: AnimalKind): Promise<void> {
-  const out = resolve(arg("only") && arg("out") ? arg("out")! : join(ROOT, `apps/viewer/public/packs/${id}`));
-  const cell = Number(arg("cell") ?? kind.cell);
-  const triangles = Number(arg("triangles") ?? kind.triangles);
+const DEER_CLIPS: [string, string, boolean, string][] = [
+  ["idle", "Idle", true, "Idle"],
+  ["idle2", "Idle_2", true, "Idle"],
+  ["headLow", "Idle_Headlow", true, "Idle"],
+  ["eat", "Eating", true, "Idle"],
+  ["walk", "Walk", true, "Locomotion"],
+  ["gallop", "Gallop", true, "Locomotion"],
+  ["leap", "Gallop_Jump", false, "Locomotion"],
+  ["jump", "Jump_toIdle", false, "Locomotion"],
+  ["headbutt", "Attack_Headbutt", false, "Actions"],
+  ["kick", "Attack_Kick", false, "Actions"],
+  ["hit", "Idle_HitReact1", false, "Reactions"],
+  ["hit2", "Idle_HitReact2", false, "Reactions"],
+  ["death", "Death", false, "Reactions"],
+];
 
+/** Cat: a Maine Coon on the same rig; the dog's clips (bark and howl renamed meow and yowl, no fetch) with more tail swing. */
+function catSpec(cell: number, triangles: number): AnimalSpec {
+  const spec = quadrupedSpec("dog", cell, triangles);
+  const body = catBody(spec.source);
+  const bone = (n: string) => body.rig.bones[body.rig.index.get(n)!];
+  return {
+    ...spec,
+    id: "cat",
+    body,
+    coat: catCoat,
+    morphs: catMorphs,
+    noseTip: bone("Head.tip").tail,
+    stop: bone("Nose").head,
+    clipOptions: { clips: CAT_CLIPS, tailMotion: 0.55 },
+    lodDistances: [3, 10],
+    furColor: [0.45, 0.36, 0.26],
+    eyeColor: [0.66, 0.53, 0.17],
+    manifestSource: { name: `Generated Maine Coon cat body; ${SOURCE_NOTE}`, license: "CC0-1.0", url: `https://github.com/scottpetrovic/mesh2motion-app/tree/${MESH2MOTION_COMMIT}` },
+  };
+}
+
+/** Dog and squirrel: bodies on Mesh2Motion's fox rig (same bones, so every dog clip plays on both). */
+function quadrupedSpec(id: "dog" | "squirrel", cell: number, triangles: number): AnimalSpec {
   const glb = parseGlb(readFileSync(fetchCached(CACHE, FOX_ANIMATIONS)));
   const source = readRig(glb);
-  const body = kind.body(source);
+  const squirrel = id === "squirrel";
+  const body = (squirrel ? squirrelBody : dogBody)(source);
+  const bone = (n: string) => body.rig.bones[body.rig.index.get(n)!];
+  return {
+    id,
+    glb,
+    source,
+    body,
+    morphs: squirrel ? squirrelMorphs : dogMorphs,
+    noseTip: bone("Head.tip").tail,
+    stop: bone("Nose").head,
+    clipSource: "Mesh2Motion fox rig (CC0)",
+    ownClips: squirrel ? squirrelClips : undefined,
+    crowdDrops: /Tip|tip|Foot_1/,
+    furColor: squirrel ? [0.5, 0.45, 0.38] : [0.55, 0.38, 0.22],
+    eyeColor: squirrel ? [0.02, 0.018, 0.016] : [0.35, 0.2, 0.08],
+    manifestSource: { name: `Generated ${squirrel ? "grey squirrel" : "dog"} body; ${SOURCE_NOTE}`, license: "CC0-1.0", url: `https://github.com/scottpetrovic/mesh2motion-app/tree/${MESH2MOTION_COMMIT}` },
+    cell,
+    triangles,
+  };
+}
+
+function deerSpec(cell: number, triangles: number): AnimalSpec {
+  const glb = parseGlb(deerGlb(CACHE));
+  const source = readRig(glb, DEER_SKIP);
+  const body = deerBody(source);
+  const eye = body.eyes[0].center;
+  return {
+    id: "deer",
+    glb,
+    // The clips are read for the deer's bones (pole targets and root left out, feet re-parented).
+    source: body.rig,
+    body,
+    coat: deerCoat,
+    morphs: deerMorphs,
+    noseTip: body.marks.nose,
+    stop: [0, eye[1], eye[2] + 0.02],
+    clipSource: "Quaternius Deer (CC0)",
+    clipOptions: { clips: DEER_CLIPS, rootBone: "Back", feet: (n) => /^FFB?\.[LR]$/.test(n), tailMotion: 0.6 },
+    crowdDrops: /^Ear[34]|^FFB?\.|^Tail3/,
+    furColor: [0.45, 0.25, 0.12],
+    eyeColor: [0.12, 0.07, 0.04],
+    manifestSource: { name: `Generated sika deer body; ${QUATERNIUS_NOTE}`, license: "CC0-1.0", url: QUATERNIUS_PACK },
+    cell,
+    triangles,
+  };
+}
+
+async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
+  const { body, glb } = spec;
   const { rig } = body;
 
   let t = Date.now();
-  const surface = await meshBody(body, cell, triangles);
-  const skinned = skinBody(body, surface);
-  console.log(`Body: ${skinned.positions.length / 3} vertices, ${skinned.indices.length / 3} triangles (${Date.now() - t} ms)`);
+  const surface = await meshBody(body, spec.cell, spec.triangles);
+  const skinned = skinBody(body, surface, spec.coat);
+  console.log(`${spec.id} body: ${skinned.positions.length / 3} vertices, ${skinned.indices.length / 3} triangles (${Date.now() - t} ms)`);
 
   // --- Base vertices: body, eyes, then one helper vertex per joint (heads and tails). ---
   const nBody = skinned.positions.length / 3;
@@ -113,6 +238,23 @@ async function buildPack(id: string, kind: AnimalKind): Promise<void> {
     }
     return { first, count: s.positions.length / 3, ...s, center: e.center };
   });
+  // Whiskers: thin tapered tubes, each rigid on its bone.
+  const whiskerFirst = positions.length / 3;
+  const whiskerTris: number[] = [], whiskerUv: number[] = [], whiskerRoot: Vec3[] = [];
+  for (const w of body.whiskers ?? []) {
+    const tube = whiskerTube(w);
+    const first = positions.length / 3;
+    positions.push(...tube.positions);
+    whiskerUv.push(...tube.uv);
+    const b = rig.index.get(w.bone)!;
+    for (let i = 0; i < tube.positions.length / 3; i++) {
+      joints.push(b, 0, 0, 0);
+      weights.push(1, 0, 0, 0);
+      whiskerRoot.push(w.root);
+    }
+    whiskerTris.push(...tube.indices.map((i) => i + first - whiskerFirst));
+  }
+  const whiskerCount = positions.length / 3 - whiskerFirst;
   const nVisible = positions.length / 3;
   const helper = (p: Vec3, bone: number) => {
     positions.push(...p);
@@ -139,13 +281,13 @@ async function buildPack(id: string, kind: AnimalKind): Promise<void> {
     return w;
   };
   const eyeOf = (v: number) => eyeMeshes.find((e) => v >= e.first && v < e.first + e.count);
-  const morphs = kind.morphs({
+  const morphs = spec.morphs({
     positions: Float32Array.from(positions),
     rig,
     weight: weightOf,
-    anchor: (v) => eyeOf(v)?.center ?? null,
-    stop: rig.bones[boneIndex.get("Nose")!].head,
-    noseTip: rig.bones[boneIndex.get("Head.tip")!].tail,
+    anchor: (v) => eyeOf(v)?.center ?? (v >= whiskerFirst && v < whiskerFirst + whiskerCount ? whiskerRoot[v - whiskerFirst] : null),
+    stop: spec.stop,
+    noseTip: spec.noseTip,
     eyeCenter: body.eyes[0].center,
   });
 
@@ -171,7 +313,7 @@ async function buildPack(id: string, kind: AnimalKind): Promise<void> {
       baseIndex: blob.add("u32", bodyMap),
       uv: blob.add("f32", skinned.uv),
       indices: blob.add("u32", skinned.indices),
-      material: { kind: "fur", color: kind.coat },
+      material: { kind: "fur", color: spec.furColor },
       simplified,
       attributes: {
         furFlow: attr(skinned.flow, 3),
@@ -198,11 +340,24 @@ async function buildPack(id: string, kind: AnimalKind): Promise<void> {
           return e.indices.map((i) => i + offset);
         }),
       ),
-      material: { kind: "eye", color: kind.iris },
+      material: { kind: "eye", color: spec.eyeColor },
       tags: ["animal"],
       lods: [0, 1],
     },
   ];
+
+  if (whiskerCount)
+    meshes.push({
+      name: "whiskers",
+      source: { kind: "base" },
+      role: "bodypart",
+      baseIndex: blob.add("u32", Array.from({ length: whiskerCount }, (_, i) => whiskerFirst + i)),
+      uv: blob.add("f32", whiskerUv),
+      indices: blob.add("u32", whiskerTris),
+      material: { kind: "other", color: [0.86, 0.84, 0.8] },
+      tags: ["animal", "whiskers"],
+      lods: [0],
+    });
 
   const targets: TargetRef[] = [];
   for (const m of morphs) {
@@ -220,8 +375,7 @@ async function buildPack(id: string, kind: AnimalKind): Promise<void> {
 
   const clips: ClipDef[] = [];
   // Its own clips first, then the source rig's (they play on any re-posed copy of the rig).
-  // (Its own version wins where names clash, e.g. idle and run.)
-  for (const { def, data } of [...(kind.clips?.(rig) ?? []), ...convertClips(glb, source)]) {
+  for (const { def, data } of [...(spec.ownClips?.(rig) ?? []), ...convertClips(glb, spec.source, spec.clipSource, spec.clipOptions)]) {
     if (clips.some((c) => c.name === def.name)) continue;
     writeFileSync(join(out, def.file), new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
     clips.push(def);
@@ -229,33 +383,53 @@ async function buildPack(id: string, kind: AnimalKind): Promise<void> {
 
   const lods: LodDef[] = [
     { name: "Full", distance: 0 },
-    { name: "Medium", distance: 5 },
-    { name: "Crowd", distance: 16, bones: rig.bones.filter((b) => !/Tip|tip|Foot_1/.test(b.name)).map((b) => b.name), merge: true },
+    { name: "Medium", distance: spec.lodDistances?.[0] ?? 5 },
+    { name: "Crowd", distance: spec.lodDistances?.[1] ?? 16, bones: rig.bones.filter((b) => !spec.crowdDrops.test(b.name)).map((b) => b.name), merge: true },
   ];
 
   const manifest: ActorPackManifest = {
     format: "actors-pack",
     version: 1,
-    id,
-    species: id,
+    id: spec.id,
+    species: spec.id,
     units: "meters",
-    source: { name: `${kind.name}; ${SOURCE_NOTE}`, license: "CC0-1.0", url: `https://github.com/scottpetrovic/mesh2motion-app/tree/${MESH2MOTION_COMMIT}` },
+    source: spec.manifestSource,
     blob: "base.bin",
     vertexCount,
     basePositions,
     meshes,
     proxies: [],
-    skeleton: { name: "quadruped", bones },
+    skeleton: { name: spec.id === "deer" ? "deer" : "quadruped", bones },
     skin: { joints: blob.add("u16", joints), weights: blob.add("f32", weights) },
     targets,
     clips,
     lods,
-    extra: { animal: { kind: id, visibleVertices: nVisible, morphs: morphs.map((m) => m.name) } },
+    extra: { animal: { kind: spec.id, visibleVertices: nVisible, morphs: morphs.map((m) => m.name) } },
   };
   writeFileSync(join(out, "base.bin"), blob.toBuffer());
   writeFileSync(join(out, "manifest.json"), JSON.stringify(manifest));
   console.log(`Wrote ${out}: ${vertexCount} vertices, ${targets.length} morphs, ${clips.length} clips (${Date.now() - t} ms)`);
   t = Date.now();
+}
+
+async function main(): Promise<void> {
+  const only = arg("only");
+  const ids = only ? only.split(",") : ["dog", "squirrel", "cat", "deer"];
+  if (arg("out") && ids.length > 1) throw new Error("--out needs --only <animal>");
+  const specs: Record<string, (cell: number, triangles: number) => AnimalSpec> = {
+    dog: (c, t) => quadrupedSpec("dog", c, t),
+    squirrel: (c, t) => quadrupedSpec("squirrel", c, t),
+    cat: catSpec,
+    deer: deerSpec,
+  };
+  const defaults: Record<string, [number, number]> = { dog: [0.0035, 44000], squirrel: [0.0011, 40000], cat: [0.002, 44000], deer: [0.003, 52000] };
+  for (const id of ids) {
+    const make = specs[id];
+    if (!make) throw new Error(`Unknown animal ${id}`);
+    const [cell, triangles] = defaults[id];
+    const spec = make(Number(arg("cell") ?? cell), Number(arg("triangles") ?? triangles));
+    await buildPack(spec, resolve(arg("out") ?? join(ROOT, `apps/viewer/public/packs/${id}`)));
+  }
 }
 
 await main();
