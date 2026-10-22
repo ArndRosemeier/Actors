@@ -1,5 +1,5 @@
 import { type ActorShape, ActorRuntime, type BoneScale, type Fetcher, type MessagePortLike, RemoteRuntime, type ShapeOptions } from "@actors/core";
-import { DEFAULT_PRESET, type DogCoat, type DogShape, SHAPE_RANGES, SQUIRRELS, BREEDS, breedParams, sanitizeShape } from "./breeds";
+import { DEFAULT_PRESET, type DogCoat, type DogShape, SHAPE_RANGES, SQUIRRELS, BREEDS, CAT_BREEDS, breedParams, sanitizeShape } from "./breeds";
 import { DEER_PRESETS, DEER_SHAPE_RANGES, type DeerCoat, type DeerShape, deerParams, deerShapeOptions, deerTargetWeights } from "./deer";
 
 /** What the animal importer writes into `manifest.extra.animal`. */
@@ -124,6 +124,15 @@ export const SQUIRREL: Species<DogShape, DogCoat> = {
   params: (id) => breedParams(id, "squirrel"),
 };
 
+/** Cats share the dog's rig, bones and shape values too (morphs the cat pack lacks are hidden by `supports`). */
+export const CAT: Species<DogShape, DogCoat> = {
+  ...DOG,
+  kind: "cat",
+  base: DEFAULT_PRESET.cat,
+  presets: CAT_BREEDS,
+  params: (id) => breedParams(id, "cat"),
+};
+
 export const DEER: Species<DeerShape, DeerCoat> = {
   kind: "deer",
   base: DEFAULT_PRESET.deer,
@@ -135,11 +144,11 @@ export const DEER: Species<DeerShape, DeerCoat> = {
 };
 
 /** Species by pack kind (`manifest.extra.animal.kind`). */
-export const SPECIES: Record<string, Species<object, object>> = { dog: DOG as never, squirrel: SQUIRREL as never, deer: DEER as never };
+export const SPECIES: Record<string, Species<object, object>> = { dog: DOG as never, squirrel: SQUIRREL as never, cat: CAT as never, deer: DEER as never };
 
 /**
  * An animal actor: shape parameters -> target weights and bone scales -> shape.
- * The species (dog, squirrel, deer) comes from the pack; the type parameters only give
+ * The species (dog, squirrel, cat, deer) comes from the pack; the type parameters only give
  * `shape` and `coat` their types, e.g. `Animal.load<DeerShape, DeerCoat>(url)`.
  */
 export class Animal<S extends object = DogShape, C extends object = DogCoat> {
@@ -201,7 +210,7 @@ export class Animal<S extends object = DogShape, C extends object = DogCoat> {
     this.coat = { ...p.coat };
   }
 
-  /** Applies a preset (dog breed, squirrel or deer species; see `presets`). */
+  /** Applies a preset (dog or cat breed, squirrel or deer species; see `presets`). */
   setPreset(id: string): void {
     this.params = this.species.params(id);
   }

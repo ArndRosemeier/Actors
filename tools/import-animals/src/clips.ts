@@ -27,6 +27,12 @@ export const DOG_CLIPS: [string, string, boolean, string][] = [
   ["death", "Death", false, "Reactions"],
 ];
 
+/** The same fox clips for the cat; barking and howling become meowing and yowling. */
+export const CAT_CLIPS: [string, string, boolean, string][] = DOG_CLIPS.filter(([name]) => name !== "fetch").map(([name, ...rest]) => [
+  name === "bark" ? "meow" : name === "howl" ? "yowl" : name,
+  ...rest,
+]);
+
 function rotate(q: Quat, v: Vec3): Vec3 {
   const p = quatMul(quatMul(q, [v[0], v[1], v[2], 0]), quatConjugate(q));
   return [p[0], p[1], p[2]];
@@ -46,8 +52,8 @@ function quatPow(q: Quat, t: number): Quat {
 
 /**
  * Tail bones only keep this share of their motion relative to the hips: the
- * source fox carries its tail out behind, ours hangs, and the fox's big tail
- * swings would push a hanging tail through the hind legs.
+ * source fox carries its tail out behind, the dog's hangs, and the fox's big
+ * tail swings would push a hanging tail through the hind legs.
  */
 const TAIL_MOTION = 0.3;
 

@@ -1,13 +1,14 @@
 /**
  * Builds the animal actor packs:
- * - dog and squirrel: Mesh2Motion's CC0 quadruped rig and clips, plus a body
- *   generated around that rig (implicit surface, see dog.ts and squirrel.ts),
- *   shape morphs (targets.ts) and coat data for the fur material. Both share
- *   the rig's bones, so clips play on either; the squirrel adds its own clips;
+ * - dog, squirrel and cat: Mesh2Motion's CC0 quadruped rig and clips, plus a
+ *   body generated around that rig (implicit surface, see dog.ts, squirrel.ts
+ *   and cat.ts), shape morphs (targets.ts, cattargets.ts) and coat data for the
+ *   fur material. They share the rig's bones, so clips play on each; the
+ *   squirrel adds its own clips, the cat renames a few (catcoat.ts: tabby);
  * - deer: the rig and clips of Quaternius' CC0 low-poly Deer, a sika hind body
  *   generated the same way (deer.ts, deercoat.ts, deermorphs.ts).
  *
- *   npm run import:animals [-- --only dog|squirrel|deer] [--out <dir>] [--cell <meters>] [--triangles <n>]
+ *   npm run import:animals [-- --only dog|squirrel|cat|deer] [--out <dir>] [--cell <meters>] [--triangles <n>]
  *
  * Source files are downloaded once into .cache/. No mesh is taken from the
  * sources; only their skeletons and animations.
@@ -21,7 +22,10 @@ import { fetchCached } from "../../import-makehuman/src/fetch";
 import { parseGlb } from "../../import-makehuman/src/gltf";
 import { ready as meshoptReady, simplifyLevels } from "../../import-makehuman/src/lod";
 import { type CoatFunction, meshBody, skinBody } from "./bodymesh";
-import { type ClipOptions, convertClips } from "./clips";
+import { catBody } from "./cat";
+import { catCoat } from "./catcoat";
+import { catMorphs } from "./cattargets";
+import { CAT_CLIPS, type ClipOptions, convertClips } from "./clips";
 import { DEER_SKIP, deerBody } from "./deer";
 import { deerCoat } from "./deercoat";
 import { deerMorphs } from "./deermorphs";
@@ -84,11 +88,40 @@ interface AnimalSpec {
   ownClips?(rig: Rig): ReturnType<typeof convertClips>;
   /** Bones the crowd level leaves out. */
   crowdDrops: RegExp;
+  /** Camera distances of the medium and crowd levels (default 5 and 16 m). */
+  lodDistances?: [number, number];
   furColor: [number, number, number];
   eyeColor: [number, number, number];
   manifestSource: ActorPackManifest["source"];
   cell: number;
   triangles: number;
+}
+
+/** A whisker: a 4-sided tube along a drooping curve, tapering to a point (v runs root to tip). */
+function whiskerTube(w: { root: Vec3; dir: Vec3; length: number; radius: number }, segments = 8, sides = 4) {
+  const d = normalize(w.dir);
+  const positions: number[] = [], uv: number[] = [], indices: number[] = [];
+  // Centre line: straight out, sagging (quadratically) towards the tip.
+  const at = (t: number): Vec3 => [w.root[0] + d[0] * w.length * t, w.root[1] + d[1] * w.length * t - 0.18 * w.length * t * t, w.root[2] + d[2] * w.length * t];
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const c = at(t), n = at(Math.min(1, t + 0.01)), q = at(Math.max(0, t - 0.01));
+    const tan = normalize([n[0] - q[0], n[1] - q[1], n[2] - q[2]]);
+    const u = normalize(Math.abs(tan[1]) < 0.9 ? [tan[2], 0, -tan[0]] : [1, 0, 0]);
+    const v: Vec3 = [tan[1] * u[2] - tan[2] * u[1], tan[2] * u[0] - tan[0] * u[2], tan[0] * u[1] - tan[1] * u[0]];
+    const r = w.radius * (1 - 0.85 * t);
+    for (let k = 0; k < sides; k++) {
+      const a = (k / sides) * Math.PI * 2;
+      positions.push(...[0, 1, 2].map((j) => c[j] + (u[j] * Math.cos(a) + v[j] * Math.sin(a)) * r));
+      uv.push(k / sides, t);
+    }
+  }
+  for (let i = 0; i < segments; i++)
+    for (let k = 0; k < sides; k++) {
+      const a = i * sides + k, b = i * sides + ((k + 1) % sides);
+      indices.push(a, a + sides, b, b, a + sides, b + sides);
+    }
+  return { positions, uv, indices };
 }
 
 const DEER_CLIPS: [string, string, boolean, string][] = [
@@ -106,6 +139,27 @@ const DEER_CLIPS: [string, string, boolean, string][] = [
   ["hit2", "Idle_HitReact2", false, "Reactions"],
   ["death", "Death", false, "Reactions"],
 ];
+
+/** Cat: a Maine Coon on the same rig; the dog's clips (bark and howl renamed meow and yowl, no fetch) with more tail swing. */
+function catSpec(cell: number, triangles: number): AnimalSpec {
+  const spec = quadrupedSpec("dog", cell, triangles);
+  const body = catBody(spec.source);
+  const bone = (n: string) => body.rig.bones[body.rig.index.get(n)!];
+  return {
+    ...spec,
+    id: "cat",
+    body,
+    coat: catCoat,
+    morphs: catMorphs,
+    noseTip: bone("Head.tip").tail,
+    stop: bone("Nose").head,
+    clipOptions: { clips: CAT_CLIPS, tailMotion: 0.55 },
+    lodDistances: [3, 10],
+    furColor: [0.45, 0.36, 0.26],
+    eyeColor: [0.66, 0.53, 0.17],
+    manifestSource: { name: `Generated Maine Coon cat body; ${SOURCE_NOTE}`, license: "CC0-1.0", url: `https://github.com/scottpetrovic/mesh2motion-app/tree/${MESH2MOTION_COMMIT}` },
+  };
+}
 
 /** Dog and squirrel: bodies on Mesh2Motion's fox rig (same bones, so every dog clip plays on both). */
 function quadrupedSpec(id: "dog" | "squirrel", cell: number, triangles: number): AnimalSpec {
@@ -184,6 +238,23 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
     }
     return { first, count: s.positions.length / 3, ...s, center: e.center };
   });
+  // Whiskers: thin tapered tubes, each rigid on its bone.
+  const whiskerFirst = positions.length / 3;
+  const whiskerTris: number[] = [], whiskerUv: number[] = [], whiskerRoot: Vec3[] = [];
+  for (const w of body.whiskers ?? []) {
+    const tube = whiskerTube(w);
+    const first = positions.length / 3;
+    positions.push(...tube.positions);
+    whiskerUv.push(...tube.uv);
+    const b = rig.index.get(w.bone)!;
+    for (let i = 0; i < tube.positions.length / 3; i++) {
+      joints.push(b, 0, 0, 0);
+      weights.push(1, 0, 0, 0);
+      whiskerRoot.push(w.root);
+    }
+    whiskerTris.push(...tube.indices.map((i) => i + first - whiskerFirst));
+  }
+  const whiskerCount = positions.length / 3 - whiskerFirst;
   const nVisible = positions.length / 3;
   const helper = (p: Vec3, bone: number) => {
     positions.push(...p);
@@ -214,7 +285,7 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
     positions: Float32Array.from(positions),
     rig,
     weight: weightOf,
-    anchor: (v) => eyeOf(v)?.center ?? null,
+    anchor: (v) => eyeOf(v)?.center ?? (v >= whiskerFirst && v < whiskerFirst + whiskerCount ? whiskerRoot[v - whiskerFirst] : null),
     stop: spec.stop,
     noseTip: spec.noseTip,
     eyeCenter: body.eyes[0].center,
@@ -275,6 +346,19 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
     },
   ];
 
+  if (whiskerCount)
+    meshes.push({
+      name: "whiskers",
+      source: { kind: "base" },
+      role: "bodypart",
+      baseIndex: blob.add("u32", Array.from({ length: whiskerCount }, (_, i) => whiskerFirst + i)),
+      uv: blob.add("f32", whiskerUv),
+      indices: blob.add("u32", whiskerTris),
+      material: { kind: "other", color: [0.86, 0.84, 0.8] },
+      tags: ["animal", "whiskers"],
+      lods: [0],
+    });
+
   const targets: TargetRef[] = [];
   for (const m of morphs) {
     const idx: number[] = [], del: number[] = [];
@@ -299,8 +383,8 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
 
   const lods: LodDef[] = [
     { name: "Full", distance: 0 },
-    { name: "Medium", distance: 5 },
-    { name: "Crowd", distance: 16, bones: rig.bones.filter((b) => !spec.crowdDrops.test(b.name)).map((b) => b.name), merge: true },
+    { name: "Medium", distance: spec.lodDistances?.[0] ?? 5 },
+    { name: "Crowd", distance: spec.lodDistances?.[1] ?? 16, bones: rig.bones.filter((b) => !spec.crowdDrops.test(b.name)).map((b) => b.name), merge: true },
   ];
 
   const manifest: ActorPackManifest = {
@@ -330,14 +414,15 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
 
 async function main(): Promise<void> {
   const only = arg("only");
-  const ids = only ? only.split(",") : ["dog", "squirrel", "deer"];
+  const ids = only ? only.split(",") : ["dog", "squirrel", "cat", "deer"];
   if (arg("out") && ids.length > 1) throw new Error("--out needs --only <animal>");
   const specs: Record<string, (cell: number, triangles: number) => AnimalSpec> = {
     dog: (c, t) => quadrupedSpec("dog", c, t),
     squirrel: (c, t) => quadrupedSpec("squirrel", c, t),
+    cat: catSpec,
     deer: deerSpec,
   };
-  const defaults: Record<string, [number, number]> = { dog: [0.0035, 44000], squirrel: [0.0011, 40000], deer: [0.003, 52000] };
+  const defaults: Record<string, [number, number]> = { dog: [0.0035, 44000], squirrel: [0.0011, 40000], cat: [0.002, 44000], deer: [0.003, 52000] };
   for (const id of ids) {
     const make = specs[id];
     if (!make) throw new Error(`Unknown animal ${id}`);

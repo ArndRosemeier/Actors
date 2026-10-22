@@ -27,7 +27,7 @@ const PACKAGES = ["core", "human", "animal", "drone", "three", "generator"];
 const DESCRIPTIONS = {
   core: "Renderer-free actor runtime: pack format, morphs, skeleton and garment fitting, clip retargeting, Web Worker evaluation.",
   human: "Adult human actor on the MakeHuman CC0 assets: macro and detail sliders, races, expressions, worker entry.",
-  animal: "Generated animal actors (dog breeds and squirrels on a shared CC0 quadruped rig, deer on Quaternius' CC0 deer rig): shape sliders, coats, clips, worker entry.",
+  animal: "Generated animal actors (dog breeds, squirrels and a Maine Coon cat on a shared CC0 quadruped rig, deer on Quaternius' CC0 deer rig): shape sliders, coats, clips, worker entry.",
   drone: "Procedural futuristic drones from building blocks: roles, palettes, rotor rigs and opt-in weapons.",
   three: "three.js adapter for Actors: skinned meshes, skin/eye/cloth materials, dual-quaternion skinning, clip playback.",
   generator: "Reusable three.js character generator: one JSON config for shape, looks, outfit and animation, plus stage, editor and glTF export.",

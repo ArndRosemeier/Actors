@@ -2,6 +2,7 @@
 // head and coat, and frames of a few clips.
 // Usage: node scripts/animals.mjs [url] [outDir]   (SHOTS=breed-,walk to pick)
 // Squirrels: node scripts/animals.mjs "http://localhost:5173/animals.html?animal=squirrel" screenshots/squirrels
+// Cats: node scripts/animals.mjs "http://localhost:5173/animals.html?animal=cat" screenshots/cats
 // Deer: node scripts/animals.mjs "http://localhost:5173/animals.html?animal=deer" screenshots/deer
 import { chromium } from "playwright-core";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -34,9 +35,9 @@ const shot = async (name, wait = 500) => {
   writeFileSync(`${out}/${name}.png`, Buffer.from(png.split(",")[1], "base64"));
   console.log("saved", name);
 };
-// Frames the animal by its current size (squirrels are about 0.3 of a dog, the deer about 1.35 times its height).
+// Frames the animal by its current size (squirrels are about 0.3 of a dog, cats half, the deer about 1.35 times its height).
 const kind = await page.evaluate(() => window.__actors.kind);
-const H = kind === "squirrel" ? 0.3 : kind === "deer" ? 1.35 : 1;
+const H = kind === "squirrel" ? 0.3 : kind === "cat" ? 0.5 : kind === "deer" ? 1.35 : 1;
 const size = () => page.evaluate((h) => window.__actors.animal.shape.size * h, H);
 const side = async () => {
   const s = await size();
@@ -50,8 +51,8 @@ const head = async () => {
 };
 const base = await page.evaluate(() => window.__actors.animal.species.base);
 // Head close-ups: every squirrel, a few dogs and deer.
-const closeUp = (id) => kind === "squirrel" || (kind === "deer" ? ["sika", "red", "whitetail"] : ["wolfdog", "germanShepherd", "labrador", "beagle", "husky"]).includes(id);
-const clips = kind === "deer" ? ["walk", "gallop", "eat", "headbutt"] : kind === "squirrel" ? ["alert", "eat", "hop", "run", "flick", "walk"] : ["walk", "run", "sit", "howl"];
+const closeUp = (id) => kind === "squirrel" || kind === "cat" || (kind === "deer" ? ["sika", "red", "whitetail"] : ["wolfdog", "germanShepherd", "labrador", "beagle", "husky"]).includes(id);
+const clips = kind === "deer" ? ["walk", "gallop", "eat", "headbutt"] : kind === "squirrel" ? ["alert", "eat", "hop", "run", "flick", "walk"] : kind === "cat" ? ["walk", "run", "sit", "meow"] : ["walk", "run", "sit", "howl"];
 
 const t0 = Date.now();
 const ms = await page.evaluate(async () => {
