@@ -341,10 +341,10 @@ export class ActorRuntime {
    * Full update: morph, shape passes (see ShapeOptions: proportions, tips,
    * scale), normals, skeleton, proxies.
    */
-  async evaluate(weights: Map<string, number>, previous?: ActorShape, options?: ShapeOptions): Promise<ActorShape> {
+  async evaluate(weights: Map<string, number>, previous?: ActorShape, options?: ShapeOptions, fit?: Iterable<string>): Promise<ActorShape> {
     const active = [...weights].filter(([, w]) => Math.abs(w) >= 1e-5).map(([n]) => n);
     await this.ensureTargets([...active, ...(options?.tips ?? []).map((t) => t.mask)]);
-    return this.evaluateLoaded(weights, previous, options);
+    return this.evaluateLoaded(weights, previous, options, fit);
   }
 
   /** Per base vertex 0..1 weights of a loaded target's region (see TipDeform). */
@@ -368,14 +368,23 @@ export class ActorRuntime {
     if (options.scale !== undefined) applyScale(positions, options.scale);
   }
 
-  /** Synchronous version of evaluate(); all weighted targets (and tip masks) must already be loaded. */
-  evaluateLoaded(weights: Map<string, number>, previous?: ActorShape, options?: ShapeOptions): ActorShape {
+  /**
+   * Synchronous version of evaluate(); all weighted targets (and tip masks) must already be loaded.
+   *
+   * `fit`: names of the meshes the shape is needed for. Only their proxies (garments, hair) and
+   * stencil meshes (e.g. the subdivided body) are fitted, which saves most of the work once many
+   * garments are loaded but few are worn. Absent: every loaded mesh.
+   */
+  evaluateLoaded(weights: Map<string, number>, previous?: ActorShape, options?: ShapeOptions, fit?: Iterable<string>): ActorShape {
     const positions = this.morph(weights, previous?.positions);
     if (hasShapeOptions(options)) this.deform(positions, options);
     const baseLists = this.meshes.filter((m) => m.def.source.kind === "base" && !m.stencil);
     const normals = computeNormals(positions, this.manifest.vertexCount, baseLists, previous?.normals);
+    const wanted = fit ? new Set(fit) : null;
+    const used = wanted ? new Set(this.meshes.filter((m) => wanted.has(m.def.name) && m.def.source.kind === "proxy").map((m) => (m.def.source as { proxy: string }).proxy)) : null;
     const proxies = new Map<string, { positions: Float32Array; normals: Float32Array }>();
     for (const [name, binding] of this.proxies) {
+      if (used && !used.has(name)) continue;
       const prev = previous?.proxies.get(name);
       const p = fitProxy(binding, positions, prev?.positions);
       const lists = this.meshes.filter((m) => m.def.source.kind === "proxy" && m.def.source.proxy === name);
@@ -383,7 +392,7 @@ export class ActorRuntime {
     }
     const meshes = new Map<string, { positions: Float32Array; normals: Float32Array }>();
     for (const m of this.meshes) {
-      if (!m.stencil) continue;
+      if (!m.stencil || (wanted && !wanted.has(m.def.name))) continue;
       const prev = previous?.meshes.get(m.def.name);
       const p = applyStencil(m.stencil, positions, prev?.positions);
       meshes.set(m.def.name, { positions: p, normals: computeNormals(p, m.stencil.rows, [m], prev?.normals) });
@@ -415,8 +424,8 @@ export class ActorRuntime {
     const normals = computeNormals(positions, this.manifest.vertexCount, baseLists);
     const meshes = new Map<string, { positions: Float32Array; normals: Float32Array }>();
     for (const m of this.meshes) {
-      if (!m.stencil) continue;
-      const cur = shape.meshes.get(m.def.name)!;
+      const cur = m.stencil && shape.meshes.get(m.def.name);
+      if (!m.stencil || !cur) continue;
       const p = applyStencil(m.stencil, positions);
       const n = computeNormals(p, m.stencil.rows, [m]);
       meshes.set(m.def.name, { positions: sub(p, cur.positions), normals: sub(n, cur.normals) });

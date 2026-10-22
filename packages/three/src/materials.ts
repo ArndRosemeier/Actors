@@ -166,11 +166,16 @@ if ( sp_height != 0.0 ) normal = h_bumpNormal( -vViewPosition, normal, sp_height
 
 const SKIN_IRRADIANCE = /* glsl */ `
 float dotNL = saturate( dot( geometryNormal, directLight.direction ) );
+vec3 irradiance = dotNL * directLight.color;
 // Wrapped, per-channel diffuse: light bleeds further around the terminator in red (subsurface scattering approximation).
+// Diffuse only: fed to the specular and sheen lobes, the wrap lit edges facing away from the sun,
+// where those lobes peak, and they showed as red sparks along sunlit silhouettes.
 float skinNdl = dot( geometryNormal, directLight.direction );
 vec3 skinWrap = vec3( 0.5, 0.22, 0.14 ) * uSSS;
-vec3 irradiance = clamp( ( vec3( skinNdl ) + skinWrap ) / ( 1.0 + skinWrap ), 0.0, 1.0 ) * directLight.color;
+vec3 skinIrradiance = clamp( ( vec3( skinNdl ) + skinWrap ) / ( 1.0 + skinWrap ), 0.0, 1.0 ) * directLight.color;
 `;
+
+const SKIN_DIRECT_DIFFUSE = /reflectedLight\.directDiffuse \+= irradiance \* BRDF_Lambert\(/;
 
 export function createSkinMaterial(uniforms: SkinUniforms): THREE.MeshPhysicalMaterial {
   const mat = new THREE.MeshPhysicalMaterial({
@@ -193,7 +198,7 @@ export function createSkinMaterial(uniforms: SkinUniforms): THREE.MeshPhysicalMa
     const physical = THREE.ShaderChunk.lights_physical_pars_fragment.replace(
       /float dotNL = saturate\( dot\( geometryNormal, directLight\.direction \) \);\s*vec3 irradiance = dotNL \* directLight\.color;/,
       SKIN_IRRADIANCE,
-    );
+    ).replace(SKIN_DIRECT_DIFFUSE, "reflectedLight.directDiffuse += skinIrradiance * BRDF_Lambert(");
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>\n${SKIN_FRAG_PARS}`)
       .replace("#include <lights_physical_pars_fragment>", physical)
@@ -335,7 +340,10 @@ export function createClothMaterial(
         `#include <map_fragment>
 float clothLum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
 diffuseColor.rgb = mix( diffuseColor.rgb, uTint * clamp( clothLum / uTintMeanLum, 0.0, 3.0 ), uTintMix );`,
-      );
+      )
+      // Cut-outs (lace, fishnet) from the texture's full-resolution alpha: smaller mip levels blur the
+      // transparent space around UV islands into the cloth and punched holes along every seam from afar.
+      .replace("#include <alphatest_fragment>", "#if defined( USE_ALPHATEST ) && defined( USE_MAP )\nif ( textureLod( map, vMapUv, 0.0 ).a < alphaTest ) discard;\n#else\n#include <alphatest_fragment>\n#endif");
   };
   mat.customProgramCacheKey = () => "actors-cloth";
   return useDualQuaternionSkinning(mat);
