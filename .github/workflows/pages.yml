@@ -37,11 +37,14 @@ jobs:
       - run: npm test
       # The generated packs only change with the importers, the packages they import and the
       # lockfile, so a run that touches none of them reuses the last packs (exact key only).
+      # The lockfile counts without our own package versions, so a release bump reuses them too.
+      - id: lock
+        run: echo "hash=$(node scripts/ci/lock-key.mjs)" >> "$GITHUB_OUTPUT"
       - id: packs
         uses: actions/cache@v4
         with:
           path: apps/viewer/public/packs
-          key: packs-${{ hashFiles('tools/import-makehuman/src/**', 'tools/import-animals/src/**', 'packages/core/src/**', 'packages/human/src/**', 'package-lock.json') }}
+          key: packs-${{ hashFiles('tools/import-makehuman/src/**', 'tools/import-animals/src/**', 'packages/core/src/**', 'packages/human/src/**') }}-${{ steps.lock.outputs.hash }}
       # Downloads (MPFB2 clone, MakeHuman asset packs, Quaternius and Mesh2Motion animations) are cached between runs.
       - if: steps.packs.outputs.cache-hit != 'true'
         uses: actions/cache@v4
