@@ -1,21 +1,23 @@
 # Using Actors in another project
 
-The character generator ships as four installable packages, attached to each [GitHub release](https://github.com/ArndRosemeier/Actors/releases) as npm tarballs. Nothing is on the public npm registry; npm installs straight from the release URL, and no token is needed.
+The character generator ships as six installable packages, attached to each [GitHub release](https://github.com/ArndRosemeier/Actors/releases) as npm tarballs. Nothing is on the public npm registry; npm installs straight from the release URL, and no token is needed.
 
 | Package | What it is |
 |---|---|
 | `@actors/generator` | `Character`, `CharacterStage`, `CharacterEditor`, `createCharacterGenerator` ([README](../packages/generator/README.md)). Pulls in the three below. |
 | `@actors/human` | Human sliders, races, robots, expressions, and the `@actors/human/worker` Web Worker entry. |
 | `@actors/three` | three.js adapter (materials, skinning, playback). |
+| `@actors/animal` | Generated animals (dog breeds, squirrel, ...) on a shared quadruped rig, plus the `@actors/animal/worker` entry. Install its tarball separately. |
+| `@actors/drone` | Procedural drones from building blocks (`@actors/three` has the matching adapter). Install its tarball separately. |
 | `@actors/core` | Renderer-free runtime (pack format, morphs, fitting, retargeting). |
 
 ## Install
 
 ```bash
-npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.5.0/actors-generator-0.5.0.tgz
+npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.6.0/actors-generator-0.6.0.tgz
 ```
 
-`@actors/generator` depends on the `core`, `human` and `three` tarballs of the same release, so npm fetches them too, and you can import from all four. `three` (0.180 or newer) is a peer dependency, so your app's copy is used. To upgrade, change both version numbers in the URL.
+`@actors/generator` depends on the `core`, `human` and `three` tarballs of the same release, so npm fetches them too, and you can import from all four. For animals or drones, add `.../v0.6.0/actors-animal-0.6.0.tgz` or `.../v0.6.0/actors-drone-0.6.0.tgz` to the same command. `three` (0.180 or newer) is a peer dependency, so your app's copy is used. To upgrade, change both version numbers in the URL.
 
 The packages are ES modules with type declarations, built for bundlers (Vite, webpack, esbuild, Rollup). Use `"moduleResolution": "Bundler"` in your `tsconfig.json`.
 
@@ -62,7 +64,7 @@ Code is MIT. Most assets are CC0, but some garments and hairstyles are **CC-BY**
 
 ## Publishing a new version (maintainers)
 
-1. Bump `version` in all four `packages/*/package.json` (and the `@actors/*` dependency versions) to the same new number; run `npm install` to update the lockfile.
-2. Merge to `main`. The Pages workflow builds the packages, checks them in a fresh Vite app (`npm run check:consumer`), and creates release `v<version>` with the four tarballs and `actors-packs-<version>.tar.gz`. A version that already has a release is skipped.
+1. Bump `version` in all `packages/*/package.json` (and `tools/*`, `apps/viewer`) (and the `@actors/*` dependency versions) to the same new number; run `npm install` to update the lockfile.
+2. Merge to `main`. The Pages workflow builds the packages, checks them in a fresh Vite app (`npm run check:consumer`), and creates release `v<version>` with the six tarballs and `actors-packs-<version>.tar.gz`. A version that already has a release is skipped.
 
 Locally, `npm run build:packages` writes the tarballs to `release/`, and `npm run check:consumer [dir]` installs them into a throwaway app and builds it.
