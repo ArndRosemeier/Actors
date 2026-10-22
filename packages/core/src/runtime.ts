@@ -15,6 +15,8 @@ export const defaultFetcher: Fetcher = async (url) => {
   return res.arrayBuffer();
 };
 
+let sharedRuntimes = new WeakMap<Fetcher, Map<string, Promise<ActorRuntime>>>();
+
 /** Static, shape-independent data of one mesh. */
 export interface MeshData {
   def: MeshDef;
@@ -243,11 +245,19 @@ export class ActorRuntime {
     return this.libraryClips.get(name)!;
   }
 
-  /** Loads a motion clip listed in the manifest or a loaded clip library. */
-  async loadClip(name: string): Promise<Clip> {
-    const def = this.clipDefs.find((c) => c.name === name);
-    if (!def) throw new Error(`Unknown clip ${name}`);
-    return { def, data: decodeClip(def, await this.fetcher(this.baseUrl + def.file)) };
+  private readonly clipJobs = new Map<string, Promise<Clip>>();
+
+  /** Loads a motion clip listed in the manifest or a loaded clip library (once; later calls get the same clip, so treat it as read-only). */
+  loadClip(name: string): Promise<Clip> {
+    let job = this.clipJobs.get(name);
+    if (!job) {
+      const def = this.clipDefs.find((c) => c.name === name);
+      if (!def) return Promise.reject(new Error(`Unknown clip ${name}`));
+      job = this.fetcher(this.baseUrl + def.file).then((buf) => ({ def, data: decodeClip(def, buf) }));
+      job.catch(() => this.clipJobs.delete(name));
+      this.clipJobs.set(name, job);
+    }
+    return job;
   }
 
   /** Loads a texture file shipped with the pack (as raw bytes). */
@@ -257,6 +267,29 @@ export class ActorRuntime {
 
   get url(): string {
     return this.baseUrl;
+  }
+
+  /**
+   * The pack at `manifestUrl`, loaded once per page and fetcher: every later
+   * call gets the same runtime (with its morph targets, garments and clips
+   * already loaded). Use `load` for a private copy.
+   */
+  static shared(manifestUrl: string, fetcher: Fetcher = defaultFetcher): Promise<ActorRuntime> {
+    let byUrl = sharedRuntimes.get(fetcher);
+    if (!byUrl) sharedRuntimes.set(fetcher, (byUrl = new Map()));
+    const key = typeof location !== "undefined" ? new URL(manifestUrl, location.href).href : manifestUrl;
+    let job = byUrl.get(key);
+    if (!job) {
+      job = ActorRuntime.load(manifestUrl, fetcher);
+      job.catch(() => byUrl.delete(key));
+      byUrl.set(key, job);
+    }
+    return job;
+  }
+
+  /** Forgets the runtimes `shared` handed out (the next call loads the pack again). */
+  static clearShared(): void {
+    sharedRuntimes = new WeakMap();
   }
 
   static async load(manifestUrl: string, fetcher: Fetcher = defaultFetcher): Promise<ActorRuntime> {

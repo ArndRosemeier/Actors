@@ -1,6 +1,6 @@
 {
   "name": "@actors/human",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
@@ -10,6 +10,6 @@
     "./worker": "./src/worker.ts"
   },
   "dependencies": {
-    "@actors/core": "0.6.0"
+    "@actors/core": "0.6.1"
   }
 }
