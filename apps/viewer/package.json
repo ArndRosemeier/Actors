@@ -9,13 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@actors/core": "0.6.0",
-    "@actors/human": "0.6.0",
-    "@actors/three": "0.6.0",
+    "@actors/core": "0.6.1",
+    "@actors/human": "0.6.1",
+    "@actors/three": "0.6.1",
     "three": "0.186.1",
-    "@actors/generator": "0.6.0",
-    "@actors/animal": "0.6.0",
-    "@actors/drone": "0.6.0"
+    "@actors/generator": "0.6.1",
+    "@actors/animal": "0.6.1",
+    "@actors/drone": "0.6.1"
   },
   "devDependencies": {
     "@types/three": "0.186.0",
