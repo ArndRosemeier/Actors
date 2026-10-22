@@ -5,8 +5,11 @@
  * leg colliders. Same looks, same uniforms (ThreeActor writes them), same
  * `userData` contract (`hair`, `tint`, `meanColor`, `alphaShadow`).
  *
- * Every material of a kind builds the same node graph, so all actors share
- * one shader per kind; per-actor values live in uniforms.
+ * Every material of a kind uses one node graph, built once (three keys a
+ * shader by its nodes, so a graph per material would be a shader per
+ * material): all actors share one shader per kind. Each material's own values
+ * (an actor's skin, a garment's tint) are inputs the graph reads at each draw
+ * (`input`, `inputTexture`, `feed`).
  */
 import * as THREE from "three";
 import { MeshLambertNodeMaterial, MeshPhysicalNodeMaterial, MeshStandardNodeMaterial } from "three/webgpu";
@@ -46,9 +49,9 @@ import {
 } from "./tsl";
 import type { MeshData, PartMesh } from "@actors/core";
 import type { ActorMaterialKit, ThreeActor } from "../index";
-import type { ColliderUniforms } from "../colliders";
+import { MAX_COLLIDERS, type ColliderUniforms } from "../colliders";
 import { garmentLayer } from "../layers";
-import type { SkinUniforms } from "../materials";
+import { createSkinUniforms, type SkinUniforms } from "../materials";
 import { fabricNormalMap, lashAlphaMap, poreNormalMap } from "../procedural";
 import { leafTexture, robotMaterialParams, strandTexture } from "../parts";
 import { useNodeDqs } from "./dqs";
@@ -67,46 +70,71 @@ const black = (() => {
   return t;
 })();
 
-type Holder<T> = { value: T };
+/** A material's own values for its kind's shared graph, by input name (read at each draw). */
+type Inputs = Record<string, () => unknown>;
 
-/** A uniform node that follows a plain `{ value }` holder (numbers are copied each render; colours and vectors are shared objects). */
-function follow(h: Holder<number>): N;
-function follow<T extends object>(h: Holder<T>): N;
-function follow(h: Holder<unknown>): N {
-  if (typeof h.value === "number") return uniform(h.value).onRenderUpdate(() => h.value as number);
-  return uniform(h.value as never);
+/** Gives `mat` its values for the shared graph's inputs (see `input`). Returns `mat`. */
+function feed<T extends THREE.Material>(mat: T, inputs: Inputs): T {
+  mat.userData.actorInputs = { ...(mat.userData.actorInputs as Inputs | undefined), ...inputs };
+  return mat;
 }
 
-/** A texture node for a holder's texture (`fallback` if it has none). Set `node.value` to swap it later. */
-function textureOf(h: Holder<THREE.Texture | null>, fallback: THREE.Texture): N {
-  return texture(h.value ?? fallback);
+function read(frame: { material?: THREE.Material | null }, name: string): unknown {
+  return (frame.material?.userData.actorInputs as Inputs | undefined)?.[name]?.();
 }
 
-/** Per-actor skin inputs, built once and shared by the actor's skin materials. */
-interface SkinNodes {
-  u: Record<string, N>;
-  maskA: N;
-  maskB: N;
-  /** Up to four photographic skins and their weights (see blendSkins). */
-  layers: N[];
-  weights: N;
+/**
+ * A uniform of a shared graph: at each draw it takes the drawn material's value
+ * `name` (`feed`). `initial` gives its type. (Another pass's own material, a
+ * shadow's, has none: the uniform keeps its last value, which that pass does not use.)
+ */
+function input(name: string, initial: unknown): N {
+  return uniform(initial as never).onObjectUpdate((frame: { material?: THREE.Material | null }) => read(frame, name));
 }
 
-function skinNodes(actor: ThreeActor): SkinNodes {
-  const existing = actor.userData.nodeSkin as SkinNodes | undefined;
+/** A texture of a shared graph, sampled at `at` (default uv) and mip `level` (default auto): the drawn material's texture `name`, else `fallback`. */
+function inputTexture(name: string, fallback: THREE.Texture, at?: N, level?: N | number): N {
+  const node = texture(fallback, at, level as N | undefined).onObjectUpdate((frame: { material?: THREE.Material | null }) => read(frame, name) ?? fallback);
+  // three merges texture uniforms by their texture's uuid at build time, which would fold
+  // inputs that start on the same fallback (the skin's four layers) into one slot.
+  (node as unknown as { getUniformHash: () => string }).getUniformHash = () => `actorInput:${name}`;
+  return node;
+}
+
+/** `make` once, on first use (graphs are built when the first material of a kind is). */
+function once<T>(make: () => T): () => T {
+  let made: T | undefined;
+  return () => (made ??= make());
+}
+
+/** Per-actor photographic skins and their weights (see blendSkins). */
+interface SkinLayers {
+  layers: THREE.Texture[];
+  weights: THREE.Vector4;
+}
+
+function skinLayers(actor: ThreeActor): SkinLayers {
+  const existing = actor.userData.nodeSkin as SkinLayers | undefined;
   if (existing) return existing;
-  const s: SkinUniforms = actor.skin;
-  const u: Record<string, N> = {};
-  for (const [k, h] of Object.entries(s)) if (k !== "uMaskA" && k !== "uMaskB" && k !== "uAlbedo") u[k] = follow(h as Holder<number>);
-  const nodes: SkinNodes = {
-    u,
-    maskA: textureOf(s.uMaskA, black),
-    maskB: textureOf(s.uMaskB, black),
-    layers: [0, 1, 2, 3].map(() => texture(white)),
-    weights: uniform(new THREE.Vector4(1, 0, 0, 0)),
+  const layers: SkinLayers = { layers: [white, white, white, white], weights: new THREE.Vector4(1, 0, 0, 0) };
+  actor.userData.nodeSkin = layers;
+  return layers;
+}
+
+/** The skin's uniforms that are values (not textures), by name. */
+const SKIN_VALUES = Object.keys(createSkinUniforms()).filter((k) => k !== "uMaskA" && k !== "uMaskB" && k !== "uAlbedo") as (keyof SkinUniforms)[];
+
+/** An actor's skin inputs for a skin material (see `skinGraph`). */
+function skinInputs(actor: ThreeActor): Inputs {
+  const s = actor.skin, l = skinLayers(actor);
+  const inputs: Inputs = {
+    "skin.maskA": () => s.uMaskA.value ?? black,
+    "skin.maskB": () => s.uMaskB.value ?? black,
+    "skin.weights": () => l.weights,
   };
-  actor.userData.nodeSkin = nodes;
-  return nodes;
+  for (const k of SKIN_VALUES) inputs[`skin.${k}`] = () => s[k].value;
+  for (let i = 0; i < 4; i++) inputs[`skin.layer${i}`] = () => l.layers[i];
+  return inputs;
 }
 
 const skinHash = Fn(([p]: N[]) => fract(sin(dot(p, vec2(127.1, 311.7))).mul(43758.5453))).setLayout({ name: "skin_hash", type: "float", inputs: [{ name: "p", type: "vec2" }] });
@@ -161,28 +189,30 @@ function useWrappedDiffuse(mat: MeshPhysicalNodeMaterial, sss: N): void {
   }) as never;
 }
 
-/** Skin (see createSkinMaterial): region tints, photo skins, stubble, race pattern, pores, wrapped diffuse. */
-export function createNodeSkinMaterial(actor: ThreeActor): MeshPhysicalNodeMaterial {
-  const nodes = skinNodes(actor);
-  const { u } = nodes;
-  const mat = new MeshPhysicalNodeMaterial({
-    color: 0xffffff,
-    roughness: 0.48,
-    sheen: 0.3,
-    sheenRoughness: 0.6,
-    sheenColor: new THREE.Color(0.9, 0.6, 0.55),
-    specularIntensity: 0.6,
-  });
-  // The colour pass computes the pattern once and leaves its bump, roughness and glow in
-  // properties for the normal, roughness and emissive slots (built after the colour).
+/**
+ * The skin's shared graph (see createSkinMaterial): region tints, photo skins,
+ * stubble, race pattern, pores. The colour pass computes the pattern once and
+ * leaves its bump, roughness and glow in properties for the normal, roughness
+ * and emissive slots (built after the colour).
+ */
+const skinGraph = once(() => {
+  const u: Record<string, N> = {};
+  const template = createSkinUniforms();
+  for (const k of SKIN_VALUES) {
+    const v = template[k].value as unknown;
+    u[k] = input(`skin.${k}`, typeof v === "number" ? v : (v as THREE.Color | THREE.Vector4).clone());
+  }
   const spHeight = property("float", "actor_sp_height");
   const spRough = property("float", "actor_sp_rough");
   const spEmit = property("vec3", "actor_sp_emit");
   const uvS = uv();
   const bind = bindVarying(u);
-  mat.colorNode = Fn(() => {
-    const mA = nodes.maskA.sample(uvS).toVar();
-    const mB = nodes.maskB.sample(uvS).toVar();
+  const maskA = () => inputTexture("skin.maskA", black, uvS);
+  const maskB = () => inputTexture("skin.maskB", black, uvS);
+  const weights = input("skin.weights", new THREE.Vector4(1, 0, 0, 0));
+  const color = Fn(() => {
+    const mA = maskA().toVar();
+    const mB = maskB().toVar();
     const tone = u.uTone.mul(skinNoise(uvS.mul(60)).mul(0.08).add(skinNoise(uvS.mul(400)).mul(0.04)).add(0.95)).toVar();
     tone.assign(mix(tone, tone.mul(u.uLip), mA.r));
     tone.assign(mix(tone, tone.mul(u.uAreola), mA.g));
@@ -192,11 +222,8 @@ export function createNodeSkinMaterial(actor: ThreeActor): MeshPhysicalNodeMater
     tone.assign(mix(tone, tone.mul(vec3(0.94, 0.88, 0.86)), mB.g.mul(0.6)));
     tone.assign(mix(tone, tone.mul(vec3(1.02, 0.9, 0.88)), mB.b.mul(0.5)));
     // Photographic skin already carries lips, areolae, nails and mottling.
-    const w = nodes.weights;
-    const photo = nodes.layers[0].sample(uvS).rgb.mul(w.x)
-      .add(nodes.layers[1].sample(uvS).rgb.mul(w.y))
-      .add(nodes.layers[2].sample(uvS).rgb.mul(w.z))
-      .add(nodes.layers[3].sample(uvS).rgb.mul(w.w));
+    const layer = (i: number) => inputTexture(`skin.layer${i}`, white, uvS).rgb;
+    const photo = layer(0).mul(weights.x).add(layer(1).mul(weights.y)).add(layer(2).mul(weights.z)).add(layer(3).mul(weights.w));
     tone.assign(mix(tone, photo.mul(u.uAlbedoTint), u.uAlbedoMix));
     const browMask = ss(0.02, 0.3, mB.a);
     tone.assign(mix(tone, u.uBrowColor, browMask.mul(u.uBrowDensity)));
@@ -211,9 +238,9 @@ export function createNodeSkinMaterial(actor: ThreeActor): MeshPhysicalNodeMater
     return vec4(mix(pattern.color, pattern.color.mul(vec3(0.62, 0.36, 0.36)), inner), 1);
   })();
   // Pores (fewer on lips, nails and brows), vulva relief, pattern bumps.
-  mat.normalNode = Fn(() => {
-    const mA = nodes.maskA.sample(uvS);
-    const mB = nodes.maskB.sample(uvS).toVar();
+  const normal = Fn(() => {
+    const mA = maskA();
+    const mB = maskB().toVar();
     const pore = texture(poreNormalMap(), uvS.mul(48)).xyz.mul(2).sub(1).toVar();
     const scale = float(1).sub(max(mA.r, mA.b).mul(0.7)).mul(0.35);
     const mapN = vec3(pore.xy.mul(scale), pore.z).toVar();
@@ -232,24 +259,52 @@ export function createNodeSkinMaterial(actor: ThreeActor): MeshPhysicalNodeMater
     });
     return n;
   })();
-  mat.roughnessNode = select(spRough.greaterThanEqual(0), spRough, float(0.48));
-  mat.emissiveNode = spEmit;
-  useWrappedDiffuse(mat, u.uSSS);
-  return useNodeDqs(mat);
+  return { color, normal, rough: select(spRough.greaterThanEqual(0), spRough, float(0.48)), emit: spEmit, sss: u.uSSS };
+});
+
+/** Skin (see createSkinMaterial): region tints, photo skins, stubble, race pattern, pores, wrapped diffuse. */
+export function createNodeSkinMaterial(actor: ThreeActor): MeshPhysicalNodeMaterial {
+  const g = skinGraph();
+  const mat = new MeshPhysicalNodeMaterial({
+    color: 0xffffff,
+    roughness: 0.48,
+    sheen: 0.3,
+    sheenRoughness: 0.6,
+    sheenColor: new THREE.Color(0.9, 0.6, 0.55),
+    specularIntensity: 0.6,
+  });
+  mat.colorNode = g.color;
+  mat.normalNode = g.normal;
+  mat.roughnessNode = g.rough;
+  mat.emissiveNode = g.emit;
+  useWrappedDiffuse(mat, g.sss);
+  return useNodeDqs(feed(mat, skinInputs(actor)));
 }
+
+/** The eye's shared graph (see createEyeMaterial): iris colour shift, pupil shapes, iris glow. */
+const eyeGraph = once(() => {
+  const glow = property("vec3", "actor_eye_emit");
+  const color = Fn(() => {
+    const { color: c, emit } = eyeColor((at: N) => inputTexture("eye.map", white, at), uv(), {
+      hue: input("eye.hue", -1),
+      sat: input("eye.sat", 1),
+      light: input("eye.light", 1),
+      pupil: input("eye.pupil", new THREE.Vector4(0, 0.5, 0, 0)),
+    });
+    glow.assign(emit);
+    return vec4(c, 1);
+  })();
+  return { color, emit: glow };
+});
 
 /** Eyes (see createEyeMaterial): iris colour shift, pupil shapes, iris glow, wet clear coat. */
 export function createNodeEyeMaterial(map: THREE.Texture | null, actor: ThreeActor): MeshPhysicalNodeMaterial {
   const mat = new MeshPhysicalNodeMaterial({ map, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.02, ior: 1.376 });
   if (map) {
-    const e = actor.eye;
-    const glow = property("vec3", "actor_eye_emit");
-    mat.colorNode = Fn(() => {
-      const { color, emit } = eyeColor(map, uv(), { hue: follow(e.uIrisHue), sat: follow(e.uIrisSat), light: follow(e.uIrisLight), pupil: follow(e.uPupil) });
-      glow.assign(emit);
-      return vec4(color, 1);
-    })();
-    mat.emissiveNode = glow;
+    const e = actor.eye, g = eyeGraph();
+    mat.colorNode = g.color;
+    mat.emissiveNode = g.emit;
+    feed(mat, { "eye.map": () => map, "eye.hue": () => e.uIrisHue.value, "eye.sat": () => e.uIrisSat.value, "eye.light": () => e.uIrisLight.value, "eye.pupil": () => e.uPupil.value });
   }
   return useNodeDqs(mat);
 }
@@ -260,6 +315,15 @@ function tinted(tint: N, mixNode: N, meanLum: N, maxGain: number): N {
   const lum = dot(base.rgb, vec3(0.2126, 0.7152, 0.0722));
   return vec4(mix(base.rgb, tint.mul(clamp(lum.div(meanLum), 0, maxGain)), mixNode), base.a);
 }
+
+/** A garment's colour, recoloured to its tint (shared graph). */
+const clothColor = once(() => tinted(input("tint.color", new THREE.Color(1, 1, 1)), input("tint.mix", 0), input("tint.meanLum", 0.2), 3));
+
+/** A garment's cut-out: its colour texture's alpha at full resolution (shared graph). */
+const clothCutout = once(() => inputTexture("cloth.map", white, undefined, 0).a);
+
+/** Hair's colour, recoloured to its tint (shared graph). */
+const hairColor = once(() => tinted(input("hair.color", new THREE.Color(1, 1, 1)), input("hair.mix", 0), input("hair.meanLum", 0.2), 2.5));
 
 /** Garment (see createClothMaterial), recolourable through `userData.tint`. */
 export function createNodeClothMaterial(
@@ -288,26 +352,28 @@ export function createNodeClothMaterial(
     polygonOffsetFactor: -2 * layer,
     polygonOffsetUnits: -4 * layer,
   });
-  const tint = { uTint: uniform(new THREE.Color(1, 1, 1)), uTintMix: uniform(0), uTintMeanLum: uniform(Math.max(0.01, meanLum)) };
+  const tint = { uTint: { value: new THREE.Color(1, 1, 1) }, uTintMix: { value: 0 }, uTintMeanLum: { value: Math.max(0.01, meanLum) } };
   mat.userData.tint = tint;
-  mat.colorNode = tinted(tint.uTint, tint.uTintMix, tint.uTintMeanLum, 3);
+  mat.colorNode = clothColor();
   // Cut-outs from the texture's full-resolution alpha (see createClothMaterial: mip levels punched holes along seams).
-  if (map) mat.opacityNode = texture(map).level(0).a;
-  return useNodeDqs(mat);
+  if (map) mat.opacityNode = clothCutout();
+  return useNodeDqs(feed(mat, { "tint.color": () => tint.uTint.value, "tint.mix": () => tint.uTintMix.value, "tint.meanLum": () => tint.uTintMeanLum.value, "cloth.map": () => map }));
 }
+
+const clipMask = once(() => attribute("clipValue", "float").greaterThanEqual(0));
 
 /** Cuts away fragments where the `clipValue` attribute is below 0 (smooth garment hems). */
 export function useNodeClip<T extends THREE.Material>(material: T): T {
-  (material as unknown as { maskNode: N }).maskNode = attribute("clipValue", "float").greaterThanEqual(0);
+  (material as unknown as { maskNode: N }).maskNode = clipMask();
   return material;
 }
 
-/** Pushes a skirt-like garment out of the leg capsules after skinning (see colliders.ts). */
-export function useNodeColliders<T extends THREE.Material>(material: T, c: ColliderUniforms): T {
-  const capA = c.uCapA.value.map((v) => uniform(v));
-  const capB = c.uCapB.value.map((v) => uniform(v));
-  const center = uniform(c.uCenter.value);
-  (material as unknown as { positionNode: N }).positionNode = Fn(() => {
+/** The leg colliders' shared graph (see useNodeColliders). */
+const collidersGraph = once(() => {
+  const capA = Array.from({ length: MAX_COLLIDERS }, (_, i) => input(`cap.a${i}`, new THREE.Vector4()));
+  const capB = Array.from({ length: MAX_COLLIDERS }, (_, i) => input(`cap.b${i}`, new THREE.Vector3()));
+  const center = input("cap.center", new THREE.Vector3());
+  return Fn(() => {
     const p = vec3(positionLocal).toVar();
     const out = p.sub(center).mul(vec3(1, 0, 1)).toVar();
     const n = select(out.length().greaterThan(1e-4), normalize(out), vec3(0, 0, 1)).toVar();
@@ -337,7 +403,17 @@ export function useNodeColliders<T extends THREE.Material>(material: T, c: Colli
     }
     return p;
   })();
-  return material;
+});
+
+/** Pushes a skirt-like garment out of the leg capsules after skinning (see colliders.ts). */
+export function useNodeColliders<T extends THREE.Material>(material: T, c: ColliderUniforms): T {
+  (material as unknown as { positionNode: N }).positionNode = collidersGraph();
+  const inputs: Inputs = { "cap.center": () => c.uCenter.value };
+  for (let i = 0; i < MAX_COLLIDERS; i++) {
+    inputs[`cap.a${i}`] = () => c.uCapA.value[i];
+    inputs[`cap.b${i}`] = () => c.uCapB.value[i];
+  }
+  return feed(material, inputs);
 }
 
 /** Eyelashes: Lambert (no specular highlights on thin dark hairs). */
@@ -357,11 +433,11 @@ export function createNodeHairMaterial(map: THREE.Texture | null, blended = fals
     sheenColor: new THREE.Color(0.35, 0.3, 0.25),
     specularIntensity: 0.35,
   });
-  const hair = { uHairTint: uniform(new THREE.Color(1, 1, 1)), uHairMix: uniform(0), uHairMeanLum: uniform(0.2) };
+  const hair = { uHairTint: { value: new THREE.Color(1, 1, 1) }, uHairMix: { value: 0 }, uHairMeanLum: { value: 0.2 } };
   mat.userData.hair = hair;
   mat.userData.alphaShadow = !blended;
-  mat.colorNode = tinted(hair.uHairTint, hair.uHairMix, hair.uHairMeanLum, 2.5);
-  return useNodeDqs(mat);
+  mat.colorNode = hairColor();
+  return useNodeDqs(feed(mat, { "hair.color": () => hair.uHairTint.value, "hair.mix": () => hair.uHairMix.value, "hair.meanLum": () => hair.uHairMeanLum.value }));
 }
 
 export function createNodeWetMaterial(color: THREE.Color, roughness: number): MeshPhysicalNodeMaterial {
@@ -414,22 +490,27 @@ export function createNodePartMaterial(part: PartMesh, actor: ThreeActor): THREE
   }
 }
 
+/** The crowd material's shared graph (see createNodeCrowdMaterial). */
+const crowdGraph = once(() => {
+  const uvS = uv();
+  const w = input("skin.weights", new THREE.Vector4(1, 0, 0, 0));
+  const layer = (i: number) => inputTexture(`skin.layer${i}`, white, uvS).rgb;
+  const photo = layer(0).mul(w.x).add(layer(1).mul(w.y)).add(layer(2).mul(w.z)).add(layer(3).mul(w.w));
+  const skin = mix(input("skin.uTone", new THREE.Color()), photo.mul(input("skin.uAlbedoTint", new THREE.Color())), input("skin.uAlbedoMix", 0));
+  return {
+    color: vec4(mix(attribute("color", "vec3"), skin, attribute("crowdSkin", "float")), 1),
+    // Hems: cut where the interpolated clip value is below 0.
+    mask: attribute("crowdClip", "float").greaterThanEqual(0),
+  };
+});
+
 /** Crowd-level merged mesh (see createCrowdMaterial): garment vertex colours, skin tone or photo skin where `crowdSkin` is 1. Linear skinning. */
 export function createNodeCrowdMaterial(actor: ThreeActor): MeshStandardNodeMaterial {
-  const nodes = skinNodes(actor);
-  const { u } = nodes;
+  const g = crowdGraph();
   const mat = new MeshStandardNodeMaterial({ roughness: 0.7, metalness: 0 });
-  const uvS = uv();
-  const w = nodes.weights;
-  const photo = nodes.layers[0].sample(uvS).rgb.mul(w.x)
-    .add(nodes.layers[1].sample(uvS).rgb.mul(w.y))
-    .add(nodes.layers[2].sample(uvS).rgb.mul(w.z))
-    .add(nodes.layers[3].sample(uvS).rgb.mul(w.w));
-  const skin = mix(u.uTone, photo.mul(u.uAlbedoTint), u.uAlbedoMix);
-  mat.colorNode = vec4(mix(attribute("color", "vec3"), skin, attribute("crowdSkin", "float")), 1);
-  // Hems: cut where the interpolated clip value is below 0.
-  (mat as unknown as { maskNode: N }).maskNode = attribute("crowdClip", "float").greaterThanEqual(0);
-  return mat;
+  mat.colorNode = g.color;
+  (mat as unknown as { maskNode: N }).maskNode = g.mask;
+  return feed(mat, skinInputs(actor));
 }
 
 /** Node materials for a pack mesh, from the pack's material hints (the twin of `defaultMaterials`). */
@@ -480,13 +561,14 @@ export function nodeMeshMaterial(data: MeshData, actor: ThreeActor): THREE.Mater
  * renderer's backends (WebGPU, and WebGL 2 with `forceWebGL`).
  */
 export const nodeMaterials: ActorMaterialKit = {
+  attributeMorphs: true,
   mesh: nodeMeshMaterial,
   part: createNodePartMaterial,
   depth: () => null,
   crowd: createNodeCrowdMaterial,
   blendSkins(actor, layers) {
-    const nodes = skinNodes(actor);
-    for (let i = 0; i < 4; i++) nodes.layers[i].value = layers[i]?.texture ?? white;
-    nodes.weights.value.set(layers[0]?.weight ?? 0, layers[1]?.weight ?? 0, layers[2]?.weight ?? 0, layers[3]?.weight ?? 0);
+    const nodes = skinLayers(actor);
+    for (let i = 0; i < 4; i++) nodes.layers[i] = layers[i]?.texture ?? white;
+    nodes.weights.set(layers[0]?.weight ?? 0, layers[1]?.weight ?? 0, layers[2]?.weight ?? 0, layers[3]?.weight ?? 0);
   },
 };

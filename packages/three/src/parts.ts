@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { PartMesh } from "@actors/core";
 import { useDualQuaternionSkinning } from "./dqs";
+import { morphAttribute } from "./morphs";
 import { fabricNormalMap } from "./procedural";
 import { createAlphaDepthMaterial, createDepthMaterial, createSkinMaterial, type SkinUniforms } from "./materials";
 
@@ -170,7 +171,7 @@ export function createPartMaterial(part: PartMesh, skin: SkinUniforms): THREE.Ma
 }
 
 /** A part's geometry: positions, normals, uvs, shade (vertex colour), skinning and, for skin-following parts, two face-morph channels. */
-export function createPartGeometry(part: PartMesh): THREE.BufferGeometry {
+export function createPartGeometry(part: PartMesh, attributeMorphs = false): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.BufferAttribute(part.positions, 3));
   g.setAttribute("normal", new THREE.BufferAttribute(part.normals, 3));
@@ -184,20 +185,24 @@ export function createPartGeometry(part: PartMesh): THREE.BufferGeometry {
   // Parts that follow the skin in face morphs get the two morph channels (see ThreeActor.MORPHS).
   if (part.anchors) {
     const n = part.positions.length;
-    g.morphAttributes.position = [0, 1].map(() => new THREE.BufferAttribute(new Float32Array(n), 3));
-    g.morphTargetsRelative = true;
+    if (attributeMorphs) for (const k of [0, 1]) g.setAttribute(morphAttribute(k), new THREE.BufferAttribute(new Float32Array(n), 3));
+    else {
+      g.morphAttributes.position = [0, 1].map(() => new THREE.BufferAttribute(new Float32Array(n), 3));
+      g.morphTargetsRelative = true;
+    }
   }
   return g;
 }
 
 /** A skinned three.js mesh for a part (bind it to the actor's skeleton). `material` defaults to the WebGL one; `depth` is its shadow-map material, if it needs one. */
-export function createPartMesh(part: PartMesh, skin: SkinUniforms, material: THREE.Material = createPartMaterial(part, skin), depth?: THREE.Material | null): THREE.SkinnedMesh {
-  const mesh = new THREE.SkinnedMesh(createPartGeometry(part), material);
+export function createPartMesh(part: PartMesh, skin: SkinUniforms, material: THREE.Material = createPartMaterial(part, skin), depth?: THREE.Material | null, attributeMorphs = false): THREE.SkinnedMesh {
+  const mesh = new THREE.SkinnedMesh(createPartGeometry(part, attributeMorphs), material);
   mesh.name = part.name;
   mesh.userData.partKind = part.kind;
   if (part.anchors) {
     mesh.userData.anchors = part.anchors;
-    mesh.updateMorphTargets();
+    if (attributeMorphs) mesh.morphTargetInfluences = [0, 0];
+    else mesh.updateMorphTargets();
   }
   mesh.castShadow = true;
   mesh.receiveShadow = true;

@@ -3,8 +3,7 @@
  * ../racepatterns.ts. Same maths, same uniforms; see that file for what each
  * pattern does and what space it lives in.
  */
-import { Fn, If, abs, clamp, float, fwidth, length, max, min, mix, mx_hsvtorgb, mx_rgbtohsv, select, sin, step, texture, vec2, vec3 } from "./tsl";
-import type { Texture } from "three";
+import { Fn, If, abs, clamp, float, fwidth, length, max, min, mix, mx_hsvtorgb, mx_rgbtohsv, select, sin, step, vec2, vec3 } from "./tsl";
 import { fbm3, noise3, voronoi3 } from "./noise";
 import type { N } from "./types";
 
@@ -176,9 +175,9 @@ export function eyeShift(c: N, u: EyeInputs): N {
   return mix(c, shifted, iris.mul(step(0, u.hue)));
 }
 
-/** The eye's colour and glow (see GLSL_EYE): shifted iris, chosen pupil shape. `map` is MakeHuman's eye atlas. */
-export function eyeColor(map: Texture, uvNode: N, u: EyeInputs): { color: N; emit: N } {
-  const base = eyeShift(texture(map, uvNode).rgb, u);
+/** The eye's colour and glow (see GLSL_EYE): shifted iris, chosen pupil shape. `map` samples MakeHuman's eye atlas at a uv. */
+export function eyeColor(map: (at: N) => N, uvNode: N, u: EyeInputs): { color: N; emit: N } {
+  const base = eyeShift(map(uvNode).rgb, u);
   const col = vec3(base).toVar();
   const emit = vec3(0).toVar();
   const c0 = vec2(0.7025, 0.6971), c1 = vec2(0.2866, 0.285);
@@ -191,7 +190,7 @@ export function eyeColor(map: Texture, uvNode: N, u: EyeInputs): { color: N; emi
     // Paint the photo's round pupil over with iris colour from the ring outside it.
     const dir = select(r.greaterThan(1e-3), q.div(max(r, 1e-3)), vec2(1, 0));
     const ring = cc.add(dir.mul(IRIS * 0.62));
-    const irisCol = eyeShift(texture(map, ring).rgb, u);
+    const irisCol = eyeShift(map(ring).rgb, u);
     const oldPupil = float(1).sub(ss(0.36, 0.5, r));
     col.assign(mix(col, irisCol, oldPupil));
     const pr = u.pupil.y.mul(0.15).add(0.32).toVar();

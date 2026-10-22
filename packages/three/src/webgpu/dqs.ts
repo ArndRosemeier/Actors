@@ -11,8 +11,9 @@
  * skinned with linear blending; the difference at the joints is far below a
  * shadow map's resolution.
  */
-import { Fn, If, OnObjectUpdate, attribute, cross, dot, float, morphReference, normalLocal, normalize, positionLocal, reference, referenceBuffer, select, skinning, sqrt, subBuild, vec4 } from "./tsl";
-import type { Material, Skeleton, SkinnedMesh } from "three";
+import { Fn, If, OnObjectUpdate, attribute, cross, dot, float, morphReference, normalLocal, normalize, positionLocal, reference, referenceBuffer, select, skinning, sqrt, subBuild, uniform, vec4 } from "./tsl";
+import type { Material, Object3D, Skeleton, SkinnedMesh } from "three";
+import { morphAttribute } from "../morphs";
 import type { N } from "./types";
 
 /** Unit quaternion of a rotation matrix's upper 3x3 (columns c0, c1, c2). */
@@ -100,12 +101,25 @@ const dqSkinning = Fn(([mesh]: [SkinnedMesh], builder: N) => {
   }
 }, "void");
 
+/**
+ * Face morphs carried as plain attributes (see ../morphs.ts): each channel's
+ * deltas times the drawn mesh's `morphTargetInfluences`, before skinning.
+ */
+function attributeMorphs(builder: N): void {
+  for (let k = 0; builder.hasGeometryAttribute(morphAttribute(k)); k++) {
+    const weight = uniform(0).onObjectUpdate(({ object }: { object: Object3D & { morphTargetInfluences?: number[] } }) => object.morphTargetInfluences?.[k] ?? 0);
+    positionLocal.addAssign(attribute(morphAttribute(k), "vec3").mul(weight));
+    if (builder.hasGeometryAttribute(morphAttribute(k, true))) normalLocal.addAssign(attribute(morphAttribute(k, true), "vec3").mul(weight));
+  }
+}
+
 /** Makes a node material skin with dual quaternions (see the file comment). Returns the material. */
 export function useNodeDqs<T extends Material>(material: T): T {
   const m = material as unknown as { setupPosition(builder: N): N; positionNode: N; displacementMap?: unknown };
   m.setupPosition = function (this: typeof m, builder: N) {
     const { object, geometry } = builder;
     if (geometry.morphAttributes.position || geometry.morphAttributes.normal || geometry.morphAttributes.color) morphReference(object);
+    attributeMorphs(builder);
     if (object.isSkinnedMesh === true) dqSkinning(object);
     if (this.positionNode !== null) positionLocal.assign(subBuild(this.positionNode, "POSITION", "vec3"));
     return positionLocal;
