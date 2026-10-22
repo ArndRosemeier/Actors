@@ -452,8 +452,12 @@ export class CharacterEditor {
           g.querySelector("summary")!.textContent = d.group;
           details.appendChild(g);
           groups.set(d.group, g);
+          // Genital shape sliders only matter with anatomical detail on (hidden with it).
+          if (d.group.toLowerCase() === "genitals") this.syncers.push((c) => (g.hidden = !c.anatomy));
         }
-        this.slider(groups.get(d.group)!, d.label, d.min, d.max, 0.01, (v) => v.toFixed(2), (c) => c.details[d.id] ?? 0, (v) => set({ details: { ...character.config.details, [d.id]: v } }), `details.${d.id}`);
+        const row = this.slider(groups.get(d.group)!, d.label, d.min, d.max, 0.01, (v) => v.toFixed(2), (c) => c.details[d.id] ?? 0, (v) => set({ details: { ...character.config.details, [d.id]: v } }), `details.${d.id}`);
+        // (The crotch bulge too.)
+        if (row && /(^|\/)bulge/.test(d.id)) this.syncers.push((c) => (row.hidden = !c.anatomy));
       }
     }
 

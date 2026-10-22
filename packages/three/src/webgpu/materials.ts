@@ -92,9 +92,9 @@ function input(name: string, initial: unknown): N {
   return uniform(initial as never).onObjectUpdate((frame: { material?: THREE.Material | null }) => read(frame, name));
 }
 
-/** A texture of a shared graph, sampled at `at` (default uv): the drawn material's texture `name`, else `fallback`. */
-function inputTexture(name: string, fallback: THREE.Texture, at?: N): N {
-  const node = texture(fallback, at).onObjectUpdate((frame: { material?: THREE.Material | null }) => read(frame, name) ?? fallback);
+/** A texture of a shared graph, sampled at `at` (default uv) and mip `level` (default auto): the drawn material's texture `name`, else `fallback`. */
+function inputTexture(name: string, fallback: THREE.Texture, at?: N, level?: N | number): N {
+  const node = texture(fallback, at, level as N | undefined).onObjectUpdate((frame: { material?: THREE.Material | null }) => read(frame, name) ?? fallback);
   // three merges texture uniforms by their texture's uuid at build time, which would fold
   // inputs that start on the same fallback (the skin's four layers) into one slot.
   (node as unknown as { getUniformHash: () => string }).getUniformHash = () => `actorInput:${name}`;
@@ -319,6 +319,9 @@ function tinted(tint: N, mixNode: N, meanLum: N, maxGain: number): N {
 /** A garment's colour, recoloured to its tint (shared graph). */
 const clothColor = once(() => tinted(input("tint.color", new THREE.Color(1, 1, 1)), input("tint.mix", 0), input("tint.meanLum", 0.2), 3));
 
+/** A garment's cut-out: its colour texture's alpha at full resolution (shared graph). */
+const clothCutout = once(() => inputTexture("cloth.map", white, undefined, 0).a);
+
 /** Hair's colour, recoloured to its tint (shared graph). */
 const hairColor = once(() => tinted(input("hair.color", new THREE.Color(1, 1, 1)), input("hair.mix", 0), input("hair.meanLum", 0.2), 2.5));
 
@@ -352,7 +355,9 @@ export function createNodeClothMaterial(
   const tint = { uTint: { value: new THREE.Color(1, 1, 1) }, uTintMix: { value: 0 }, uTintMeanLum: { value: Math.max(0.01, meanLum) } };
   mat.userData.tint = tint;
   mat.colorNode = clothColor();
-  return useNodeDqs(feed(mat, { "tint.color": () => tint.uTint.value, "tint.mix": () => tint.uTintMix.value, "tint.meanLum": () => tint.uTintMeanLum.value }));
+  // Cut-outs from the texture's full-resolution alpha (see createClothMaterial: mip levels punched holes along seams).
+  if (map) mat.opacityNode = clothCutout();
+  return useNodeDqs(feed(mat, { "tint.color": () => tint.uTint.value, "tint.mix": () => tint.uTintMix.value, "tint.meanLum": () => tint.uTintMeanLum.value, "cloth.map": () => map }));
 }
 
 const clipMask = once(() => attribute("clipValue", "float").greaterThanEqual(0));

@@ -7,7 +7,7 @@
     "import": "tsx src/import.ts"
   },
   "dependencies": {
-    "@actors/core": "0.6.3"
+    "@actors/core": "0.6.4"
   },
   "devDependencies": {
     "meshoptimizer": "1.2.0"

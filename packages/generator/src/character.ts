@@ -35,7 +35,9 @@ export interface CharacterOptions {
   fetcher?: Fetcher;
   /**
    * Reuse another character's loaded pack (and worker) instead of loading it
-   * again: for crowds. `pack`, `worker`, `fetcher` and `clipLibraries` are then ignored.
+   * again: for crowds. `pack`, `fetcher` and `clipLibraries` are then ignored. With `worker`
+   * too, the new character shapes in that worker instead of the other one's, and characters
+   * sharing with it later use it as well: one lead per worker makes a worker pool.
    */
   shareWith?: Character;
 }
@@ -63,6 +65,8 @@ export class Character {
   private readonly clips = new Map<string, Promise<Clip>>();
   private readonly listeners = new Set<(config: CharacterConfig) => void>();
   private applied = { shape: "", face: "", parts: "", animation: undefined as string | null | undefined };
+  /** Meshes the current shape was fitted for (see `ThreeActor.neededMeshes`). */
+  private fittedNames = new Set<string>();
   private running: Promise<void> = Promise.resolve();
   private waiting?: Promise<void>;
   private time = 0;
@@ -91,7 +95,10 @@ export class Character {
 
   static async load(options: CharacterOptions): Promise<Character> {
     if (options.shareWith) {
-      const c = new Character(Human.share(options.shareWith.human), options.renderer, options.materials ?? options.shareWith.actor.kit, options.catalog);
+      const human = Human.share(options.shareWith.human);
+      // Its own worker: the lead of a worker pool (crowd members then share with one of the leads).
+      if (options.worker) await human.useWorker(options.worker);
+      const c = new Character(human, options.renderer, options.materials ?? options.shareWith.actor.kit, options.catalog);
       await c.set(options.config ?? {});
       return c;
     }
@@ -328,6 +335,16 @@ export class Character {
     const hatHides = this.hidesHair();
     for (const h of this.catalog.hair) a.setVisible(h.id, h.id === c.hair && !hatHides);
     for (const b of this.catalog.brows) a.setVisible(b.id, b.id === c.brows);
+    if (this.human.runtime.meshes.some((m) => m.def.name === "body-low")) {
+      a.setVisible("body", c.detail === "high");
+      a.setVisible("body-low", c.detail === "low");
+    }
+    const male = c.body.gender >= 0.5;
+    a.setVisible("genitals-male", c.anatomy && male);
+    // Robots: the generated parts stand in for every pack mesh.
+    a.hidePackMeshes(c.robot);
+    // One visibility pass for the whole look (and the meshes now worn exist from here on).
+    a.flushVisibility();
     a.skin.uBrowDensity.value = c.brows === PAINTED_BROWS ? 0.92 : 0;
     a.setHairColor(c.hairColor);
     // Generated beards and leaves take the hair colour (or the hair mesh's own colour).
@@ -356,16 +373,8 @@ export class Character {
     if (c.patternColor) a.skin.uAccent.value.set(c.patternColor);
     else a.skin.uAccent.value.copy(a.skin.uTone.value).multiplyScalar(0.3);
     a.eye.uPupil.value.set(PUPILS[c.pupil] ?? 0, 0.5, c.eyeGlow, 0);
-    if (a.meshes.has("body-low")) {
-      a.setVisible("body", c.detail === "high");
-      a.setVisible("body-low", c.detail === "low");
-    }
-    const male = c.body.gender >= 0.5;
-    a.setVisible("genitals-male", c.anatomy && male);
     a.skin.uFemale.value = concealedCover ? 0 : c.anatomy && !male ? 1 : 0;
     a.setMorphWeight("expression", c.expressionIntensity);
-    // Robots: the generated parts stand in for every pack mesh.
-    a.hidePackMeshes(c.robot);
     if (c.robot) {
       const r = c.robotLook, f = ROBOT_FINISHES[r.finish];
       a.setPartColor(["plate"], r.paint);
@@ -398,22 +407,36 @@ export class Character {
     const h = this.human;
     // Garments and hairstyles with their own data file are loaded the first time they are worn.
     const lazy = new Set(h.runtime.manifest.meshes.filter((m) => m.blob).map((m) => m.name));
-    const added = await h.loadMeshes([...c.outfit, c.hair ?? ""].filter((g) => lazy.has(g) && !h.runtime.isLoaded(g)));
+    // (Also those the main thread already has: this character's worker may not, when characters share a pack through several workers.)
+    const added = await h.loadMeshes([...c.outfit, c.hair ?? ""].filter((g) => lazy.has(g)));
     if (added.length) {
       this.actor.addMeshes(added);
       this.applied.shape = ""; // the next shape must include the new garments
+      // They can be shown now (the look was applied before their data existed), so the shape fits them.
+      this.applyLook();
     }
     const r = c.robotLook;
     // Robot parts are built with the shape (in the worker when there is one).
     const robotConfig = c.robot ? { head: r.head, ears: r.ears, plating: r.plating, thickness: r.thickness, core: r.core } : null;
     const shapeKey = JSON.stringify([c.body, c.details, c.race, c.race2, c.raceMix, c.raceSize, robotConfig]);
-    if (shapeKey !== this.applied.shape) {
+    // Only what is worn is fitted; wearing something the last shape left out needs a new one.
+    const needed = this.actor.neededMeshes();
+    const unfitted = !!this.shape && needed.some((n) => !this.fittedNames.has(n));
+    if (shapeKey !== this.applied.shape || unfitted) {
       h.robotConfig = robotConfig;
+      h.fit = needed;
       const t0 = performance.now();
       h.params = { ...c.body };
       h.race = sanitizeRace({ race: c.race, race2: c.race2, mix: c.raceMix, size: c.raceSize });
       h.modifierValues = { ...c.details };
       this.shape = await h.evaluate(this.shape);
+      const shape = this.shape;
+      this.fittedNames = new Set(needed.filter((n) => {
+        const m = h.runtime.meshes.find((x) => x.def.name === n);
+        if (!m) return false;
+        if (m.stencil) return shape.meshes.has(n);
+        return m.def.source.kind === "base" || shape.proxies.has(m.def.source.proxy);
+      }));
       this.actor.applyShape(this.shape);
       this.actor.object.position.y = this.actor.groundOffset() + (c.robot ? this.lift : 0);
       this.height = this.actor.height();
