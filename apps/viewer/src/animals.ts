@@ -6,8 +6,8 @@ import * as THREE from "three";
 
 const panel = document.getElementById("panel")!;
 const stage = new CharacterStage(document.getElementById("view")!);
-// ?animal=squirrel|deer picks the pack (dog and squirrel share the quadruped rig; the deer has its own).
-const KINDS: Record<string, { title: string; height: number }> = { dog: { title: "Dogs", height: 1 }, squirrel: { title: "Squirrels", height: 0.3 }, deer: { title: "Deer", height: 1 } };
+// ?animal=squirrel|cat|deer picks the pack (dog, squirrel and cat share the quadruped rig; the deer has its own).
+const KINDS: Record<string, { title: string; height: number }> = { dog: { title: "Dogs", height: 1 }, squirrel: { title: "Squirrels", height: 0.3 }, cat: { title: "Cats", height: 0.5 }, deer: { title: "Deer", height: 1 } };
 const kind = new URLSearchParams(location.search).get("animal") ?? "dog";
 const H = (KINDS[kind] ?? KINDS.dog).height;
 stage.view([1.5 * H, 0.75 * H, 1.9 * H], [0, 0.4 * H, 0]);
@@ -73,13 +73,18 @@ const toHex = (c: RGB) => "#" + c.map((v) => Math.round(v * 255).toString(16).pa
 const fromHex = (h: string): RGB => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255) as RGB;
 const LABELS: Record<string, string> = {
   earDrop: "ear drop", earFold: "ear fold", muzzleBroad: "muzzle width", muzzleDeep: "muzzle depth", skullDome: "skull dome", chestDeep: "chest depth", bellyTuck: "tuck-up", tailCurl: "tail curl", tailPlume: "tail plume",
-  neckThick: "neck girth", muzzle: kind === "deer" ? "long face" : "muzzle", tailTip: "tail tip", spotSize: "spot size", paleMask: "pale mask", tanLegs: "tan legs", tailFrost: "tail frost", earTufts: "ear tufts",
+  neckThick: "neck girth", muzzle: kind === "deer" ? "long face" : "muzzle", tailTip: "tail tip", spotSize: "spot size", paleMask: "pale mask", tanLegs: "tan legs", tailFrost: "tail frost", earTufts: "ear tufts", iris: "eye",
   dappleSize: "spot spacing", rumpBorder: "rump border", headTone: "head tone", eyeRing: "eye ring", innerEar: "inner ear", bib: kind === "deer" ? "throat" : "bib", tan: kind === "deer" ? "head" : "tan",
 };
 const COAT_AMOUNTS: string[] =
   kind === "deer"
     ? ["dapple", "dappleSize", "dorsal", "rump", "rumpBorder", "headTone", "belly", "bib", "paleMask", "eyeRing", "innerEar", "glands", "tanLegs", "shade", "agouti", "fluff"]
-    : ["saddle", "mask", "points", "belly", "bib", "socks", "blaze", "tailTip", "spots", "spotSize", "shade", "paleMask", "agouti", "tanLegs", "frost", "tailFrost", "eyeRing", "earTufts", "fluff"];
+    : kind === "cat"
+      ? ["tabby", "patches", "innerEar", "pupil", "belly", "bib", "shade", "paleMask", "agouti", "spots", "spotSize", "socks", "blaze", "tailTip", "fluff"]
+      : ["saddle", "mask", "points", "belly", "bib", "socks", "blaze", "tailTip", "spots", "spotSize", "shade", "paleMask", "agouti", "tanLegs", "frost", "tailFrost", "eyeRing", "earTufts", "fluff"];
+
+// Cats also get eye and nose leather colours.
+const COLORS = ["base", "second", "tan", "white", ...(kind === "cat" ? ["iris", "nose"] : [])];
 
 function render(): void {
   const s = animal.shape, c = animal.coat;
@@ -95,7 +100,7 @@ function render(): void {
     <h2>Body</h2>
     ${Object.entries(species.ranges as Record<string, [number, number]>).filter(([k]) => animal.supports(k)).map(([k, [lo, hi]]) => slider(LABELS[k] ?? k, s[k], lo, hi, 0.01, `shape="${k}"`)).join("")}
     <h2>Coat</h2>
-    <div class="colors">${(["base", "second", "tan", "white"] as const).map((k) => `<label>${LABELS[k] ?? k}<input type="color" value="${toHex(c[k] as RGB)}" data-color="${k}"></label>`).join("")}</div>
+    <div class="colors">${COLORS.map((k) => `<label>${LABELS[k] ?? k}<input type="color" value="${toHex((c[k] as RGB | undefined) ?? [0.03, 0.025, 0.025])}" data-color="${k}"></label>`).join("")}</div>
     ${slider("fur length", (c.length as number) * 1000, 0, 40, 0.5, `coat="length"`)}
     ${COAT_AMOUNTS.map((k) => slider(LABELS[k] ?? k, (c[k] as number | undefined) ?? 0, 0, k === "spotSize" || k === "dappleSize" ? 2 : 1, 0.01, `coat="${k}"`)).join("")}
   </div>`;
@@ -143,6 +148,7 @@ await play(clipName);
 // Test hooks (scripts/animals.mjs).
 Object.assign(window, {
   __actors: {
+    species,
     animal,
     actor,
     stage,

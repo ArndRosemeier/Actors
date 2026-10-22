@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dogShapeOptions, dogTargetWeights } from "./animal";
-import { BREEDS, DEFAULT_PRESET, DEFAULT_SHAPE, PRESETS, SHAPE_RANGES, SQUIRRELS, breedParams, mixParams, sanitizeShape } from "./breeds";
+import { BREEDS, CAT_BREEDS, DEFAULT_PRESET, DEFAULT_SHAPE, PRESETS, SHAPE_RANGES, SQUIRRELS, breedParams, mixParams, sanitizeShape } from "./breeds";
 
 describe("dog parameters", () => {
   it("every breed preset stays inside the slider ranges", () => {
@@ -75,5 +75,17 @@ describe("squirrel parameters", () => {
     expect(w.get("tail-plume")).toBeCloseTo(0.5);
     expect(w.get("cheeks")).toBeCloseTo(1);
     expect(() => breedParams("red")).toThrow();
+  });
+});
+
+describe("cat presets", () => {
+  it("are found by kind and don't share ids with the dog breeds", () => {
+    expect(PRESETS.cat).toBe(CAT_BREEDS);
+    expect(PRESETS.cat[DEFAULT_PRESET.cat]).toBeDefined();
+    for (const id of Object.keys(CAT_BREEDS)) expect(BREEDS[id], id).toBeUndefined();
+    const p = breedParams("mainecoon", "cat");
+    expect(p.coat.tabby).toBeGreaterThan(0);
+    expect(p.coat.pupil).toBeGreaterThan(0);
+    expect(p.shape).toEqual(DEFAULT_SHAPE);
   });
 });

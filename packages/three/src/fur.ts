@@ -58,6 +58,17 @@ export interface FurCoat {
   innerEar?: number;
   /** White tufts over the metatarsal glands (outside of the hind cannons). */
   glands?: number;
+  // Cat markings (packs whose coatF holds tabby stripe coordinates; see tools/import-animals/src/cat.ts).
+  /** Tabby stripes in the second colour. */
+  tabby?: number;
+  /** Tortoiseshell patches in the tan colour. */
+  patches?: number;
+  /** 0: round pupil .. 1: narrow vertical slit. */
+  pupil?: number;
+  /** Nose leather colour without nostril detail (default near black; `noseColor` draws the detailed nose instead). */
+  nose?: RGB;
+  /** Strand spacing in metres (default 1.9 mm times `grain`). */
+  strand?: number;
   /** Guard hair length in meters. */
   length: number;
   fluff: number;
@@ -101,6 +112,10 @@ export interface FurUniforms {
   uMarkF: THREE.IUniform<THREE.Vector4>;
   /** deer: rump border, head tone, eye ring, inner ear */
   uMarkG: THREE.IUniform<THREE.Vector4>;
+  /** cat: tabby, tortoiseshell patches, inner ear, pupil slit */
+  uMarkH: THREE.IUniform<THREE.Vector4>;
+  /** Plain nose leather colour (linear). */
+  uLeather: THREE.IUniform<THREE.Color>;
   /** length (m), fluff, strand spacing (m), actor scale */
   uFur: THREE.IUniform<THREE.Vector4>;
   /** Iris colour of the animal eye material. */
@@ -122,6 +137,8 @@ export function createFurUniforms(): FurUniforms {
     uNose: { value: new THREE.Vector4() },
     uMarkF: { value: new THREE.Vector4(0, 1, 0, 0) },
     uMarkG: { value: new THREE.Vector4() },
+    uMarkH: { value: new THREE.Vector4() },
+    uLeather: { value: new THREE.Color(0.025, 0.02, 0.02) },
     uFur: { value: new THREE.Vector4(0.012, 0.2, 0.0019, 1) },
     uIris: { value: new THREE.Color().setRGB(0.32, 0.18, 0.06, THREE.SRGBColorSpace) },
   };
@@ -141,7 +158,10 @@ export function setFurCoat(u: FurUniforms, coat: FurCoat, scale = 1): void {
   const deer = coat.dapple !== undefined;
   u.uMarkE.value.set(deer ? 0 : (coat.eyeRing ?? 0), coat.frost ?? 0, coat.tailFrost ?? 0, coat.earTufts ?? 0);
   u.uMarkF.value.set(coat.dapple ?? 0, coat.dappleSize ?? 1, coat.dorsal ?? 0, coat.rump ?? 0);
-  u.uMarkG.value.set(coat.rumpBorder ?? 0, coat.headTone ?? 0, deer ? (coat.eyeRing ?? 0) : 0, coat.innerEar ?? 0);
+  u.uMarkG.value.set(coat.rumpBorder ?? 0, coat.headTone ?? 0, deer ? (coat.eyeRing ?? 0) : 0, deer ? (coat.innerEar ?? 0) : 0);
+  u.uMarkH.value.set(coat.tabby ?? 0, coat.patches ?? 0, deer ? 0 : (coat.innerEar ?? 0), coat.pupil ?? 0);
+  if (coat.nose) u.uLeather.value.setRGB(...coat.nose, THREE.SRGBColorSpace);
+  else u.uLeather.value.setRGB(0.025, 0.02, 0.02);
   const grain = coat.grain ?? 1;
   u.uGrain.value = grain;
   if (coat.iris) u.uIris.value.setRGB(...coat.iris, THREE.SRGBColorSpace);
@@ -150,7 +170,7 @@ export function setFurCoat(u: FurUniforms, coat: FurCoat, scale = 1): void {
     u.uNose.value.set(c.r, c.g, c.b, 1);
   } else u.uNose.value.set(0, 0, 0, 0);
   // The shape's size scales the whole body (fur included); divide it out so fur length is in meters.
-  u.uFur.value.set(coat.length / scale, coat.fluff, 0.0019 * grain, scale);
+  u.uFur.value.set(coat.length / scale, coat.fluff, coat.strand ?? 0.0019 * grain, scale);
 }
 
 const GLSL_VERT_PARS = /* glsl */ `
@@ -189,7 +209,7 @@ varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoa
 varying vec3 vCoatPos; varying vec3 vFlow; varying float vShell;
 uniform vec4 uNose;
 uniform vec3 uBase; uniform vec3 uSecond; uniform vec3 uTan; uniform vec3 uWhite;
-uniform vec4 uMarkA; uniform vec4 uMarkB; uniform vec4 uMarkC; uniform vec4 uMarkD; uniform vec4 uMarkE; uniform vec4 uMarkF; uniform vec4 uMarkG; uniform vec4 uFur;
+uniform vec4 uMarkA; uniform vec4 uMarkB; uniform vec4 uMarkC; uniform vec4 uMarkD; uniform vec4 uMarkE; uniform vec4 uMarkF; uniform vec4 uMarkG; uniform vec4 uMarkH; uniform vec4 uFur; uniform vec3 uLeather;
 uniform float uGrain;
 vec3 furHash( vec3 p ) {
   p = fract( p * vec3( 0.1031, 0.1030, 0.0973 ) );
@@ -281,6 +301,33 @@ vec3 deerCoat( vec3 col, float n ) {
   col = mix( col, uSecond * 0.6, clamp( smoothstep( 0.25, 0.6, vCoatD.w + n * 0.2 ) + smoothstep( 0.3, 0.6, vCoatE.w ), 0.0, 1.0 ) * uMarkG.x );
   return col;
 }
+/** Dark band of a stripe pattern: s in stripe periods, dark around whole numbers, about a third of the period wide. */
+float furStripe( float s, float width ) {
+  float d = abs( fract( s + 0.5 ) - 0.5 );
+  float aa = max( fwidth( s ), 0.04 );
+  return smoothstep( width + aa, width - aa, d );
+}
+/**
+ * Mackerel tabby: bars down the sides, rings on the lower legs and the tail,
+ * lines across the forehead, and a dark line along the spine. The stripe
+ * coordinates (coatF on cat packs) come from the importer; noise makes the stripes wavy and broken.
+ */
+float furTabby( vec3 p ) {
+  float legW = vCoatF.w, headW = vCoatA.y, tailT = vCoatA.w;
+  float tailW = smoothstep( 0.0, 0.06, tailT );
+  float trunkW = max( 0.0, 1.0 - legW - headW - tailW );
+  float warp = ( furFbm( p * 30.0 ) - 0.5 ) * 1.4;
+  float broken = smoothstep( 0.3, 0.55, furFbm( p * 48.0 + 11.0 ) );
+  float t = trunkW * furStripe( vCoatF.x + warp, 0.25 ) * mix( 0.45, 1.0, broken );
+  t += legW * furStripe( vCoatF.y + warp * 0.4, 0.15 ) * 0.75;
+  t += headW * furStripe( vCoatF.z + warp * 0.25, 0.16 );
+  t += tailW * furStripe( tailT * 8.0 + warp * 0.3, 0.2 );
+  // Lighter belly: the stripes fade into spots there.
+  t *= vCoatE.z * ( 1.0 - 0.8 * smoothstep( 0.45, 0.95, vCoatD.y ) );
+  // The dark line along the spine.
+  t = max( t, smoothstep( 0.93, 0.995, vCoatD.x + warp * 0.05 ) * ( trunkW + tailW ) );
+  return clamp( t, 0.0, 1.0 );
+}
 /** Coat colour from the region data and the markings. */
 vec3 furCoat() {
   float legT = vCoatA.x, headW = vCoatA.y, muzzleT = vCoatA.z, tailT = vCoatA.w;
@@ -314,6 +361,13 @@ vec3 furCoat() {
   // Tan lower legs.
   col = mix( col, uTan, smoothstep( 1.0, 0.7, legT + n * 0.15 ) * uMarkD.z );
   col = deerCoat( col, n );
+  // Cats: tortoiseshell patches (tan), then tabby stripes (darker red inside the patches), light inner ears.
+  if ( uMarkH.x + uMarkH.y + uMarkH.z > 0.0 ) {
+    float tortie = smoothstep( 0.6, 0.68, furFbm( p * 7.0 + 5.3 ) + n * 0.15 + 0.06 * vCoatD.x ) * uMarkH.y * ( 1.0 - headW * 0.5 ) * ( 1.0 - vCoatD.y );
+    col = mix( col, uTan, tortie );
+    col = mix( col, mix( uSecond, uTan * 0.45, tortie ), furTabby( p ) * uMarkH.x );
+    col = mix( col, uWhite, smoothstep( 0.2, 0.6, vCoatE.y ) * uMarkH.z );
+  }
   // Spots.
   float spot = furSpots( p / ( 0.034 * max( uMarkC.y, 0.2 ) ) ) * uMarkC.x * ( 1.0 - vCoatC.x );
   col = mix( col, uSecond, spot );
@@ -339,6 +393,8 @@ vec3 furCoat() {
   vec3 bare = vec3( 0.025, 0.02, 0.02 );
   float pad = furNosePad();
   float bareW = clamp( max( vCoatC.x + vCoatC.y + vCoatC.z + vCoatC.w, pad ), 0.0, 1.0 );
+  // Plain nose leather colour (cats); the detailed nose below replaces it.
+  bare = mix( bare, uLeather, clamp( vCoatC.x / max( bareW, 1e-3 ), 0.0, 1.0 ) );
   if ( uNose.w > 0.5 ) {
     // Nose leather seen from the front (vCoatF.xy: side, up; dog-sized meters): a pebbled pad,
     // comma-shaped nostrils curving out and down, and the philtrum splitting the lip below.
@@ -468,25 +524,38 @@ export function createAnimalEyeMaterial(uniforms: FurUniforms): THREE.MeshPhysic
   const mat = new THREE.MeshPhysicalMaterial({ roughness: 0.1, clearcoat: 1, clearcoatRoughness: 0.03, ior: 1.376 });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uIris = uniforms.uIris;
+    shader.uniforms.uMarkH = uniforms.uMarkH;
     shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nvarying vec2 vEyeUv;").replace("#include <uv_vertex>", "#include <uv_vertex>\nvEyeUv = uv;");
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying vec2 vEyeUv; uniform vec3 uIris;")
+      .replace("#include <common>", "#include <common>\nvarying vec2 vEyeUv; uniform vec3 uIris; uniform vec4 uMarkH;")
       .replace(
         "#include <color_fragment>",
         `#include <color_fragment>
 {
   float r = vEyeUv.y;
+  float slit = uMarkH.w;
   float rays = 0.85 + 0.15 * sin( vEyeUv.x * 6.2831 * 23.0 ) * sin( vEyeUv.x * 6.2831 * 7.0 + r * 40.0 );
-  vec3 iris = uIris * rays * mix( 1.3, 0.6, smoothstep( 0.1, 0.34, r ) );
-  vec3 c = mix( vec3( 0.005 ), iris, smoothstep( 0.09, 0.11, r ) );
+  // Cats' irises fill the whole visible eye.
+  float edge = mix( 0.34, 0.44, slit );
+  vec3 iris = uIris * rays * mix( 1.3, 0.6, smoothstep( 0.1, edge, r ) );
+  // Pupil: round, or an upright ellipse narrowing to a slit (u runs around the eye from its horizontal axis).
+  float a = vEyeUv.x * 6.2831;
+  float pupil = length( vec2( cos( a ) * r / mix( 0.1, 0.022, slit ), sin( a ) * r / mix( 0.1, 0.2, slit ) ) );
+  vec3 c = mix( vec3( 0.005 ), iris, smoothstep( 0.9, 1.1, pupil ) );
   // A dark limbal ring, then the little sclera dogs show, mostly brown.
-  c = mix( c, vec3( 0.03, 0.02, 0.015 ), smoothstep( 0.33, 0.37, r ) );
-  c = mix( c, vec3( 0.2, 0.12, 0.08 ), smoothstep( 0.45, 0.55, r ) );
+  c = mix( c, vec3( 0.03, 0.02, 0.015 ), smoothstep( edge - 0.01, edge + 0.03, r ) );
+  c = mix( c, vec3( 0.2, 0.12, 0.08 ), smoothstep( edge + 0.11, edge + 0.21, r ) );
   diffuseColor.rgb = c;
 }`,
       );
   };
   mat.customProgramCacheKey = () => "actors-animal-eye";
+  return useDualQuaternionSkinning(mat);
+}
+
+/** Whiskers: thin, slightly glossy hairs. */
+export function createWhiskerMaterial(color: [number, number, number] = [0.86, 0.84, 0.8]): THREE.MeshStandardMaterial {
+  const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(...color, THREE.SRGBColorSpace), roughness: 0.35 });
   return useDualQuaternionSkinning(mat);
 }
 
@@ -501,6 +570,7 @@ export function animalMaterials(uniforms: FurUniforms): ActorMaterialKit {
       const { kind } = data.def.material;
       if (kind === "fur") return createFurMaterial(uniforms);
       if (kind === "eye" && data.def.tags?.includes("animal")) return createAnimalEyeMaterial(uniforms);
+      if (data.def.tags?.includes("whiskers")) return createWhiskerMaterial(data.def.material.color);
       return webglMaterials.mesh(data, actor);
     },
     depth(material, clip) {

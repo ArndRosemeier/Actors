@@ -6,5 +6,6 @@ apps/viewer/public/packs/
 *.log
 .DS_Store
 tools/import-makehuman/scratch/
+tools/import-animals/scratch/
 apps/viewer/public/reference/
 /release/

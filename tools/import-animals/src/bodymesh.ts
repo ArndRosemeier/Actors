@@ -308,7 +308,7 @@ function smooth(values: Float32Array, stride: number, nb: number[][], iterations
  * - coatE: light (wolf) mask (cheeks, muzzle sides and lower jaw, below the eyes), eye ring, tail, ear tip (0 root .. 1 tip)
  * - coatF: position seen from in front of the nose (side, up, depth; in dog-sized meters, i.e. divided by the body's unit), for nose leather detail (nostrils, philtrum), unused
  */
-function coatRegions(body: DogBody, P: Float32Array, N: Float32Array, W: Float32Array, B: number, regions: Map<Region, Float32Array>, furLen: Float32Array) {
+export function coatRegions(body: DogBody, P: Float32Array, N: Float32Array, W: Float32Array, B: number, regions: Map<Region, Float32Array>, furLen: Float32Array) {
   const { rig, marks, eyes } = body;
   const u = body.unit ?? 1;
   const n = P.length / 3;
