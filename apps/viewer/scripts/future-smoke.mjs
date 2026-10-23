@@ -18,15 +18,20 @@ try {
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
   await page.goto(url);
   await page.waitForFunction(() => window.__actors?.ready, undefined, { timeout: 120000 });
+  const backend = await page.evaluate(() => {
+    const r = window.__actors.stage.renderer;
+    return r.backend?.isWebGPUBackend ? "webgpu" : r.backend?.isWebGLBackend ? "node-webgl" : "webgl";
+  });
   await page.click('button[data-mode="detailed"]');
   const report = [];
+  const outfits = await page.evaluate(() => window.__actors.character.catalog.outfits.filter((o) => o.id.startsWith("future-")).map((o) => o.id));
   for (const gender of [0.1, 0.9]) {
     await page.evaluate(async (gender) => {
       const { character, stage } = window.__actors;
       await character.set({ body: { gender, ageYears: 35, muscle: gender > 0.5 ? 0.8 : 0.35, weight: gender > 0.5 ? 0.7 : 0.4 }, anatomy: false, hair: null, animation: "walk", blink: false });
       stage.view([0.5, 1.25, 4.3], [0, 1, 0]);
     }, gender);
-    for (const id of ["future-daily", "future-orbit", "future-festival"]) {
+    for (const id of outfits) {
       await page.selectOption('select[data-role="outfit-preset"]', id);
       await page.waitForFunction((id) => {
         const c = window.__actors.character;
@@ -49,6 +54,8 @@ try {
       report.push({ id, gender, pieces: result });
     }
   }
+  await page.selectOption('select[data-role="outfit-preset"]', "future-festival");
+  await page.evaluate(async () => { await window.__actors.character.set({}); });
   await page.evaluate(() => window.__actors.stage.view([-0.6, 1.3, -4.3], [0, 1, 0]));
   await page.waitForTimeout(500);
   await page.screenshot({ path: `${out}/festival-back.png` });
@@ -72,9 +79,24 @@ try {
   assert.notEqual(screens.restored, screens.tint);
   assert(screens.emissiveTextures >= 3);
   assert(screens.animations > 0);
-  writeFileSync(`${out}/report.json`, JSON.stringify({ url, report, screens, errors }, null, 2));
+  await page.click('button[data-mode="simple"]');
+  await page.selectOption('select[data-role="future-pants"]', "future-cocoon");
+  await page.waitForFunction(() => window.__actors.character.config.outfit.includes("future-cocoon"));
+  const pants = await page.evaluate(async () => {
+    const c = window.__actors.character;
+    await c.set({});
+    const available = c.catalog.garments.filter((g) => g.category === "Future · pants");
+    const keptTop = c.config.outfit.includes("future-screen");
+    const selected = c.config.outfit.filter((id) => available.some((g) => g.id === id));
+    for (const level of [1, 2, 0]) { c.setLod(level); c.actor.update(0); }
+    return { count: available.length, keptTop, selected, visible: c.actor.meshes.get("future-cocoon").visible };
+  });
+  assert.equal(pants.count, 6);
+  assert(pants.keptTop && pants.visible);
+  assert.deepEqual(pants.selected, ["future-cocoon"]);
+  writeFileSync(`${out}/report.json`, JSON.stringify({ url, backend, report, screens, pants, errors }, null, 2));
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ outfits: report.length, screens, errors }));
+  console.log(JSON.stringify({ backend, outfits: report.length, screens, pants, errors }));
 } finally {
   await browser.close();
 }

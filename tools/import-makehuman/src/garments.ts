@@ -33,6 +33,8 @@ export interface GarmentSpec {
   info?: GarmentInfo;
   /** Small intentional pieces (e.g. cuffs) need a smaller island threshold. */
   minIsland?: number;
+  /** Sculpted volume, in meters, fitted with the helper through a proxy. */
+  offset?: (c: Point, ctx: GarmentContext) => [number, number, number];
   /** Signed distance-like value in meters: > 0 inside the garment. */
   cut: (c: Point, ctx: GarmentContext) => number;
 }
@@ -86,11 +88,30 @@ const legHole = (c: Point, ctx: GarmentContext, t: number) => {
   return t * len - s;
 };
 
+/** Expand around each leg separately, leaving the crotch and waist fitted. */
+function legVolume(profile: (t: number) => number): NonNullable<GarmentSpec["offset"]> {
+  return (c, ctx) => {
+    if (!has(c.bone, "thigh", "calf")) return [0, 0, 0];
+    const side = c.x >= 0 ? "l" : "r";
+    const hip = ctx.joint(`thigh_${side}`), ankle = ctx.joint(`foot_${side}`);
+    const [s, len] = legPos(c, ctx);
+    const t = Math.max(0, Math.min(1, s / len));
+    const x = c.x - (hip[0] + (ankle[0] - hip[0]) * t);
+    const z = c.z - (hip[2] + (ankle[2] - hip[2]) * t);
+    const r = Math.max(0.001, Math.hypot(x, z));
+    const amount = profile(t);
+    // Keep a gap between the legs, including for the widest cropped silhouettes.
+    const dx = x / r * amount;
+    const inward = dx * c.x < 0;
+    return [inward ? Math.sign(dx) * Math.min(Math.abs(dx), Math.max(0, Math.abs(c.x) - 0.018)) : dx, 0, z / r * amount];
+  };
+}
+
 export const GARMENTS: GarmentSpec[] = [
   {
     name: "future-wrap", label: "3026 · Continuum wrap", color: [0.65, 0.77, 0.72],
     roughness: 0.75, inflate: 0.009, fabric: "knit",
-    info: { category: "Future · clothing", occupies: ["top"] },
+    info: { category: "Future · tops", occupies: ["top"] },
     cut: (c, ctx) => {
       if (isLeg(c.bone)) return OUT;
       // Diagonal hem and mismatched sleeves: familiar comfort, unfamiliar tailoring.
@@ -101,8 +122,60 @@ export const GARMENTS: GarmentSpec[] = [
   {
     name: "future-trousers", label: "3026 · Transit trousers", color: [0.13, 0.19, 0.25],
     roughness: 0.72, inflate: 0.006, fabric: "smooth",
-    info: { category: "Future · clothing", occupies: ["bottom"] },
+    info: { category: "Future · pants", occupies: ["bottom"] },
     cut: (c, ctx) => isArm(c.bone) ? OUT : min(ctx.joint("pelvis")[1] + 0.07 - c.y, legHole(c, ctx, 0.94)),
+  },
+  {
+    name: "future-flares", label: "3026 · Comet flares", color: [0.55, 0.38, 0.28],
+    roughness: 0.68, inflate: 0.007, fabric: "smooth",
+    info: { category: "Future · pants", occupies: ["bottom", "gaiters"] },
+    offset: legVolume((t) => 0.085 * Math.pow(Math.max(0, (t - 0.42) / 0.58), 1.5)),
+    cut: (c, ctx) => isArm(c.bone) ? OUT : min(ctx.joint("pelvis")[1] + 0.07 - c.y, legHole(c, ctx, 0.97)),
+  },
+  {
+    name: "future-cocoon", label: "3026 · Cocoon pants", color: [0.45, 0.57, 0.48],
+    roughness: 0.85, inflate: 0.008, fabric: "knit",
+    info: { category: "Future · pants", occupies: ["bottom", "gaiters"] },
+    offset: legVolume((t) => 0.075 * Math.pow(Math.sin(Math.PI * Math.max(0, Math.min(1, (t - 0.08) / 0.88))), 2)),
+    cut: (c, ctx) => isArm(c.bone) ? OUT : min(ctx.joint("pelvis")[1] + 0.095 - c.y, legHole(c, ctx, 0.93)),
+  },
+  {
+    name: "future-culottes", label: "3026 · Courtyard culottes", color: [0.68, 0.62, 0.78],
+    roughness: 0.72, inflate: 0.008, fabric: "smooth",
+    info: { category: "Future · pants", occupies: ["bottom"] },
+    offset: legVolume((t) => 0.08 * Math.max(0, Math.min(1, (t - 0.12) / 0.5))),
+    cut: (c, ctx) => isArm(c.bone) ? OUT : min(ctx.joint("pelvis")[1] + 0.08 - c.y, legHole(c, ctx, 0.67)),
+  },
+  {
+    name: "future-screen-leggings", label: "3026 · Lightstream leggings", color: [0.4, 0.72, 0.8],
+    roughness: 0.4, inflate: 0.006, fabric: "screen",
+    info: { category: "Future · pants", occupies: ["bottom"] },
+    cut: (c, ctx) => isArm(c.bone) ? OUT : min(ctx.joint("pelvis")[1] + 0.075 - c.y, legHole(c, ctx, 0.96)),
+  },
+  {
+    name: "future-shorts", label: "3026 · Drift shorts", color: [0.7, 0.47, 0.36],
+    roughness: 0.75, inflate: 0.008, fabric: "smooth",
+    info: { category: "Future · pants", occupies: ["bottom"] },
+    offset: legVolume((t) => 0.035 * Math.max(0, Math.min(1, (t - 0.08) / 0.25))),
+    cut: (c, ctx) => isArm(c.bone) ? OUT : min(ctx.joint("pelvis")[1] + 0.07 - c.y, legHole(c, ctx, c.x >= 0 ? 0.39 : 0.48)),
+  },
+  {
+    name: "future-vest", label: "3026 · Arc vest", color: [0.78, 0.68, 0.48],
+    roughness: 0.7, inflate: 0.011, fabric: "smooth",
+    info: { category: "Future · tops", occupies: ["top"] },
+    cut: (c, ctx) => isLeg(c.bone) ? OUT : min(c.y - ctx.joint("pelvis")[1] - 0.035, neckline(c, ctx, 0.065), sleeve(c, ctx, 0.08)),
+  },
+  {
+    name: "future-bolero", label: "3026 · Solstice bolero", color: [0.67, 0.37, 0.42],
+    roughness: 0.8, inflate: 0.023, fabric: "knit",
+    info: { category: "Future · tops", occupies: ["mantle"] },
+    cut: (c, ctx) => isLeg(c.bone) ? OUT : min(isArm(c.bone) ? IN : c.y - ctx.joint("spine_03")[1] + 0.055, neckline(c, ctx, 0.1), sleeve(c, ctx, 0.9)),
+  },
+  {
+    name: "future-sash", label: "3026 · Memory ribbon", color: [0.8, 0.58, 0.36],
+    roughness: 0.4, inflate: 0.029, fabric: "screen", minIsland: 4,
+    info: { category: "Future · accessories", occupies: ["sash"] },
+    cut: (c, ctx) => isArm(c.bone) || isLeg(c.bone) ? OUT : min(0.065 - Math.abs(c.y - ctx.joint("spine_02")[1] - c.x * 1.3), neckline(c, ctx, 0.085)),
   },
   {
     name: "future-mantle", label: "3026 · Aurora screen mantle", color: [0.25, 0.65, 0.8],

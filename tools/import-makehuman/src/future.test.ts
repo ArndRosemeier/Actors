@@ -3,10 +3,35 @@ import { fitProxy, readBuffer } from "@actors/core";
 import { FUTURE_OUTFITS, resolveOutfit } from "@actors/generator";
 import { BlobWriter } from "./blob";
 import { orbitalHalo } from "./future-accessories";
+import { shapedGarment } from "./shaped-garment";
 import { GARMENTS, type GarmentContext, selectGarmentFaces } from "./garments";
 import type { ObjFace } from "./obj";
 
 describe("future wardrobe", () => {
+  it("gives shaped pants distinct volumes and preserves fitting under scale and translation", () => {
+    const ctx: GarmentContext = {
+      positions: [0.16, 0.85, 0.04, 0.18, 0.5, 0.07, 0.15, 0.18, -0.02, -0.16, 0.85, 0.04, -0.18, 0.5, 0.07, -0.15, 0.18, -0.02],
+      dominantBone: (v) => `calf_${v < 3 ? "l" : "r"}`,
+      joint: (bone) => [bone.endsWith("_l") ? 0.1 : -0.1, bone.startsWith("thigh") ? 1 : 0.1, 0],
+    };
+    const silhouettes: number[][] = [];
+    for (const name of ["future-flares", "future-cocoon", "future-culottes", "future-shorts"]) {
+      const spec = GARMENTS.find((g) => g.name === name)!;
+      const writer = new BlobWriter();
+      const { proxy, positions } = shapedGarment(writer, [0, 1, 2, 3, 4, 5], spec, ctx);
+      silhouettes.push(positions);
+      const blob = writer.toBuffer().buffer as ArrayBuffer;
+      const binding = { def: proxy, refs: readBuffer(blob, { ...proxy.refs, type: "u32" }), weights: readBuffer(blob, { ...proxy.weights, type: "f32" }), offsets: readBuffer(blob, { ...proxy.offsets, type: "f32" }) };
+      const rest = fitProxy(binding, Float32Array.from(ctx.positions));
+      const shaped = fitProxy(binding, Float32Array.from(ctx.positions.map((x) => x * 1.5 + 0.2)));
+      for (let i = 0; i < rest.length; i++) {
+        expect(rest[i]).toBeCloseTo(positions[i], 5);
+        expect(shaped[i]).toBeCloseTo(rest[i] * 1.5 + 0.2, 5);
+      }
+      for (let i = 0; i < 9; i += 3) expect(rest[i]).toBeCloseTo(-rest[i + 9], 5);
+    }
+    expect(new Set(silhouettes.map((p) => JSON.stringify(p))).size).toBe(4);
+  });
   it("keeps every complete look intact and accessories independent of clothing", () => {
     const garments = GARMENTS.filter((g) => g.info).map((g) => ({ id: g.name, label: g.label, coversAnatomy: false, category: g.info!.category!, occupies: g.info!.occupies! }));
     for (const [id, occupies] of [["future-halo", "halo"], ["briefs", "briefs"], ["sneakers", "shoes"]]) garments.push({ id, label: id, category: "Other", occupies: [occupies], coversAnatomy: id === "briefs" });

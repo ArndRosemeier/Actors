@@ -1,6 +1,6 @@
 # Commonwear 3026
 
-A first wearable capsule for an expressive, spacefaring, utopian post-scarcity society, one thousand years after 2026. This is a fictional design direction, not a forecast.
+A growing wardrobe for an expressive, spacefaring, utopian post-scarcity society, one thousand years after 2026. This is a fictional design direction, not a forecast.
 
 ## What is ordinary now?
 
@@ -19,12 +19,25 @@ Dress is chosen by the wearer, without gender or occupational restrictions. Scre
 | Conversation cuffs | A voluntary surface for colour, gestures or shared art | Paired luminous forearm pieces, separately recolourable as one item |
 | Keepsake belt | An attachment surface for things worth keeping | Broad diagonal band, worn over the wrap and trousers |
 | Habitat gaiters | A replaceable protective layer at the lower leg | Paired fitted calf shells |
+| Comet flares | Taking the scenic route through a habitat | Fitted upper legs opening into sculpted flares |
+| Cocoon pants | Unhurried comfort in a shared garden | Rounded leg volume tapering towards the ankle |
+| Courtyard culottes | Easy movement around communal spaces | Wide, cropped legs |
+| Lightstream leggings | A moving artwork from waist to ankle | Full-length animated screen fabric |
+| Drift shorts | Leisure without a dress code | Roomy legs with unequal lengths |
+| Arc vest | Quiet geometry around the shoulders | Sleeveless top with a close round neckline |
+| Solstice bolero | A warm layer carried through habitat seasons | Cropped knitted shoulder layer with long sleeves |
+| Memory ribbon | Sharing a colour or a memory | A diagonal emissive sash around the torso |
 | Orbital halo | Wearable spatial sculpture, as ordinary as jewellery | Two intersecting luminous rings fitted to the head |
 
 The belt's attachments, interface functions, adaptive textile behaviour and halo suspension are worldbuilding. This implementation supplies the visible clothing and animated surface art. The halo follows the head; it does not simulate levitation or orbit independently. These are clothes for inhabited spaces, not vacuum protection.
 
-Three coordinated presets are available to every adult body:
+Eight coordinated presets are available to every adult body:
 
+- **Comet trails** (`future-comet`): copper flares, a pale arc vest and a luminous memory ribbon.
+- **Garden commons** (`future-garden`): sage cocoon pants, a cream wrap and rose bolero.
+- **Open courtyard** (`future-courtyard`): lavender culottes, pale vest and amber cuffs.
+- **Lightstream** (`future-lightstream`): screen leggings with a quiet vest and luminous halo.
+- **Drift afternoon** (`future-drift`): asymmetric shorts, blue wrap and keepsakes.
 - **Common ground** (`future-daily`): sage wrap, dark transit trousers, pale cuffs, warm keepsake belt and gaiters.
 - **Aurora commons** (`future-orbit`): a cream wrap under the turquoise screen mantle, lavender trousers and a luminous halo.
 - **Living constellation** (`future-festival`): an orchid living canvas, mint cuffs and golden orbits.
@@ -41,7 +54,7 @@ npm run import:human -- --no-cmu
 npm run dev
 ```
 
-In the viewer, choose one of the **3026** Outfit presets, or open `http://localhost:5173/?outfit=future-orbit`. The description below the preset explains its place in the society. The **Detailed** editor offers individual garments and colours.
+In the viewer, choose one of the **3026** Outfit presets, or open `http://localhost:5173/?outfit=future-orbit`. The description below the preset explains its place in the society. The **3026 pants** selector is available in both editor modes; **Detailed** offers all individual garments and colours. There are six future pants choices, including the original Transit trousers.
 
 ```ts
 await character.wear("future-orbit");
@@ -54,7 +67,7 @@ const glb = await character.exportGlb("current");
 
 ## Geometry, light and limitations
 
-The seven textile pieces are cut from the CC0 MakeHuman tights helper and inherit body morphs and skinning. The halo is original procedural geometry bound through the existing proxy format. It scales with head landmarks and uses the head's skin weights. No extra commercial or attribution-required assets are introduced by these pieces.
+The fifteen textile pieces are cut from the CC0 MakeHuman tights helper and inherit body morphs and skinning. The flares, cocoon pants, culottes and shorts add sculpted offsets bound to their helper vertices through proxies, so their volume scales with the body. Wide full-length pants replace gaiters to avoid conflicting layers. The halo is original procedural geometry bound through the existing proxy format. It scales with head landmarks and uses the head's skin weights. No extra commercial or attribution-required assets are introduced by these pieces.
 
 `fabric:screen` enables a deterministic, opaque, 64 × 64 animated emissive texture in both the WebGL and node-material adapters. Each visible material updates at most 12 times per second. Recolouring also tints emission; restoring the original colour restores its emission colour. Hidden screen pieces do not upload frames. Materials release their own screen textures when disposed.
 
@@ -66,12 +79,13 @@ Screen effects are self-luminous surfaces, not scene lights: they do not illumin
 npm run typecheck
 npm test
 npm run build
+npm run check:consumer
 # With npm run dev running and CHROMIUM_PATH pointing to Chromium/Chrome:
 node apps/viewer/scripts/future-smoke.mjs
 node apps/viewer/scripts/future-smoke.mjs "http://localhost:5173/?webgpu-gl" .cache/future-smoke-node
 ```
 
-The focused smoke test checks all three presets on two adult body shapes, animation, recolouring, changing screen pixels, finite fitted geometry and an exported emissive texture. It saves front and back screenshots for visual inspection. The regular viewer smoke test remains the broader regression check.
+The focused smoke test checks all eight presets on two adult body shapes, animation, recolouring, changing screen pixels, finite fitted geometry and an exported emissive texture. It saves front and back screenshots for visual inspection. The installed-package consumer test checks WebGPU screen animation, tint, reset and isolation across the main and WebGPU exports. Release bundles share their internal modules; independent entry bundles previously duplicated the screen registry. The regular viewer smoke test remains the broader regression check.
 
 ## Directions for the next collection
 

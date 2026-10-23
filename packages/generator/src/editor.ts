@@ -297,6 +297,14 @@ export class CharacterEditor {
       return match?.id ?? "";
     }, (v) => v && character.wear(v).catch(() => {}), "outfit");
     presetSel.dataset.role = "outfit-preset";
+    const pants = cat.garments.filter((g) => g.category === "Future · pants");
+    if (pants.length) {
+      const ids = new Set(pants.map((g) => g.id));
+      const sel = this.select(outfit, "3026 pants", [["", "Other / none"], ...pants.map((g): [string, string] => [g.id, g.label])],
+        (c) => c.outfit.find((id) => ids.has(id)) ?? "",
+        (id) => set({ outfit: [...character.config.outfit.filter((g) => !ids.has(g)), ...(id ? [id] : [])] }), "future-pants");
+      sel.dataset.role = "future-pants";
+    }
     const outfitDescription = document.createElement("p");
     outfitDescription.className = "ae-note";
     outfitDescription.dataset.role = "outfit-description";

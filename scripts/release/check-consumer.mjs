@@ -13,7 +13,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const run = (cmd, args, cwd) => execFileSync(cmd, args, { cwd, stdio: "inherit" });
+const run = (cmd, args, cwd) => execFileSync(cmd === "npm" && process.env.npm_execpath ? process.execPath : cmd, [...(cmd === "npm" && process.env.npm_execpath ? [process.env.npm_execpath] : []), ...args], { cwd, stdio: "inherit" });
 
 run(process.execPath, [join(root, "scripts/release/build.mjs"), "--local"], root);
 
@@ -55,7 +55,7 @@ writeFileSync(
 );
 writeFileSync(
   join(app, "index.html"),
-  `<!doctype html><html><body style="margin:0;display:flex;height:100vh"><div id="view" style="flex:1"></div><div id="panel" style="width:320px;overflow:auto"></div><script type="module" src="/src/main.ts"></script></body></html>\n`,
+  `<!doctype html><html><head><link rel="icon" href="data:,"></head><body style="margin:0;display:flex;height:100vh"><div id="view" style="flex:1"></div><div id="panel" style="width:320px;overflow:auto"></div><script type="module" src="/src/main.ts"></script></body></html>\n`,
 );
 writeFileSync(
   join(app, "src/main.ts"),
@@ -69,9 +69,9 @@ async function main(): Promise<void> {
 const params = new URLSearchParams(location.search);
 const pack = params.get("pack") ?? "/packs/human/manifest.json";
 console.log("node kit", typeof nodeMaterials.mesh);
-const { character } = await createCharacterGenerator({
+const { character, stage } = await createCharacterGenerator({
   pack,
-  renderer: params.has("webgpu") ? "webgpu" : "webgl",
+  renderer: params.has("webgpu") ? "webgpu" : params.has("webgpu-gl") ? "webgpu-gl" : "webgl",
   view: document.getElementById("view")!,
   panel: document.getElementById("panel")!,
   worker: new HumanWorker(),
@@ -81,6 +81,7 @@ console.log("loaded", typeof ActorRuntime, typeof sanitizeParams, Object.keys(co
 await character.wear("casual");
 await character.play("walk");
 (window as unknown as { ready: boolean }).ready = true;
+(window as unknown as { __actors: unknown }).__actors = { character, stage, ready: true };
 }
 main().catch((e) => console.error(e));
 `,
@@ -88,6 +89,9 @@ main().catch((e) => console.error(e));
 
 // --install-links copies the file: tarballs instead of linking, like a registry install.
 run("npm", ["install", "--no-audit", "--no-fund", "--install-links"], app);
-run(join(app, "node_modules/.bin/tsc"), ["-p", "."], app);
-run(join(app, "node_modules/.bin/vite"), ["build", "--logLevel", "warn"], app);
+run(process.execPath, [join(app, "node_modules/typescript/bin/tsc"), "-p", "."], app);
+run(process.execPath, [join(app, "node_modules/vite/bin/vite.js"), "build", "--logLevel", "warn"], app);
+// Import the installed entry points in a fresh process; source aliases hide bundling bugs.
+writeFileSync(join(app, "check-screens.mjs"), readFileSync(join(root, "scripts/release/check-screens.mjs")));
+run(process.execPath, [join(app, "check-screens.mjs")], app);
 console.log(`consumer app OK: ${app}`);

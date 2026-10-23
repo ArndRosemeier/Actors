@@ -62,6 +62,10 @@ for (const p of pkgs) {
     entryPoints: Object.fromEntries(entries.map((e) => [e.js.slice("./dist/".length, -3), e.file])),
     outdir: dist,
     bundle: true,
+    // Entry points must share module state (screen materials are created by /webgpu
+    // and animated/recoloured by the main entry's ThreeActor).
+    splitting: true,
+    chunkNames: "shared/[name]-[hash]",
     format: "esm",
     platform: "neutral",
     target: "es2022",
@@ -113,7 +117,8 @@ for (const p of pkgs) {
   for (const f of ["README.md"]) if (existsSync(join(p.src, f))) cpSync(join(p.src, f), join(stage, f));
   for (const f of ["LICENSE", "NOTICE-ASSETS.md"]) cpSync(join(root, f), join(stage, f));
 
-  execFileSync("npm", ["pack", "--silent", "--pack-destination", out], { cwd: stage, stdio: ["ignore", "ignore", "inherit"] });
+  const npmCli = process.env.npm_execpath;
+  execFileSync(npmCli ? process.execPath : "npm", [...(npmCli ? [npmCli] : []), "pack", "--silent", "--pack-destination", out], { cwd: stage, stdio: ["ignore", "ignore", "inherit"] });
   console.log(`release/${tarball(p.json.name)}`);
 }
 

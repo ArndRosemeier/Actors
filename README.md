@@ -27,7 +27,7 @@ Every push to `main` builds the pack and the generator and deploys them to GitHu
 Other projects install it from a GitHub release (no npm registry or token needed) and get the asset files from the hosted demo or with `npx actors-packs`; see [docs/using-actors.md](docs/using-actors.md):
 
 ```bash
-npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.7.0/actors-generator-0.7.0.tgz
+npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.8.0/actors-generator-0.8.0.tgz
 npx actors-packs   # asset packs for this version -> public/packs
 ```
 
@@ -53,7 +53,7 @@ await character.play("walk");
 
 ## What the human can do
 
-**Commonwear 3026:** an initial wardrobe for a utopian, expressive, spacefaring post-scarcity society: seven morphable textile pieces, an orbital halo, three complete looks, and animated emissive screen fabrics. Regenerate the human pack, then choose a **3026** outfit in the editor. See [the collection and its design setting](docs/future-wardrobe.md).
+**Commonwear 3026:** a wardrobe for a utopian, expressive, spacefaring post-scarcity society: fifteen morphable textile pieces, an orbital halo, eight complete looks, and animated emissive screen fabrics. Six pants options range from fitted transit trousers to sculpted flares, cocoon pants, culottes, asymmetric shorts and screen leggings. Regenerate the human pack, then choose a **3026** outfit or use the **3026 pants** selector. See [the collection and its design setting](docs/future-wardrobe.md).
 
 * **Shape**: every MakeHuman macro and detail slider, evaluated in a Web Worker so dragging never stalls rendering.
 * **Fantasy races**: human, elf, dwarf, orc, halfling, goblin, sylvan, drakeborn, umbral and giantkin (ported from the author's Norgo game), and mixes of any two. Each race adds its own MakeHuman target recipe, per-bone length and girth scaling (short, thick dwarf limbs; long goblin arms), head scale, procedural pointed ear tips and an overall size, all applied before the skeleton, clothes and hair are fitted, so everything follows. Picking a race rolls a typical member: race height, skin colour (the photo skin is recoloured, so orcs are green and umbrals grey-violet), eye colour, hair colour and style, plus race skin patterns drawn in 3D bind-pose space (scales, bark, spots, stripes, tattoos, glowing veins, crystals, freckles), slit or goat pupils and glowing irises. Generated add-ons, built from the current body and skinned to existing bones (so clips and glTF export need nothing extra): horns (ram, straight, swept, antler, crown), orc tusks, tails, strand-card beards (full, long, braided, forked, goatee, mustache, mutton chops, chinstrap), sylvan leaf hair and the drakeborn crest. Tails have their own bone chain with a sway baked into every clip, beards and tusks follow facial expressions, and stubble is painted on the skin.

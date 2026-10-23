@@ -27,6 +27,7 @@ import { BlobWriter } from "./blob";
 import { fetchCached, fetchText, fetchZipEntry, fetchZipText } from "./fetch";
 import { GARMENTS, garmentCut, insideFaces, selectGarmentFaces } from "./garments";
 import { orbitalHalo } from "./future-accessories";
+import { shapedGarment } from "./shaped-garment";
 import { type Gray, blankGray, blurGray, loadGray, maxGray, meanColor, rasterizeUV, resizeGray, writeJpeg, writeRgbaDownsampled, writeRgbaPng, tintPng } from "./image";
 import { type Mhclo, parseMhclo } from "./mhclo";
 import { type ObjData, type ObjFace, buildRenderMesh, parseObj } from "./obj";
@@ -473,21 +474,29 @@ async function main() {
     const faces = selectGarmentFaces(tightsFaces, cut, spec.minIsland);
     // Does it cover the genitals? Then adapters hide genital geometry while it is worn.
     const coversGenitals = insideFaces(faces, cut).some((f) => f.v.some((v) => Math.hypot(P[v * 3] - genitalCenter[0], P[v * 3 + 1] - genitalCenter[1], P[v * 3 + 2] - genitalCenter[2]) < 0.06));
-    addBaseMesh(
-      spec.name,
-      faces,
-      {
+    const garmentDef: Omit<MeshDef, "name" | "source" | "baseIndex"> = {
         role: "garment",
         optional: true,
         inflate: spec.inflate,
         material: { kind: "cloth", color: spec.color, roughness: spec.roughness },
-        tags: [`fabric:${spec.fabric}`, ...(coversGenitals ? ["covers:anatomy"] : [])],
+        tags: [`fabric:${spec.fabric}`, ...(spec.offset ? ["tucked"] : []), ...(coversGenitals ? ["covers:anatomy"] : [])],
         hidesBaseVertices: blob.add("u32", coveredBody(P, insideFaces(faces, cut).map((f) => f.v))),
-      },
-      normalizeUV,
-      (v) => cut.get(v)!,
-      BASE_GARMENT_LODS,
-    );
+      };
+    if (spec.offset) {
+      const m = buildRenderMesh(obj, faces);
+      const vertices = [...new Set(m.map)];
+      const local = new Map(vertices.map((v, i) => [v, i]));
+      const { proxy, positions } = shapedGarment(blob, vertices, spec, garmentCtx);
+      const clip = m.map.map((v) => cut.get(v)!);
+      m.map = m.map.map((v) => local.get(v)!);
+      m.uv = normalizeUV(m.uv);
+      proxies.push(proxy);
+      meshes.push({ ...garmentDef, name: spec.name, source: { kind: "proxy", proxy: spec.name },
+        baseIndex: blob.add("u32", m.map), uv: blob.add("f32", m.uv), indices: blob.add("u32", m.indices),
+        clip: blob.add("f32", clip), simplified: simplifyLevels(blob, positions, m, BASE_GARMENT_LODS, clip) });
+    } else {
+      addBaseMesh(spec.name, faces, garmentDef, normalizeUV, (v) => cut.get(v)!, BASE_GARMENT_LODS);
+    }
     garmentLabels[spec.name] = spec.label;
     console.log(`Garment ${spec.name}: ${faces.length} faces`);
   }
