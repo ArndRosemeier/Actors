@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { useDualQuaternionSkinning } from "./dqs";
 import { GLSL_BIND_VERTEX, GLSL_EYE, GLSL_NOISE, GLSL_PATTERN, GLSL_STUBBLE } from "./racepatterns";
 import { fabricNormalMap, lashAlphaMap, poreNormalMap } from "./procedural";
+import { useScreenMaterial } from "./screens";
 
 /**
  * Skin: physically based base + region tints from masks (lips, areolae,
@@ -346,6 +347,7 @@ diffuseColor.rgb = mix( diffuseColor.rgb, uTint * clamp( clothLum / uTintMeanLum
       .replace("#include <alphatest_fragment>", "#if defined( USE_ALPHATEST ) && defined( USE_MAP )\nif ( textureLod( map, vMapUv, 0.0 ).a < alphaTest ) discard;\n#else\n#include <alphatest_fragment>\n#endif");
   };
   mat.customProgramCacheKey = () => "actors-cloth";
+  if (fabric === "screen") useScreenMaterial(mat, color);
   return useDualQuaternionSkinning(mat);
 }
 

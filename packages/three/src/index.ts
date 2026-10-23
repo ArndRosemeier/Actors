@@ -43,6 +43,7 @@ import { createPartMaterial, createPartMesh } from "./parts";
 import { addMorphAttributes, clearDeltas, morphArrays, morphsChanged, setDelta } from "./morphs";
 import { createCrowdMaterial } from "./crowd";
 import { garmentLayer } from "./layers";
+import { setScreenColor, updateScreen } from "./screens";
 
 export * from "./materials";
 export * from "./dqs";
@@ -681,6 +682,7 @@ export class ThreeActor {
     if (this.crowd?.merged.parts.some((p) => p.data.def.name === name)) this.colorCrowd();
     const mat = this.meshes.get(name)?.material as THREE.Material | undefined;
     const u = mat?.userData.tint as ClothTintUniforms | undefined;
+    if (mat) setScreenColor(mat, color);
     if (!u) return;
     u.uTintMix.value = color === null ? 0 : 1;
     if (color !== null) u.uTint.value.set(color);
@@ -1267,6 +1269,7 @@ export class ThreeActor {
     this.flushVisibility();
     if (this.crowdDirty) this.buildCrowd();
     this.mixer.update(dt);
+    for (const mesh of this.meshes.values()) if (mesh.visible) updateScreen(mesh.material as THREE.Material, dt);
     // Leg colliders only matter while a skirt-skinned garment is drawn.
     if ([...this.shown].some((n) => this.usesColliders(this.data.get(n)!))) this.updateColliders();
   }

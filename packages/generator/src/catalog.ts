@@ -1,4 +1,5 @@
 import { raceParts, randomRaceLook } from "./racelook";
+import { FUTURE_OUTFITS } from "./future-outfits";
 import { ADULT_MIN_AGE, DEFAULT_PARAMS, DEFAULT_ROBOT, ROBOT_EARS, ROBOT_HEADS, ROBOT_PLATING, type RobotConfig, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type BeardStyle, type HornStyle, type PupilShape, RACES, RACE_IDS, type RaceId, type SkinPattern, type TailStyle } from "@actors/human";
 
 /** One choice in a list: the id the API takes and a display label. */
@@ -33,6 +34,8 @@ export interface GarmentChoice extends Choice {
 
 /** A named outfit. `female` items are only added for female-leaning bodies (gender < 0.5). */
 export interface OutfitPreset extends Choice {
+  /** Short design context shown alongside the preset. */
+  description?: string;
   garments: string[];
   female?: string[];
   /** Typical wearer, for random outfits; absent = anyone. */
@@ -237,6 +240,7 @@ export const PAINTED_BROWS = "painted";
 export const PROCEDURAL_HAIR: Record<string, string> = { leaves: "Leaves (sylvan)", crest: "Crest fins (drakeborn)" };
 
 export const OUTFITS: OutfitPreset[] = [
+  ...FUTURE_OUTFITS,
   { id: "nude", label: "Nude", garments: [] },
   { id: "underwear", label: "Underwear", garments: ["briefs"], female: ["bra"] },
   { id: "casual", label: "T-shirt and jeans", garments: ["briefs", "tshirt", "jeans", "socks", "sneakers"], female: ["bra"] },

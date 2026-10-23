@@ -53,6 +53,7 @@ import { MAX_COLLIDERS, type ColliderUniforms } from "../colliders";
 import { garmentLayer } from "../layers";
 import { createSkinUniforms, type SkinUniforms } from "../materials";
 import { fabricNormalMap, lashAlphaMap, poreNormalMap } from "../procedural";
+import { useScreenMaterial } from "../screens";
 import { leafTexture, robotMaterialParams, strandTexture } from "../parts";
 import { useNodeDqs } from "./dqs";
 import { bumpNormal } from "./noise";
@@ -357,6 +358,7 @@ export function createNodeClothMaterial(
   mat.colorNode = clothColor();
   // Cut-outs from the texture's full-resolution alpha (see createClothMaterial: mip levels punched holes along seams).
   if (map) mat.opacityNode = clothCutout();
+  if (fabric === "screen") useScreenMaterial(mat, color);
   return useNodeDqs(feed(mat, { "tint.color": () => tint.uTint.value, "tint.mix": () => tint.uTintMix.value, "tint.meanLum": () => tint.uTintMeanLum.value, "cloth.map": () => map }));
 }
 

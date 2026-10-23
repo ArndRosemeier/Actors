@@ -5,7 +5,7 @@ import { WARDROBE } from "./wardrobe";
 
 describe("wardrobe", () => {
   const names = WARDROBE.map((w) => w.name);
-  const all = new Set([...names, ...GARMENTS.map((g) => g.name), "tights", "socks", "skirt", "skirt-mini"]);
+  const all = new Set([...names, ...GARMENTS.map((g) => g.name), "future-halo", "tights", "socks", "skirt", "skirt-mini"]);
 
   it("has unique, file-safe names and one entry per source asset", () => {
     expect(new Set(names).size).toBe(names.length);

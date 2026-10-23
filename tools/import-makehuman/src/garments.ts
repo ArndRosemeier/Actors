@@ -11,6 +11,7 @@
  * necklines that don't follow the helper's quad rows.
  */
 import type { ObjFace } from "./obj";
+import type { GarmentInfo } from "@actors/human";
 
 export interface GarmentContext {
   positions: number[]; // base positions (meters)
@@ -28,7 +29,10 @@ export interface GarmentSpec {
   /** Meters along the normal; larger values sit on top of smaller ones. */
   inflate: number;
   /** Pattern hint for the fabric shader. */
-  fabric: "knit" | "denim" | "lace" | "smooth";
+  fabric: "knit" | "denim" | "lace" | "smooth" | "screen";
+  info?: GarmentInfo;
+  /** Small intentional pieces (e.g. cuffs) need a smaller island threshold. */
+  minIsland?: number;
   /** Signed distance-like value in meters: > 0 inside the garment. */
   cut: (c: Point, ctx: GarmentContext) => number;
 }
@@ -83,6 +87,69 @@ const legHole = (c: Point, ctx: GarmentContext, t: number) => {
 };
 
 export const GARMENTS: GarmentSpec[] = [
+  {
+    name: "future-wrap", label: "3026 · Continuum wrap", color: [0.65, 0.77, 0.72],
+    roughness: 0.75, inflate: 0.009, fabric: "knit",
+    info: { category: "Future · clothing", occupies: ["top"] },
+    cut: (c, ctx) => {
+      if (isLeg(c.bone)) return OUT;
+      // Diagonal hem and mismatched sleeves: familiar comfort, unfamiliar tailoring.
+      const hem = ctx.joint("pelvis")[1] + 0.025 + c.x * 0.16;
+      return min(c.y - hem, neckline(c, ctx, 0.075), sleeve(c, ctx, c.x >= 0 ? 0.78 : 0.35));
+    },
+  },
+  {
+    name: "future-trousers", label: "3026 · Transit trousers", color: [0.13, 0.19, 0.25],
+    roughness: 0.72, inflate: 0.006, fabric: "smooth",
+    info: { category: "Future · clothing", occupies: ["bottom"] },
+    cut: (c, ctx) => isArm(c.bone) ? OUT : min(ctx.joint("pelvis")[1] + 0.07 - c.y, legHole(c, ctx, 0.94)),
+  },
+  {
+    name: "future-mantle", label: "3026 · Aurora screen mantle", color: [0.25, 0.65, 0.8],
+    roughness: 0.4, inflate: 0.019, fabric: "screen",
+    info: { category: "Future · screens", occupies: ["mantle"] },
+    cut: (c, ctx) => {
+      if (isLeg(c.bone)) return OUT;
+      const chest = ctx.joint("spine_03")[1];
+      return min(c.y - (chest - 0.07 + c.x * 0.42), neckline(c, ctx, 0.095), sleeve(c, ctx, c.x >= 0 ? 0.12 : 0.47));
+    },
+  },
+  {
+    name: "future-screen", label: "3026 · Living canvas", color: [0.65, 0.3, 0.8],
+    roughness: 0.38, inflate: 0.01, fabric: "screen",
+    info: { category: "Future · screens", occupies: ["top"] },
+    cut: (c, ctx) => {
+      if (isLeg(c.bone)) return OUT;
+      const hem = ctx.joint("pelvis")[1] + 0.015;
+      return min(c.y - hem, neckline(c, ctx, 0.09), sleeve(c, ctx, 0.68));
+    },
+  },
+  {
+    name: "future-cuffs", label: "3026 · Conversation cuffs", color: [0.65, 0.8, 0.6],
+    roughness: 0.35, inflate: 0.022, fabric: "screen", minIsland: 4,
+    info: { category: "Future · accessories", occupies: ["wrists"] },
+    cut: (c, ctx) => {
+      if (!has(c.bone, "lowerarm")) return OUT;
+      const [s, len] = armPos(c, ctx);
+      return min(s - len * 0.76, len * 0.97 - s);
+    },
+  },
+  {
+    name: "future-belt", label: "3026 · Keepsake belt", color: [0.65, 0.4, 0.22],
+    roughness: 0.5, inflate: 0.025, fabric: "smooth", minIsland: 4,
+    info: { category: "Future · accessories", occupies: ["belt"] },
+    cut: (c, ctx) => isArm(c.bone) || isLeg(c.bone) ? OUT : 0.045 - Math.abs(c.y - ctx.joint("pelvis")[1] - 0.065 - c.x * 0.12),
+  },
+  {
+    name: "future-gaiters", label: "3026 · Habitat gaiters", color: [0.62, 0.69, 0.75],
+    roughness: 0.65, inflate: 0.017, fabric: "smooth", minIsland: 4,
+    info: { category: "Future · accessories", occupies: ["gaiters"] },
+    cut: (c, ctx) => {
+      if (!has(c.bone, "calf")) return OUT;
+      const [s, len] = legPos(c, ctx);
+      return min(s - len * 0.62, len * 0.99 - s);
+    },
+  },
   {
     name: "briefs",
     label: "Briefs",
@@ -179,9 +246,9 @@ export function garmentCut(faces: ObjFace[], spec: GarmentSpec, ctx: GarmentCont
 }
 
 /** Faces a garment needs: every face with at least one inside vertex, minus stray islands. */
-export function selectGarmentFaces(faces: ObjFace[], cut: Map<number, number>): ObjFace[] {
+export function selectGarmentFaces(faces: ObjFace[], cut: Map<number, number>, minIsland = 40): ObjFace[] {
   const selected = faces.map((f) => f.v.some((v) => cut.get(v)! > 0));
-  const clean = removeIslands(faces, selected);
+  const clean = removeIslands(faces, selected, minIsland);
   return faces.filter((_, i) => clean[i]);
 }
 

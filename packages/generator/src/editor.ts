@@ -297,6 +297,16 @@ export class CharacterEditor {
       return match?.id ?? "";
     }, (v) => v && character.wear(v).catch(() => {}), "outfit");
     presetSel.dataset.role = "outfit-preset";
+    const outfitDescription = document.createElement("p");
+    outfitDescription.className = "ae-note";
+    outfitDescription.dataset.role = "outfit-description";
+    outfitDescription.setAttribute("aria-live", "polite");
+    outfit.appendChild(outfitDescription);
+    this.syncers.push((c) => {
+      const preset = cat.outfits.find((o) => sameSet(outfitGarments(o, c.body), c.outfit));
+      outfitDescription.textContent = preset?.description ?? "";
+      outfitDescription.hidden = !preset?.description;
+    });
     // Single garments, grouped by category.
     const groups = new Map<string, HTMLElement>();
     for (const g of cat.garments) {

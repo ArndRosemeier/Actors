@@ -15,6 +15,10 @@ const { character, stage } = await createCharacterGenerator({
   renderer: params.has("webgpu") ? "webgpu" : params.has("webgpu-gl") ? "webgpu-gl" : "webgl",
 });
 
+// Share a wardrobe preview, e.g. ?outfit=future-orbit. Older packs may not contain it yet.
+const outfit = params.get("outfit");
+if (outfit && character.catalog.outfits.some((o) => o.id === outfit)) await character.wear(outfit);
+
 // `?compare`: the source animation on its own mannequin next to the actor (dev check for the retarget).
 if (params.has("compare")) {
   const base = `${import.meta.env.BASE_URL}reference/`;

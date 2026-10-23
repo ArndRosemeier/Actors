@@ -26,6 +26,7 @@ import {
 import { BlobWriter } from "./blob";
 import { fetchCached, fetchText, fetchZipEntry, fetchZipText } from "./fetch";
 import { GARMENTS, garmentCut, insideFaces, selectGarmentFaces } from "./garments";
+import { orbitalHalo } from "./future-accessories";
 import { type Gray, blankGray, blurGray, loadGray, maxGray, meanColor, rasterizeUV, resizeGray, writeJpeg, writeRgbaDownsampled, writeRgbaPng, tintPng } from "./image";
 import { type Mhclo, parseMhclo } from "./mhclo";
 import { type ObjData, type ObjFace, buildRenderMesh, parseObj } from "./obj";
@@ -469,7 +470,7 @@ async function main() {
   const BASE_GARMENT_LODS: LodSteps = [[2, 0.25, 0.03]];
   for (const spec of GARMENTS) {
     const cut = garmentCut(tightsFaces, spec, garmentCtx);
-    const faces = selectGarmentFaces(tightsFaces, cut);
+    const faces = selectGarmentFaces(tightsFaces, cut, spec.minIsland);
     // Does it cover the genitals? Then adapters hide genital geometry while it is worn.
     const coversGenitals = insideFaces(faces, cut).some((f) => f.v.some((v) => Math.hypot(P[v * 3] - genitalCenter[0], P[v * 3 + 1] - genitalCenter[1], P[v * 3 + 2] - genitalCenter[2]) < 0.06));
     addBaseMesh(
@@ -566,7 +567,15 @@ async function main() {
     socks: { category: "Socks & hosiery", occupies: ["socks"] },
     skirt: { category: "Bottoms", occupies: ["bottom"], gender: "female" },
     "skirt-mini": { category: "Bottoms", occupies: ["bottom"], gender: "female" },
+    ...Object.fromEntries(GARMENTS.filter((g) => g.info).map((g) => [g.name, g.info!])),
   };
+
+  const headVertices = [...new Set(facesOf("body").flatMap((f) => f.v))].filter((v) => dominantBone(v) === "head");
+  const halo = orbitalHalo(blob, P, headVertices);
+  proxies.push(halo.proxy);
+  meshes.push(halo.mesh);
+  garmentLabels[halo.mesh.name] = "3026 · Orbital halo";
+  garmentInfo[halo.mesh.name] = { category: "Future · accessories", occupies: ["halo"] };
 
   // --- Wardrobe: CC0 and CC-BY garments from MakeHuman asset packs, each in its own file, loaded when worn ---
   mkdirSync(join(out, "garments"), { recursive: true });
