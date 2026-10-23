@@ -27,7 +27,7 @@ Every push to `main` builds the pack and the generator and deploys them to GitHu
 Other projects install it from a GitHub release (no npm registry or token needed) and get the asset files from the hosted demo or with `npx actors-packs`; see [docs/using-actors.md](docs/using-actors.md):
 
 ```bash
-npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.8.0/actors-generator-0.8.0.tgz
+npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.8.1/actors-generator-0.8.1.tgz
 npx actors-packs   # asset packs for this version -> public/packs
 ```
 

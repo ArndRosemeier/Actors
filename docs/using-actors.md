@@ -14,10 +14,10 @@ The character generator ships as six installable packages, attached to each [Git
 ## Install
 
 ```bash
-npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.8.0/actors-generator-0.8.0.tgz
+npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.8.1/actors-generator-0.8.1.tgz
 ```
 
-`@actors/generator` depends on the `core`, `human` and `three` tarballs of the same release, so npm fetches them too, and you can import from all four. For animals or drones, add `.../v0.8.0/actors-animal-0.8.0.tgz` or `.../v0.8.0/actors-drone-0.8.0.tgz` to the same command. `three` (0.180 or newer) is a peer dependency, so your app's copy is used. To upgrade, change both version numbers in the URL.
+`@actors/generator` depends on the `core`, `human` and `three` tarballs of the same release, so npm fetches them too, and you can import from all four. For animals or drones, add `.../v0.8.1/actors-animal-0.8.1.tgz` or `.../v0.8.1/actors-drone-0.8.1.tgz` to the same command. `three` (0.180 or newer) is a peer dependency, so your app's copy is used. To upgrade, change both version numbers in the URL.
 
 The packages are ES modules with type declarations, built for bundlers (Vite, webpack, esbuild, Rollup). Use `"moduleResolution": "Bundler"` in your `tsconfig.json`.
 
@@ -61,6 +61,33 @@ Other bundlers: create the worker with `new Worker(new URL("@actors/human/worker
 ## Spawning many characters
 
 Characters on the same pack URL share everything loaded for it (pack, morph targets, garments, clips, textures, shaders), so only the first `Character.load` is slow. Keep that first character (or load one behind a loading screen), pass the same `worker` to every character, and call `await character.compile(renderer, camera, scene)` before adding a new one to the scene so its first frame doesn't stall on shader compilation. Details: [packages/generator/README.md](../packages/generator/README.md#spawning-many-characters-quickly).
+
+## Application-owned screen textures
+
+Since 0.8.1, `@actors/three` exports `screenPixels(timeSeconds, data?)` and
+`SCREEN_TEXTURE_SIZE` (64). The function returns opaque RGBA8 sRGB pixels,
+independent of the garment's colour; an optional buffer is filled and returned
+in place. Applications managing their own materials can share one texture per
+animation phase across many wearers without porting the pattern generator.
+
+```ts
+import { screenPixels, SCREEN_TEXTURE_SIZE } from "@actors/three";
+import { DataTexture, SRGBColorSpace } from "three";
+
+const pixels = screenPixels(0);
+const phaseTexture = new DataTexture(pixels, SCREEN_TEXTURE_SIZE, SCREEN_TEXTURE_SIZE);
+phaseTexture.colorSpace = SRGBColorSpace;
+phaseTexture.needsUpdate = true;
+
+// In your application's shared-texture update, e.g. at 12 fps:
+screenPixels(elapsedSeconds + phaseOffsetSeconds, pixels);
+phaseTexture.needsUpdate = true;
+```
+
+This is a pixel-generation API, not an automatic texture pool. The default
+Actors screen materials continue to own their individual animated textures.
+When supplying custom materials, the application owns shared texture updates,
+emission tint and disposal.
 
 ## Licences and credits
 

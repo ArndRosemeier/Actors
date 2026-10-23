@@ -56,6 +56,7 @@ export * from "./morphs";
 export * from "./crowd";
 export * from "./fur";
 export * from "./drone";
+export { screenPixels, SCREEN_TEXTURE_SIZE } from "./screens";
 
 export interface MaterialFactory {
   (mesh: MeshData, actor: ThreeActor): THREE.Material;

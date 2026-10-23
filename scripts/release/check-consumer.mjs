@@ -7,7 +7,7 @@
 // Runs `build.mjs --local` first, so the internal dependencies come from the local tarballs.
 // Keeps the app in appDir (default: a temp folder) so it can be served for a manual look.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -94,4 +94,9 @@ run(process.execPath, [join(app, "node_modules/vite/bin/vite.js"), "build", "--l
 // Import the installed entry points in a fresh process; source aliases hide bundling bugs.
 writeFileSync(join(app, "check-screens.mjs"), readFileSync(join(root, "scripts/release/check-screens.mjs")));
 run(process.execPath, [join(app, "check-screens.mjs")], app);
+const humanPack = join(root, "apps/viewer/public/packs/human/manifest.json");
+if (existsSync(humanPack)) {
+  writeFileSync(join(app, "check-sheer.mjs"), readFileSync(join(root, "scripts/release/check-sheer.mjs")));
+  run(process.execPath, [join(app, "check-sheer.mjs"), humanPack], app);
+}
 console.log(`consumer app OK: ${app}`);

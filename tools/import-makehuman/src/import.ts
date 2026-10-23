@@ -635,8 +635,10 @@ async function main() {
       optional: true,
       // MakeHuman clothes already sit off the skin; a little extra keeps them above the base garments.
       inflate: 0.002,
-      tags: [`fabric:${item.fabric ?? "smooth"}`, ...(item.coversAnatomy ? ["covers:anatomy"] : []), ...(item.hidesHair ? ["covers:hair"] : []), ...(item.tucked ? ["tucked"] : []), `license:${item.license ?? "CC0"}`],
-      hidesBaseVertices: writer.add("u32", coveredBody(fittedOnBase(clo), cloObj.faces.map((f) => f.v), item.hideRadius ?? 0.015)),
+      tags: [`fabric:${item.fabric ?? "smooth"}`, ...(item.sheer ? ["sheer"] : []), ...(item.coversAnatomy ? ["covers:anatomy"] : []), ...(item.hidesHair ? ["covers:hair"] : []), ...(item.tucked ? ["tucked"] : []), `license:${item.license ?? "CC0"}`],
+      // A geometric coverage mask assumes an opaque surface. Texture holes need
+      // the underlying skin (and lower clothing layers) to remain in the draw.
+      ...(item.sheer ? {} : { hidesBaseVertices: writer.add("u32", coveredBody(fittedOnBase(clo), cloObj.faces.map((f) => f.v), item.hideRadius ?? 0.015)) }),
     });
     const bin = writer.toBuffer();
     writeFileSync(join(out, file), bin);

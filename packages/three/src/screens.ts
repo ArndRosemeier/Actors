@@ -1,6 +1,8 @@
 import * as THREE from "three";
 
-const SIZE = 64;
+/** Width and height of screenPixels' RGBA8 sRGB image. */
+export const SCREEN_TEXTURE_SIZE = 64;
+const SIZE = SCREEN_TEXTURE_SIZE;
 type ScreenMaterial = THREE.Material & Pick<THREE.MeshStandardMaterial, "color" | "emissive" | "emissiveMap" | "emissiveIntensity">;
 interface ScreenState {
   texture: THREE.DataTexture;
@@ -10,7 +12,12 @@ interface ScreenState {
 }
 const screens = new WeakMap<THREE.Material, ScreenState>();
 
-/** Slow aurora ribbons on a pixel grid. Opaque, deterministic, and exportable as a still image. */
+/**
+ * Slow aurora ribbons on a pixel grid, independent of garment tint.
+ * Returns an opaque RGBA8 sRGB image, SCREEN_TEXTURE_SIZE square. `time` is
+ * seconds; pass a SCREEN_TEXTURE_SIZE * SCREEN_TEXTURE_SIZE * 4 byte buffer to update it in place without
+ * allocating. Useful for application-owned textures shared by phase groups.
+ */
 export function screenPixels(time: number, data = new Uint8Array(SIZE * SIZE * 4)): Uint8Array {
   for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
     const u = x / SIZE, v = y / SIZE;

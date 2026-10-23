@@ -39,6 +39,8 @@ export interface WardrobeItem {
   hidesHair?: boolean;
   /** How far from the garment the skin is hidden (meters); larger for shoes. */
   hideRadius?: number;
+  /** Open or sheer texture: keep the skin and underlying garments visible. */
+  sheer?: boolean;
   /** Texture size (pixels). */
   texSize?: number;
   fabric?: "knit" | "denim" | "lace" | "smooth";
@@ -60,8 +62,8 @@ export const WARDROBE: WardrobeItem[] = [
   { name: "underwear-top", pack: "underwear01", id: "wolgade_female_top_01", label: "Underwear top", category: "Underwear", occupies: ["bra"], gender: "female", texSize: 512 },
 
   // --- Socks and hosiery ---
-  { name: "stockings", pack: "underwear01", id: "marco_105_stocking01", label: "Stockings", category: "Socks & hosiery", occupies: ["legwear"], gender: "female", texSize: 512 },
-  { name: "fishnet-stockings", pack: "underwear01", id: "v0rt3x_stockings_black_fishnet_medium", label: "Fishnet stockings", category: "Socks & hosiery", occupies: ["legwear"], gender: "female", texSize: 512, fabric: "lace" },
+  { name: "stockings", pack: "underwear01", id: "marco_105_stocking01", label: "Stockings", category: "Socks & hosiery", occupies: ["legwear"], gender: "female", texSize: 512, sheer: true },
+  { name: "fishnet-stockings", pack: "underwear01", id: "v0rt3x_stockings_black_fishnet_medium", label: "Fishnet stockings", category: "Socks & hosiery", occupies: ["legwear"], gender: "female", texSize: 512, fabric: "lace", sheer: true },
   { name: "high-socks", pack: "underwear04", id: "joepal_crude_high_socks", label: "Knee socks", category: "Socks & hosiery", occupies: ["socks"], texSize: 512, hideRadius: 0.03 },
   { name: "low-socks", pack: "underwear04", id: "joepal_crude_low_socks", label: "Ankle socks", category: "Socks & hosiery", occupies: ["socks"], texSize: 512, hideRadius: 0.03 },
   { name: "leg-warmers", pack: "underwear04", id: "toigo_leg_warmer_socks", label: "Leg warmers", category: "Socks & hosiery", occupies: ["socks"], gender: "female", texSize: 512 },
