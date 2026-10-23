@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { ActorShape, Clip, Fetcher, MessagePortLike } from "@actors/core";
 import { ADULT_MIN_AGE, BEARD_STYLES, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type RaceId, raceScale, sanitizeRace } from "@actors/human";
-import { type ActorMaterialKit, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
+import { type ActorMaterialKit, type ScreenTexturePool, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
 import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, buildCatalog, defaultConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook } from "./catalog";
 
 /** A change to a character. `body` and `robotLook` are merged into the current body; every other field replaces the current value. */
@@ -18,6 +18,8 @@ export interface CharacterOptions {
    * or `nodeMaterials` from `@actors/three/webgpu` (for three's WebGPURenderer).
    */
   materials?: ActorMaterialKit;
+  /** Shared screen phases; advance once per scene frame before character updates. */
+  screenTextures?: ScreenTexturePool | null;
   /**
    * Optional Web Worker running `@actors/human/worker`, so shape changes never
    * block rendering. With Vite: `import HumanWorker from "@actors/human/worker?worker"`.
@@ -86,8 +88,9 @@ export class Character {
     private readonly renderer: unknown,
     materials?: ActorMaterialKit,
     narrow?: (catalog: CharacterCatalog) => CharacterCatalog,
+    screenTextures?: ScreenTexturePool | null,
   ) {
-    this.actor = new ThreeActor(human.runtime, materials);
+    this.actor = new ThreeActor(human.runtime, materials, { screenTextures });
     const all = buildCatalog(human, Object.keys(IRIS_PRESETS));
     this.catalog = narrow ? narrow(all) : all;
     this.cfg = defaultConfig(this.catalog);
@@ -98,14 +101,14 @@ export class Character {
       const human = Human.share(options.shareWith.human);
       // Its own worker: the lead of a worker pool (crowd members then share with one of the leads).
       if (options.worker) await human.useWorker(options.worker);
-      const c = new Character(human, options.renderer, options.materials ?? options.shareWith.actor.kit, options.catalog);
+      const c = new Character(human, options.renderer, options.materials ?? options.shareWith.actor.kit, options.catalog, options.screenTextures === undefined ? options.shareWith.actor.screenTextures : options.screenTextures);
       await c.set(options.config ?? {});
       return c;
     }
     const human = await Human.load(options.pack, options.fetcher);
     if (options.clipLibraries !== false) await Promise.all((human.runtime.manifest.clipLibraries ?? []).map((l) => human.runtime.loadClipLibrary(l.name)));
     if (options.worker) await human.useWorker(options.worker);
-    const c = new Character(human, options.renderer, options.materials, options.catalog);
+    const c = new Character(human, options.renderer, options.materials, options.catalog, options.screenTextures);
     await c.set(options.config ?? {});
     return c;
   }

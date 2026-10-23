@@ -14,10 +14,10 @@ The character generator ships as six installable packages, attached to each [Git
 ## Install
 
 ```bash
-npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.8.1/actors-generator-0.8.1.tgz
+npm install three https://github.com/ArndRosemeier/Actors/releases/download/v0.8.2/actors-generator-0.8.2.tgz
 ```
 
-`@actors/generator` depends on the `core`, `human` and `three` tarballs of the same release, so npm fetches them too, and you can import from all four. For animals or drones, add `.../v0.8.1/actors-animal-0.8.1.tgz` or `.../v0.8.1/actors-drone-0.8.1.tgz` to the same command. `three` (0.180 or newer) is a peer dependency, so your app's copy is used. To upgrade, change both version numbers in the URL.
+`@actors/generator` depends on the `core`, `human` and `three` tarballs of the same release, so npm fetches them too, and you can import from all four. For animals or drones, add `.../v0.8.2/actors-animal-0.8.2.tgz` or `.../v0.8.2/actors-drone-0.8.2.tgz` to the same command. `three` (0.180 or newer) is a peer dependency, so your app's copy is used. To upgrade, change both version numbers in the URL.
 
 The packages are ES modules with type declarations, built for bundlers (Vite, webpack, esbuild, Rollup). Use `"moduleResolution": "Bundler"` in your `tsconfig.json`.
 
@@ -84,10 +84,49 @@ screenPixels(elapsedSeconds + phaseOffsetSeconds, pixels);
 phaseTexture.needsUpdate = true;
 ```
 
-This is a pixel-generation API, not an automatic texture pool. The default
-Actors screen materials continue to own their individual animated textures.
-When supplying custom materials, the application owns shared texture updates,
-emission tint and disposal.
+For a custom pattern or texture manager, the application owns updates, tint
+and disposal. For the built-in pattern, use the scene pool below instead.
+
+## Sharing screen textures (0.8.2)
+
+`ScreenTexturePool` shares four phase textures by default. Advance it once per
+scene frame, before updating characters. Each visible phase is generated at most
+12 times per second, irrespective of the number of garments. Hidden phases do
+no pixel work. Emission tint stays on each material.
+
+```ts
+import { ScreenTexturePool } from "@actors/three";
+import { nodeMaterials } from "@actors/three/webgpu";
+import { Character } from "@actors/generator";
+
+const screenTextures = new ScreenTexturePool(4);
+const resident = await Character.load({
+  pack, renderer, materials: nodeMaterials, screenTextures,
+});
+// Pass the same screenTextures to all residents in this scene.
+// In the scene loop (once, not once per resident):
+screenTextures.update(dt);
+for (const character of residents) character.update(dt);
+renderer.render(scene, camera);
+```
+
+For an existing actor, call `character.actor.setScreenTexturePool(screenTextures)`.
+Future garments use that pool too. For a low-level actor, use
+`new ThreeActor(runtime, nodeMaterials, { screenTextures })`.
+Dispose materials/characters normally: a phase texture is released only after
+its last material releases it. Separate pools have separate clocks. A paused
+wearer sharing a phase still sees changes caused by active wearers; use
+`setScreenTexturePool(null)` for independent animation/pause, or stop advancing
+the pool to pause the entire scene. Independent animation resumes on its own
+material clock when detached.
+
+`CharacterStage` and `createCharacterGenerator` use a four-phase pool by default
+and advance it for you. Characters added to the stage join it; removing one
+restores its previous pool. Pass `sharedScreenTextures: false` to keep independent
+screens. Direct `Character.load`/`ThreeActor` use independent screens unless a
+pool is supplied; `shareWith` inherits its character's pool unless overridden.
+The pool is renderer-independent and also works with the regular WebGL kit.
+Emissive glTF snapshots and the existing flat-colour crowd LOD are unchanged.
 
 ## Licences and credits
 

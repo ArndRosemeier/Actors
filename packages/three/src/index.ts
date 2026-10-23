@@ -43,7 +43,7 @@ import { createPartMaterial, createPartMesh } from "./parts";
 import { addMorphAttributes, clearDeltas, morphArrays, morphsChanged, setDelta } from "./morphs";
 import { createCrowdMaterial } from "./crowd";
 import { garmentLayer } from "./layers";
-import { setScreenColor, updateScreen } from "./screens";
+import { ScreenTexturePool, setScreenTexturePool, setScreenColor, updateScreen } from "./screens";
 
 export * from "./materials";
 export * from "./dqs";
@@ -56,7 +56,7 @@ export * from "./morphs";
 export * from "./crowd";
 export * from "./fur";
 export * from "./drone";
-export { screenPixels, SCREEN_TEXTURE_SIZE } from "./screens";
+export { screenPixels, SCREEN_TEXTURE_SIZE, ScreenTexturePool } from "./screens";
 
 export interface MaterialFactory {
   (mesh: MeshData, actor: ThreeActor): THREE.Material;
@@ -98,7 +98,7 @@ export const defaultMaterials: MaterialFactory = (data, actor) => {
       // Textured garments store their texture's mean colour (sRGB); plain ones their linear colour.
       const mean = def.textures?.color ? new THREE.Color().setRGB(...(def.material.color ?? [0.5, 0.5, 0.5]), THREE.SRGBColorSpace) : color;
       const meanLum = 0.2126 * mean.r + 0.7152 * mean.g + 0.0722 * mean.b;
-      let mat = createClothMaterial(color, def.material.roughness ?? 0.7, fabric, layer, tex("color", true), tex("normal"), meanLum);
+      let mat = createClothMaterial(color, def.material.roughness ?? 0.7, fabric, layer, tex("color", true), tex("normal"), meanLum, actor.screenTextures);
       if (data.clip) mat = useClipAttribute(mat);
       // Skirt-skinned garments hang between the legs; leg capsules keep the legs from piercing them.
       const blended = def.source.kind === "proxy" && actor.runtime.manifest.proxies.find((p) => p.name === (def.source as { proxy: string }).proxy)?.legBlend;
@@ -260,7 +260,9 @@ export class ThreeActor {
   constructor(
     readonly runtime: ActorRuntime,
     materials: MaterialFactory | ActorMaterialKit = webglMaterials,
+    options: { screenTextures?: ScreenTexturePool | null } = {},
   ) {
+    this.screenPool = options.screenTextures ?? null;
     this.kit = typeof materials === "function" ? { ...webglMaterials, mesh: materials } : materials;
     this.lods = lodLevels(runtime.manifest);
     this.rendered = runtime.meshes.filter((m) => !m.def.internal);
@@ -613,6 +615,16 @@ export class ThreeActor {
   }
 
   private skinKey = "";
+
+  private screenPool: ScreenTexturePool | null = null;
+  /** Shared scene screen phases, or null for independent per-material animation. */
+  get screenTextures(): ScreenTexturePool | null { return this.screenPool; }
+
+  /** Also applies to screen garments created later. Advance the pool once per scene frame. */
+  setScreenTexturePool(pool: ScreenTexturePool | null): void {
+    this.screenPool = pool;
+    for (const mesh of this.meshes.values()) setScreenTexturePool(mesh.material as THREE.Material, pool);
+  }
 
   /** Frees what this actor holds besides its meshes (its share of a composed photo skin). */
   dispose(): void {

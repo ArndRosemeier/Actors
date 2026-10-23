@@ -1,9 +1,11 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import type { ActorMaterialKit } from "@actors/three";
+import { ScreenTexturePool, type ThreeActor, type ActorMaterialKit } from "@actors/three";
 
 export interface StageOptions {
+  /** Share four screen phases across characters (default true). False keeps independent screens. */
+  sharedScreenTextures?: boolean;
   /** Background colour (default a dark grey). */
   background?: THREE.ColorRepresentation;
   /** Show the round floor (default true). */
@@ -35,6 +37,8 @@ export interface StageRenderer {
  * character's materials are tuned for (ACES tone mapping, an environment map).
  */
 export class CharacterStage {
+  readonly screenTextures: ScreenTexturePool | null;
+  private readonly removers = new Set<() => void>();
   readonly renderer: StageRenderer;
   /** How characters on this stage are drawn (pass it to `Character.load`). */
   materials?: ActorMaterialKit;
@@ -63,6 +67,7 @@ export class CharacterStage {
     renderer?: StageRenderer,
     environment?: (scene: THREE.Object3D) => THREE.Texture,
   ) {
+    this.screenTextures = options.sharedScreenTextures === false ? null : new ScreenTexturePool();
     const r = (this.renderer = renderer ?? new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }));
     r.setPixelRatio(Math.min(devicePixelRatio, 2));
     r.toneMapping = THREE.ACESFilmicToneMapping;
@@ -106,6 +111,7 @@ export class CharacterStage {
     this.resize();
     r.setAnimationLoop(() => {
       const dt = this.clock.getDelta();
+      this.screenTextures?.update(dt);
       for (const u of this.updaters) u(dt);
       this.controls.update();
       r.render(scene, this.camera);
@@ -113,14 +119,20 @@ export class CharacterStage {
   }
 
   /** Adds an object to the scene; if it has `update(dt)` (like a Character), it is called every frame. */
-  add(item: { object: THREE.Object3D; update?: (dt: number) => void }): () => void {
+  add(item: { object: THREE.Object3D; actor?: ThreeActor; update?: (dt: number) => void }): () => void {
     this.scene.add(item.object);
+    const previousPool = item.actor?.screenTextures ?? null;
+    if (this.screenTextures) item.actor?.setScreenTexturePool(this.screenTextures);
     const u = item.update?.bind(item);
     if (u) this.updaters.add(u);
-    return () => {
+    const remove = () => {
+      if (!this.removers.delete(remove)) return;
       this.scene.remove(item.object);
       if (u) this.updaters.delete(u);
+      if (this.screenTextures && item.actor?.screenTextures === this.screenTextures) item.actor.setScreenTexturePool(previousPool);
     };
+    this.removers.add(remove);
+    return remove;
   }
 
   /** Calls `fn(dt)` every frame. Returns a function that stops it. */
@@ -156,6 +168,7 @@ export class CharacterStage {
 
   dispose(): void {
     this.renderer.setAnimationLoop(null);
+    for (const remove of this.removers) remove();
     this.observer.disconnect();
     this.controls.dispose();
     this.renderer.dispose();

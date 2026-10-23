@@ -53,7 +53,7 @@ import { MAX_COLLIDERS, type ColliderUniforms } from "../colliders";
 import { garmentLayer } from "../layers";
 import { createSkinUniforms, type SkinUniforms } from "../materials";
 import { fabricNormalMap, lashAlphaMap, poreNormalMap } from "../procedural";
-import { useScreenMaterial } from "../screens";
+import { type ScreenTexturePool, useScreenMaterial } from "../screens";
 import { leafTexture, robotMaterialParams, strandTexture } from "../parts";
 import { useNodeDqs } from "./dqs";
 import { bumpNormal } from "./noise";
@@ -335,6 +335,7 @@ export function createNodeClothMaterial(
   map: THREE.Texture | null = null,
   normal: THREE.Texture | null = null,
   meanLum = 0.2,
+  screenTextures?: ScreenTexturePool | null,
 ): MeshStandardNodeMaterial {
   let normalMap = normal;
   if (!normalMap) {
@@ -358,7 +359,7 @@ export function createNodeClothMaterial(
   mat.colorNode = clothColor();
   // Cut-outs from the texture's full-resolution alpha (see createClothMaterial: mip levels punched holes along seams).
   if (map) mat.opacityNode = clothCutout();
-  if (fabric === "screen") useScreenMaterial(mat, color);
+  if (fabric === "screen") useScreenMaterial(mat, color, screenTextures);
   return useNodeDqs(feed(mat, { "tint.color": () => tint.uTint.value, "tint.mix": () => tint.uTintMix.value, "tint.meanLum": () => tint.uTintMeanLum.value, "cloth.map": () => map }));
 }
 
@@ -547,7 +548,7 @@ export function nodeMeshMaterial(data: MeshData, actor: ThreeActor): THREE.Mater
       const layer = garmentLayer(def);
       const mean = def.textures?.color ? new THREE.Color().setRGB(...(def.material.color ?? [0.5, 0.5, 0.5]), THREE.SRGBColorSpace) : color;
       const meanLum = 0.2126 * mean.r + 0.7152 * mean.g + 0.0722 * mean.b;
-      let mat: THREE.Material = createNodeClothMaterial(color, def.material.roughness ?? 0.7, fabric, layer, tex("color", true), tex("normal"), meanLum);
+      let mat: THREE.Material = createNodeClothMaterial(color, def.material.roughness ?? 0.7, fabric, layer, tex("color", true), tex("normal"), meanLum, actor.screenTextures);
       if (data.clip) mat = useNodeClip(mat);
       const blended = def.source.kind === "proxy" && actor.runtime.manifest.proxies.find((p) => p.name === (def.source as { proxy: string }).proxy)?.legBlend;
       return blended ? useNodeColliders(mat, actor.colliders) : mat;

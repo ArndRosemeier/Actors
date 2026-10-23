@@ -63,6 +63,7 @@ try {
     const c = window.__actors.character;
     const material = c.actor.meshes.get("future-screen").material;
     const before = Array.from(material.emissiveMap.image.data);
+    window.__actors.stage.screenTextures?.update(2);
     c.actor.update(2);
     const changed = before.some((v, i) => v !== material.emissiveMap.image.data[i]);
     c.actor.setGarmentColor("future-screen", "#ff8800");
