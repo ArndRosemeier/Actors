@@ -1,7 +1,7 @@
 import { raceParts, randomRaceLook } from "./racelook";
 import { FUTURE_OUTFITS } from "./future-outfits";
 import { MEDIEVAL_OUTFITS } from "./medieval-outfits";
-import { ADULT_MIN_AGE, DEFAULT_PARAMS, DEFAULT_ROBOT, ROBOT_EARS, ROBOT_HEADS, ROBOT_PLATING, type RobotConfig, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type BeardStyle, type HornStyle, type PupilShape, RACES, RACE_IDS, type RaceId, type SkinPattern, type TailStyle } from "@actors/human";
+import { ADULT_MIN_AGE, DEFAULT_PARAMS, DEFAULT_ROBOT, DEFAULT_SKELETAL, type SkeletalConfig, sanitizeSkeletal, ROBOT_EARS, ROBOT_HEADS, ROBOT_PLATING, type RobotConfig, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type BeardStyle, type HornStyle, type PupilShape, RACES, RACE_IDS, type RaceId, type SkinPattern, type TailStyle } from "@actors/human";
 
 /** One choice in a list: the id the API takes and a display label. */
 export interface Choice {
@@ -135,6 +135,56 @@ export function randomRobotLook(r: () => number): RobotLook {
   });
 }
 
+/** A skeleton's look: shape options (see `@actors/human` SkeletalConfig) plus bone and light colours. */
+export interface SkeletalLook extends Omit<SkeletalConfig, "seed"> {
+  /** Bone colour (sRGB hex). */
+  bone: string;
+  /** Eye and heart light colour. */
+  glow: string;
+  /** 0..1 light strength. */
+  glowStrength: number;
+  /** 0..1 surface roughness (polished to dry and chalky). */
+  dryness: number;
+}
+
+/** Bone colours and lights for skeletons. */
+export const SKELETAL_PALETTES: (Choice & { look: Pick<SkeletalLook, "bone" | "glow" | "dryness"> & Partial<SkeletalLook> })[] = [
+  { id: "ivory", label: "Old ivory", look: { bone: "#e3d6b8", glow: "#7fd8ff", dryness: 0.55 } },
+  { id: "bleached", label: "Sun-bleached", look: { bone: "#f1ece0", glow: "#9ff2ff", dryness: 0.8 } },
+  { id: "crypt", label: "Crypt", look: { bone: "#b9ab8a", glow: "#7dff8a", dryness: 0.6, wear: 0.6 } },
+  { id: "bog", label: "Bog-stained", look: { bone: "#8a7552", glow: "#ffb347", dryness: 0.35, wear: 0.7 } },
+  { id: "charred", label: "Charred", look: { bone: "#3d3530", glow: "#ff5a1f", dryness: 0.7, wear: 0.8 } },
+  { id: "lich", label: "Lich", look: { bone: "#cfc8bb", glow: "#a77bff", dryness: 0.45, heart: true } },
+  { id: "gilded", label: "Gilded", look: { bone: "#c9a24a", glow: "#fff1c4", dryness: 0.2, wear: 0.1 } },
+];
+
+const { seed: _seed, ...SKELETAL_SHAPE } = DEFAULT_SKELETAL;
+export const DEFAULT_SKELETAL_LOOK: SkeletalLook = { ...SKELETAL_SHAPE, ...SKELETAL_PALETTES[0].look, glowStrength: 0.7 };
+
+/** A valid skeleton look (bad values fall back to the defaults). */
+export function sanitizeSkeletalLook(look: Partial<SkeletalLook> | undefined): SkeletalLook {
+  const l = { ...DEFAULT_SKELETAL_LOOK, ...look };
+  const { seed: _s, ...shape } = sanitizeSkeletal(l);
+  const color = (k: "bone" | "glow") => (typeof l[k] === "string" && HEX.test(l[k]) ? l[k] : DEFAULT_SKELETAL_LOOK[k]);
+  const unit = (x: unknown, d: number) => (typeof x === "number" && Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : d);
+  return { ...shape, bone: color("bone"), glow: color("glow"), glowStrength: unit(l.glowStrength, DEFAULT_SKELETAL_LOOK.glowStrength), dryness: unit(l.dryness, DEFAULT_SKELETAL_LOOK.dryness) };
+}
+
+/** A random skeleton look (palette, wear, lost bones, lights). */
+export function randomSkeletalLook(r: () => number): SkeletalLook {
+  const palette = SKELETAL_PALETTES[Math.floor(r() * SKELETAL_PALETTES.length)].look;
+  return sanitizeSkeletalLook({
+    robust: 0.2 + r() * 0.6,
+    wear: 0.15 + r() * 0.6,
+    missing: r() < 0.5 ? 0 : r() * 0.7,
+    jaw: r() < 0.9,
+    eyes: r() < 0.75,
+    heart: r() < 0.2,
+    glowStrength: 0.4 + r() * 0.6,
+    ...palette,
+  });
+}
+
 export interface CharacterCatalog {
   /** Fantasy races (human first). */
   races: (Choice & { id: RaceId; description: string })[];
@@ -156,6 +206,8 @@ export interface CharacterCatalog {
   photoSkin: boolean;
   /** Robot options: head styles, ear styles, plating, finishes and colour schemes (absent: no robots offered). */
   robot?: { heads: Choice[]; ears: Choice[]; plating: Choice[]; finishes: Choice[]; palettes: (Choice & { look: Partial<RobotLook> })[] };
+  /** Skeleton options: colour schemes (absent: no skeletons offered). */
+  skeletal?: { palettes: (Choice & { look: Partial<SkeletalLook> })[] };
 }
 
 /** The whole look and motion of a character, serialisable as JSON. */
@@ -233,6 +285,14 @@ export interface CharacterConfig {
    */
   robot: boolean;
   robotLook: RobotLook;
+  /**
+   * A skeleton (undead) instead of a human: every bone generated from the body, on the same
+   * rig and clips. Height, proportions, gender, age and race shape it (weight, muscle and
+   * breasts don't: they are soft tissue). Garments stay wearable; skin and hair are hidden.
+   * Ignored while `robot` is set.
+   */
+  skeletal: boolean;
+  skeletalLook: SkeletalLook;
 }
 
 export const PAINTED_BROWS = "painted";
@@ -376,6 +436,7 @@ export function buildCatalog(human: Human, irisPresets: string[]): CharacterCata
       finishes: Object.entries(ROBOT_FINISHES).map(([id, f]) => ({ id, label: f.label })),
       palettes: ROBOT_PALETTES,
     },
+    skeletal: { palettes: SKELETAL_PALETTES },
   };
 }
 
@@ -458,6 +519,8 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     detail: "high",
     robot: false,
     robotLook: { ...DEFAULT_ROBOT_LOOK },
+    skeletal: false,
+    skeletalLook: { ...DEFAULT_SKELETAL_LOOK },
   };
 }
 
@@ -474,6 +537,8 @@ export interface RandomOptions {
   race?: RaceId;
   /** Make a robot (true), a human (false), or keep the base's kind (default). Robots get a random robot look. */
   robot?: boolean;
+  /** Make a skeleton (true), not one (false), or keep the base's kind (default). Skeletons get a random skeleton look. */
+  skeletal?: boolean;
 }
 
 /** Seeded PRNG (mulberry32) for `randomConfig`. */
@@ -496,6 +561,7 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
   const r = options.random ?? Math.random;
   const pick = <T>(list: T[]): T | undefined => list[Math.floor(r() * list.length)];
   const mid = (spread: number) => 0.5 + (r() - 0.5) * spread;
+  const skeletal = options.skeletal ?? (options.robot ? false : base.skeletal);
   const female = options.gender === "female" ? true : options.gender === "male" ? false : r() < 0.5;
   const eth = [r(), r() * 0.6, r() * 0.6];
   const order = pick([[0, 1, 2], [1, 0, 2], [2, 1, 0]])!;
@@ -556,7 +622,10 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
     outfit,
     garmentColors: outfitPreset ? { ...outfitPreset.colors, ...garmentColors } : base.garmentColors,
     animation: options.animation ? (pick(catalog.animations.filter((a) => !a.library))?.id ?? base.animation) : base.animation,
-    robot: options.robot ?? base.robot,
-    robotLook: (options.robot ?? base.robot) ? randomRobotLook(r) : base.robotLook,
+    // Robot and skeleton exclude each other; an explicit option wins over the base.
+    robot: !skeletal && (options.robot ?? base.robot),
+    robotLook: !skeletal && (options.robot ?? base.robot) ? randomRobotLook(r) : base.robotLook,
+    skeletal,
+    skeletalLook: skeletal ? randomSkeletalLook(r) : base.skeletalLook,
   };
 }

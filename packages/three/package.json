@@ -1,6 +1,6 @@
 {
   "name": "@actors/three",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
@@ -10,7 +10,7 @@
     "./webgpu": "./src/webgpu/index.ts"
   },
   "dependencies": {
-    "@actors/core": "0.8.2"
+    "@actors/core": "0.9.0"
   },
   "peerDependencies": {
     "three": ">=0.180.0"

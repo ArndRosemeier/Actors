@@ -5,5 +5,6 @@
  */
 import { type MessagePortLike, serveRuntime } from "@actors/core";
 import { ROBOT_TASK, robotTask } from "./robot";
+import { SKELETAL_TASK, skeletalTask } from "./skeletal";
 
-serveRuntime(self as unknown as MessagePortLike, { [ROBOT_TASK]: robotTask });
+serveRuntime(self as unknown as MessagePortLike, { [ROBOT_TASK]: robotTask, [SKELETAL_TASK]: skeletalTask });

@@ -102,7 +102,7 @@ function frameNormalMap(): THREE.Texture {
 }
 
 /**
- * Physical-material settings for a robot part kind, shared by the WebGL and
+ * Physical-material settings for a robot or skeleton part kind, shared by the WebGL and
  * node kits. Colours and finish are changed later with `ThreeActor.setPartColor`
  * and `setPartMaterial`; "glow" parts take their colour as emissive
  * (`userData.emissiveTint`).
@@ -120,6 +120,9 @@ export function robotMaterialParams(kind: string): THREE.MeshPhysicalMaterialPar
       return { color: 0x07090c, metalness: 0.4, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02 };
     case "glow":
       return { color: 0x000000, emissive: 0x44d8ff, emissiveIntensity: 2.5, roughness: 0.3 };
+    // Skeleton bones (see `@actors/human` skeletal.ts): dry, slightly waxy; stains and cavities are in the vertex shade.
+    case "bone":
+      return { color: 0xe2d6bc, vertexColors: true, metalness: 0, roughness: 0.62, clearcoat: 0.12, clearcoatRoughness: 0.5, sheen: 0.25, sheenRoughness: 0.6, sheenColor: 0xfff2dc };
   }
   return null;
 }

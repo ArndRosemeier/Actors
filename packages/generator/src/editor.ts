@@ -1,5 +1,5 @@
 import { ADULT_MIN_AGE, BEARD_STYLES, HORN_STYLES, type HumanParams, MAX_AGE, TAIL_STYLES } from "@actors/human";
-import { type CharacterConfig, PAINTED_BROWS, type RobotLook, outfitGarments } from "./catalog";
+import { type CharacterConfig, PAINTED_BROWS, type RobotLook, type SkeletalLook, outfitGarments } from "./catalog";
 import type { Character, CharacterPatch } from "./character";
 import { PUPILS, SKIN_PATTERNS } from "@actors/three";
 
@@ -9,7 +9,7 @@ const STYLE = `
 .actors-editor { --ae-panel: #1d1f24; --ae-text: #e6e6e6; --ae-muted: #9aa0a6; --ae-accent: #c98b6b; --ae-border: #2c2f36;
   box-sizing: border-box; background: var(--ae-panel); color: var(--ae-text); font: 13px/1.4 system-ui, sans-serif; padding: 12px 14px 20px; overflow-y: auto; }
 .actors-editor * { box-sizing: border-box; }
-.actors-editor [hidden], .actors-editor .ae-off, .actors-editor .ae-robot-off { display: none !important; }
+.actors-editor [hidden], .actors-editor .ae-off, .actors-editor .ae-robot-off, .actors-editor .ae-skel-off { display: none !important; }
 .actors-editor header { display: flex; align-items: baseline; justify-content: space-between; }
 .actors-editor h1 { font-size: 18px; margin: 0 0 8px; }
 .actors-editor h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ae-muted); margin: 16px 0 6px; }
@@ -53,7 +53,7 @@ const STYLE = `
 export type EditorMode = "simple" | "detailed";
 
 /** The editor's sections, in order. */
-export type EditorSection = "race" | "robot" | "body" | "look" | "outfit" | "animation" | "details";
+export type EditorSection = "race" | "robot" | "skeleton" | "body" | "look" | "outfit" | "animation" | "details";
 /** The footer's buttons. */
 export type EditorButton = "randomize" | "reset" | "save" | "load" | "export";
 
@@ -222,6 +222,38 @@ export class CharacterEditor {
       this.syncers.push((c) => {
         for (const row of rows) row.classList.toggle("ae-robot-off", !c.robot);
         for (const id of ["look", "outfit"]) el.querySelector<HTMLElement>(`section[data-section="${id}"]`)?.classList.toggle("ae-robot-off", c.robot);
+      });
+    }
+
+    // Skeleton: every bone generated from the body, on the same rig and clips; garments stay on.
+    const skelOpts = cat.skeletal;
+    if (skelOpts) {
+      const sec = this.section("Skeleton", "skeleton");
+      const setSkel = (look: Partial<SkeletalLook>) => set({ skeletalLook: look });
+      this.check(sec, "Skeleton", (c) => c.skeletal, (v) => set({ skeletal: v }), "skeletal");
+      const rows: HTMLElement[] = [];
+      const add = <T extends HTMLElement>(node: T) => {
+        rows.push((node.closest(".ae-row, .ae-check") as HTMLElement | null) ?? node);
+        return node;
+      };
+      add(this.select(sec, "Colours", [["", "Custom"], ...skelOpts.palettes.map((p): [string, string] => [p.id, p.label])], (c) => skelOpts.palettes.find((p) => Object.entries(p.look).every(([k, v]) => c.skeletalLook[k as keyof SkeletalLook] === v))?.id ?? "", (v) => {
+        const p = skelOpts.palettes.find((x) => x.id === v);
+        if (p) setSkel(p.look);
+      }, "skeletalLook.palette"));
+      add(this.slider(sec, "Wear", 0, 1, 0.01, pct, (c) => c.skeletalLook.wear, (v) => setSkel({ wear: v }), "skeletalLook.wear"));
+      add(this.slider(sec, "Lost bones", 0, 1, 0.01, pct, (c) => c.skeletalLook.missing, (v) => setSkel({ missing: v }), "skeletalLook.missing"));
+      add(detailed(this.slider(sec, "Robust", 0, 1, 0.01, pct, (c) => c.skeletalLook.robust, (v) => setSkel({ robust: v }), "skeletalLook.robust")));
+      add(this.check(sec, "Lower jaw", (c) => c.skeletalLook.jaw, (v) => setSkel({ jaw: v }), "skeletalLook.jaw"));
+      add(this.color(sec, "Bone", (c) => c.skeletalLook.bone, (v) => setSkel({ bone: v ?? undefined }), "skeletalLook.bone"));
+      add(detailed(this.slider(sec, "Dryness", 0, 1, 0.01, pct, (c) => c.skeletalLook.dryness, (v) => setSkel({ dryness: v }), "skeletalLook.dryness")));
+      add(this.check(sec, "Eye lights", (c) => c.skeletalLook.eyes, (v) => setSkel({ eyes: v }), "skeletalLook.eyes"));
+      add(this.check(sec, "Heart light", (c) => c.skeletalLook.heart, (v) => setSkel({ heart: v }), "skeletalLook.heart"));
+      add(this.color(sec, "Lights", (c) => c.skeletalLook.glow, (v) => setSkel({ glow: v ?? undefined }), "skeletalLook.glow"));
+      add(this.slider(sec, "Light strength", 0, 1, 0.01, pct, (c) => c.skeletalLook.glowStrength, (v) => setSkel({ glowStrength: v }), "skeletalLook.glowStrength"));
+      // Skeletons have no skin or hair: the look section hides (clothes stay).
+      this.syncers.push((c) => {
+        for (const row of rows) row.classList.toggle("ae-skel-off", !c.skeletal);
+        el.querySelector<HTMLElement>(`section[data-section="look"]`)?.classList.toggle("ae-skel-off", c.skeletal);
       });
     }
 

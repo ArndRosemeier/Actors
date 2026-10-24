@@ -459,10 +459,13 @@ export class ThreeActor {
     for (const mesh of this.parts.values()) if (kinds.includes(mesh.userData.partKind)) Object.assign(mesh.material as THREE.MeshPhysicalMaterial, settings);
   }
 
-  private packHidden = false;
+  private packHidden: boolean | "body" = false;
 
-  /** Hides every pack mesh (body, eyes, hair, garments...), e.g. while generated robot parts stand in for the body. */
-  hidePackMeshes(hidden: boolean): void {
+  /**
+   * Hides every pack mesh (body, eyes, hair, garments...), e.g. while generated robot parts stand
+   * in for the body. "body" hides everything but the garments (a skeleton still wears its clothes).
+   */
+  hidePackMeshes(hidden: boolean | "body"): void {
     if (hidden === this.packHidden) return;
     this.packHidden = hidden;
     this.visDirty = true;
@@ -564,7 +567,9 @@ export class ThreeActor {
     }
     const covered = [...this.data.values()].some((d) => d.def.tags?.includes("covers:anatomy") && this.wanted.get(d.def.name));
     if (covered) for (const d of this.data.values()) if (d.def.tags?.includes("anatomy")) this.shown.delete(d.def.name);
-    if (this.packHidden) this.shown.clear();
+    if (this.packHidden === "body") {
+      for (const n of [...this.shown]) if (this.data.get(n)!.def.role !== "garment") this.shown.delete(n);
+    } else if (this.packHidden) this.shown.clear();
     // Not drawn until a shape includes it (a garment worn since the last shape waits for the next one).
     const shape = this.lastShape;
     if (shape) for (const n of [...this.shown]) if (!this.includes(shape, this.data.get(n)!)) this.shown.delete(n);
