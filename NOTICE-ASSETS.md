@@ -54,7 +54,7 @@ These assets are licensed under [Creative Commons Attribution](https://creativec
 | Hairstyle "Long, centre part" (`punkduck_alpha7_long`) | punkduck | [MakeHuman Hair 03](https://static.makehumancommunity.org/assets/assetpacks/hair03.html) | http://www.makehumancommunity.org/node/482 |
 | Hairstyle "Long, shaggy" (`punkduck_alpha7_long2`) | punkduck | [MakeHuman Hair 03](https://static.makehumancommunity.org/assets/assetpacks/hair03.html) | http://www.makehumancommunity.org/node/492 |
 
-Painted eyebrows (optional), eyelashes, pores, fabric weaves and female genital detail are generated procedurally by this project's code (MIT).
+Painted eyebrows (optional), eyelashes, pores, fabric weaves and female genital detail are generated procedurally by this project's code (MIT). So is the medieval clothing and armour (tunics, hose, gambeson, mail, plate, surcoat, tabard, belt, cloak; `tools/import-makehuman/src/medieval.ts`), cut from or bound to the CC0 base mesh.
 
 
 ## CC-BY assets
@@ -78,6 +78,20 @@ These are licensed under Creative Commons Attribution (CC-BY): anyone who ships 
 | Wizard hat (`maciekg_wizard_hat`) | maciekg | MakeHuman hats03 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/hats03.html) |
 | Witch hat (`elvs_witchy_hallows_hat1`) | Elvaerwyn | MakeHuman hats03 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/hats03.html) |
 | Wide-brim hat (`culturalibre_cl_don_quixote_hat`) | culturalibre | MakeHuman hats03 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/hats03.html) |
+| Embroidered tunic (`elvs_male_boho_top1`) | Elvaerwyn | MakeHuman shirts02 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/shirts02.html) |
+| Laced chemise (`punkduck_lace_up_blouse`) | punkduck | MakeHuman shirts02 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/shirts02.html) |
+| Peasant blouse (`elvs_ruffle_sleeve_peasant_blouse_1`) | Elvaerwyn | MakeHuman shirts03 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/shirts03.html) |
+| Long open coat (`mindfront_cardigan_long_open_front`) | Mindfront | MakeHuman shirts02 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/shirts02.html) |
+| Gored skirt (`elvs_gored_midi_skirt`) | Elvaerwyn | MakeHuman skirts02 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/skirts02.html) |
+| Long-sleeved gown (`mindfront_f_dress_05`) | Mindfront | MakeHuman dress03 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/dress03.html) |
+| Square-neck gown (`mindfront_f_dress_09`) | Mindfront | MakeHuman dress03 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/dress03.html) |
+| Medieval boots (`punkduck_medieval_boots`) | punkduck | MakeHuman shoes03 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/shoes03.html) |
+| Tall riding boots (`punkduck_riding_boots`) | punkduck | MakeHuman shoes03 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/shoes03.html) |
+| Leather boots (`madmanny_tight_leather_boots`) | madmanny | MakeHuman shoes03 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/shoes03.html) |
+| Pointed shoes (`elvs_basic_felt_elf_shoes`) | Elvaerwyn | MakeHuman shoes02 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/shoes02.html) |
+| Buckled shoes (`elvs_flatshoe_buckle_1`) | Elvaerwyn | MakeHuman shoes02 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/shoes02.html) |
+| Veil (`elvs_charity_veil1`) | Elvaerwyn | MakeHuman hats03 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/hats03.html) |
+| Plague doctor mask (`elvs_plague_doctor_mask`) | Elvaerwyn | MakeHuman masks02 | [asset packs](https://static.makehumancommunity.org/assets/assetpacks/masks02.html) |
 
 The importer downloads these at build time; generated packs are not committed.
 MakeHuman's and MPFB2's *code* (AGPL / GPL) is not used or copied.
