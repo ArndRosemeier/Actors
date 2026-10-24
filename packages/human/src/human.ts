@@ -8,6 +8,7 @@ import { type SkinTextureDef, skinTextureWeights } from "./skins";
 import { DEFAULT_RACE, EAR_MASKS, type RaceSettings, raceHeadScale, raceScale, raceShapeOptions, raceTargetWeights, sanitizeRace, targetResolver } from "./raceshape";
 import { type PartsConfig, buildParts, hasParts, partsBody } from "./parts";
 import { ROBOT_TASK, type RobotConfig, type RobotParts, buildRobot, robotBody } from "./robot";
+import { SKELETAL_TASK, type SkeletalConfig, type SkeletalParts, buildSkeletal } from "./skeletal";
 
 export interface HumanExtra {
   macroTargets: MacroTargetDef[];
@@ -182,6 +183,21 @@ export class Human {
   robotParts: RobotParts | null = null;
 
   /**
+   * Skeleton (undead) parts for a shape from `evaluate`: every bone, skinned
+   * rigidly to the pack skeleton (see skeletal.ts). Draw them instead of the
+   * body's own meshes.
+   */
+  skeletal(shape: ActorShape, config: Partial<SkeletalConfig>): SkeletalParts {
+    const body = robotBody(shape, this.runtime.meshes);
+    return body ? buildSkeletal(body, config) : { parts: [], lift: 0 };
+  }
+
+  /** Skeleton build options: while set, every `evaluate` also builds the skeleton's parts (see `robotConfig`). */
+  skeletalConfig: Partial<SkeletalConfig> | null = null;
+  /** Skeleton parts of the last evaluated shape (see `skeletalConfig`). */
+  skeletalParts: SkeletalParts | null = null;
+
+  /**
    * Meshes the next shapes are needed for (e.g. the body and what is worn): only their
    * garments and hair are fitted (see ActorRuntime.evaluateLoaded). Null: every loaded mesh.
    */
@@ -190,13 +206,22 @@ export class Human {
   async evaluate(previous?: ActorShape): Promise<ActorShape> {
     const robot = this.robotConfig;
     const fit = this.fit ?? undefined;
+    const skeletal = robot ? null : this.skeletalConfig;
     if (this.remote && robot) {
       const { shape, task } = await this.remote.evaluateWith<RobotParts>(this.targetWeights(), this.shapeOptions(), { name: ROBOT_TASK, args: robot }, fit);
       this.robotParts = task;
+      this.skeletalParts = null;
+      return shape;
+    }
+    if (this.remote && skeletal) {
+      const { shape, task } = await this.remote.evaluateWith<SkeletalParts>(this.targetWeights(), this.shapeOptions(), { name: SKELETAL_TASK, args: skeletal }, fit);
+      this.skeletalParts = task;
+      this.robotParts = null;
       return shape;
     }
     const shape = this.remote ? await this.remote.evaluate(this.targetWeights(), this.shapeOptions(), fit) : await this.runtime.evaluate(this.targetWeights(), previous, this.shapeOptions(), fit);
     this.robotParts = robot ? this.robot(shape, robot) : null;
+    this.skeletalParts = skeletal ? this.skeletal(shape, skeletal) : null;
     return shape;
   }
 
