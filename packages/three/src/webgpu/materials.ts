@@ -52,7 +52,7 @@ import type { ActorMaterialKit, ThreeActor } from "../index";
 import { MAX_COLLIDERS, type ColliderUniforms } from "../colliders";
 import { garmentLayer } from "../layers";
 import { createSkinUniforms, type SkinUniforms } from "../materials";
-import { fabricNormalMap, lashAlphaMap, poreNormalMap } from "../procedural";
+import { METAL_FABRICS, fabricNormalMap, lashAlphaMap, poreNormalMap } from "../procedural";
 import { type ScreenTexturePool, useScreenMaterial } from "../screens";
 import { leafTexture, robotMaterialParams, strandTexture } from "../parts";
 import { useNodeDqs } from "./dqs";
@@ -346,6 +346,8 @@ export function createNodeClothMaterial(
     color: map ? new THREE.Color(1, 1, 1) : color,
     map,
     roughness,
+    // Armour (mail, plate) is metal; it needs an environment map to look right.
+    metalness: METAL_FABRICS[fabric] ?? 0,
     normalMap,
     normalScale: normal ? new THREE.Vector2(1, 1) : new THREE.Vector2(0.6, 0.6),
     alphaTest: map ? 0.5 : 0,

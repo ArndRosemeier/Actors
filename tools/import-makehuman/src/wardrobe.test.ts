@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { OUTFITS } from "../../../packages/generator/src/catalog";
 import { GARMENTS } from "./garments";
+import { MEDIEVAL } from "./medieval";
 import { WARDROBE } from "./wardrobe";
 
 describe("wardrobe", () => {
   const names = WARDROBE.map((w) => w.name);
-  const all = new Set([...names, ...GARMENTS.map((g) => g.name), "future-halo", "tights", "socks", "skirt", "skirt-mini"]);
+  const all = new Set([...names, ...GARMENTS.map((g) => g.name), ...MEDIEVAL.map((g) => g.name), "future-halo", "tights", "socks", "skirt", "skirt-mini"]);
 
   it("has unique, file-safe names and one entry per source asset", () => {
     expect(new Set(names).size).toBe(names.length);
@@ -14,7 +15,7 @@ describe("wardrobe", () => {
     expect(new Set(sources).size).toBe(sources.length);
     // The base skirts come from skirts01 too.
     for (const id of ["toigo_long_full_skirt", "frankyaye_mini_skirt_01"]) expect(WARDROBE.some((w) => w.id === id)).toBe(false);
-    for (const n of names) expect(all.has(n) && !GARMENTS.some((g) => g.name === n)).toBe(true);
+    for (const n of names) expect(all.has(n) && !GARMENTS.some((g) => g.name === n) && !MEDIEVAL.some((g) => g.name === n)).toBe(true);
   });
 
   it("gives every garment a body layer and a category", () => {

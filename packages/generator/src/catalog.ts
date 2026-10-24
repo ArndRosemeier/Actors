@@ -1,5 +1,6 @@
 import { raceParts, randomRaceLook } from "./racelook";
 import { FUTURE_OUTFITS } from "./future-outfits";
+import { MEDIEVAL_OUTFITS } from "./medieval-outfits";
 import { ADULT_MIN_AGE, DEFAULT_PARAMS, DEFAULT_ROBOT, DEFAULT_SKELETAL, type SkeletalConfig, sanitizeSkeletal, ROBOT_EARS, ROBOT_HEADS, ROBOT_PLATING, type RobotConfig, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type BeardStyle, type HornStyle, type PupilShape, RACES, RACE_IDS, type RaceId, type SkinPattern, type TailStyle } from "@actors/human";
 
 /** One choice in a list: the id the API takes and a display label. */
@@ -329,8 +330,8 @@ export const OUTFITS: OutfitPreset[] = [
   { id: "monk", label: "Monk robe", garments: ["briefs", "monk-robe", "monk-hood"] },
   { id: "viking", label: "Viking", garments: ["briefs", "viking-tunic", "viking-pants", "viking-boots"], gender: "male" },
   { id: "antique", label: "Mycenaean tunic", garments: ["briefs", "tunic", "t-bar-shoes"] },
+  ...MEDIEVAL_OUTFITS,
   // Fantasy
-  { id: "knight", label: "Knight", garments: ["briefs", "viking-tunic", "viking-pants", "cuffed-knee-boots", "gauntlet-gloves", "knight-helmet"], gender: "male", colors: { "cuffed-knee-boots": "#4a3426", "gauntlet-gloves": "#4a3426" } },
   { id: "warlord", label: "Dark warlord", garments: ["briefs", "viking-tunic", "viking-pants", "viking-boots", "gauntlet-gloves", "dark-horned-helmet"], gender: "male", colors: { "viking-tunic": "#2a2a2e", "gauntlet-gloves": "#1c1c1f" } },
   { id: "hoplite", label: "Hoplite", garments: ["briefs", "tunic", "cloth-shoes", "corinthian-helmet"], gender: "male", colors: { tunic: "#8c2a24" } },
   { id: "wizard", label: "Wizard", garments: ["briefs", "wizard-robe", "wizard-hat", "cloth-shoes"], colors: { "wizard-robe": "#2c3570", "wizard-hat": "#2c3570" } },
@@ -339,7 +340,6 @@ export const OUTFITS: OutfitPreset[] = [
   { id: "priestess", label: "Priestess", garments: ["briefs", "priestess-robe", "cloth-shoes"], gender: "female" },
   { id: "goddess", label: "Goddess", garments: ["briefs", "goddess-dress", "t-bar-shoes"], gender: "female" },
   { id: "medieval", label: "Medieval dress", garments: ["briefs", "medieval-dress", "cloth-shoes"], gender: "female" },
-  { id: "peasant", label: "Peasant", garments: ["briefs", "longsleeve", "skirt", "cloth-shoes"], female: ["bra"], gender: "female", colors: { longsleeve: "#e8e0cc" } },
   { id: "ranger", label: "Ranger", garments: ["briefs", "longsleeve", "wool-pants", "pirate-boots", "monk-hood", "gloves-short"], female: ["bra"], gender: "female", colors: { longsleeve: "#3f4a2c", "wool-pants": "#4a3426", "monk-hood": "#2f3b26" } },
   { id: "ninja", label: "Ninja", garments: ["briefs", "ninja"], gender: "female" },
   { id: "office", label: "Blouse and pencil skirt", garments: ["briefs", "blouse-pencil-skirt", "stockings", "black-shoes"], female: ["bra"], gender: "female" },

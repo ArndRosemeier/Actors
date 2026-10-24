@@ -19,7 +19,10 @@ export interface GarmentContext {
   joint: (bone: string, end?: "head" | "tail") => [number, number, number];
 }
 
-type Point = { x: number; y: number; z: number; bone: string };
+export type Point = { x: number; y: number; z: number; bone: string };
+
+/** Pattern hint for the fabric shader (normal map; mail and plate are drawn as metal). */
+export type Fabric = "knit" | "denim" | "lace" | "smooth" | "screen" | "weave" | "quilted" | "leather" | "mail" | "plate";
 
 export interface GarmentSpec {
   name: string;
@@ -29,7 +32,7 @@ export interface GarmentSpec {
   /** Meters along the normal; larger values sit on top of smaller ones. */
   inflate: number;
   /** Pattern hint for the fabric shader. */
-  fabric: "knit" | "denim" | "lace" | "smooth" | "screen";
+  fabric: Fabric;
   info?: GarmentInfo;
   /** Small intentional pieces (e.g. cuffs) need a smaller island threshold. */
   minIsland?: number;
@@ -39,20 +42,20 @@ export interface GarmentSpec {
   cut: (c: Point, ctx: GarmentContext) => number;
 }
 
-const OUT = -0.05;
-const IN = 0.05;
-const dist = (c: Point, p: [number, number, number]) => Math.hypot(c.x - p[0], c.y - p[1], c.z - p[2]);
-const has = (bone: string, ...names: string[]) => names.some((n) => bone === n || bone.startsWith(`${n}_`));
+export const OUT = -0.05;
+export const IN = 0.05;
+export const dist = (c: Point, p: [number, number, number]) => Math.hypot(c.x - p[0], c.y - p[1], c.z - p[2]);
+export const has = (bone: string, ...names: string[]) => names.some((n) => bone === n || bone.startsWith(`${n}_`));
 const min = Math.min;
 
 /** Round neckline: below the neck joint and at least `r` away from it. */
-const neckline = (c: Point, ctx: GarmentContext, r: number) => {
+export const neckline = (c: Point, ctx: GarmentContext, r: number) => {
   const neck = ctx.joint("neck_01");
   return min(neck[1] + 0.01 - c.y, dist(c, neck) - r);
 };
 
 /** Meters along the arm from the shoulder joint (left/right by x sign), and the arm length. */
-function armPos(c: Point, ctx: GarmentContext): [number, number] {
+export function armPos(c: Point, ctx: GarmentContext): [number, number] {
   const side = c.x >= 0 ? "l" : "r";
   const s = ctx.joint(`upperarm_${side}`);
   const w = ctx.joint(`hand_${side}`);
@@ -62,18 +65,18 @@ function armPos(c: Point, ctx: GarmentContext): [number, number] {
 }
 
 /** Meters down the leg from the hip joint, and the hip-to-ankle height. */
-function legPos(c: Point, ctx: GarmentContext): [number, number] {
+export function legPos(c: Point, ctx: GarmentContext): [number, number] {
   const side = c.x >= 0 ? "l" : "r";
   const hip = ctx.joint(`thigh_${side}`)[1];
   const ankle = ctx.joint(`foot_${side}`)[1];
   return [hip - c.y, hip - ankle];
 }
 
-const isArm = (b: string) => has(b, "clavicle", "upperarm", "lowerarm", "hand");
-const isLeg = (b: string) => has(b, "thigh", "calf", "foot", "ball");
+export const isArm = (b: string) => has(b, "clavicle", "upperarm", "lowerarm", "hand");
+export const isLeg = (b: string) => has(b, "thigh", "calf", "foot", "ball");
 
 /** Sleeve: inside until `t` (0 = shoulder, 1 = wrist) along the arm. Torso counts as inside. */
-const sleeve = (c: Point, ctx: GarmentContext, t: number) => {
+export const sleeve = (c: Point, ctx: GarmentContext, t: number) => {
   if (has(c.bone, "hand")) return OUT;
   if (!isArm(c.bone)) return IN;
   const [s, len] = armPos(c, ctx);
@@ -81,7 +84,7 @@ const sleeve = (c: Point, ctx: GarmentContext, t: number) => {
 };
 
 /** Leg opening at `t` (0 = hip joint, 1 = ankle). */
-const legHole = (c: Point, ctx: GarmentContext, t: number) => {
+export const legHole = (c: Point, ctx: GarmentContext, t: number) => {
   if (has(c.bone, "foot", "ball")) return OUT;
   if (!isLeg(c.bone)) return IN;
   const [s, len] = legPos(c, ctx);
@@ -306,7 +309,7 @@ export const GARMENTS: GarmentSpec[] = [
 ];
 
 /** Cut value per helper vertex for a garment. */
-export function garmentCut(faces: ObjFace[], spec: GarmentSpec, ctx: GarmentContext): Map<number, number> {
+export function garmentCut(faces: ObjFace[], spec: Pick<GarmentSpec, "cut">, ctx: GarmentContext): Map<number, number> {
   const values = new Map<number, number>();
   for (const f of faces)
     for (const v of f.v) {

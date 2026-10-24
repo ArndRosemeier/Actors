@@ -19,6 +19,8 @@
  * takes off the others sharing a layer (a dress replaces top and bottom).
  */
 
+import type { Fabric } from "./garments";
+
 export interface WardrobeItem {
   /** Mesh id in the pack (stable, used in saved characters). */
   name: string;
@@ -43,7 +45,7 @@ export interface WardrobeItem {
   sheer?: boolean;
   /** Texture size (pixels). */
   texSize?: number;
-  fabric?: "knit" | "denim" | "lace" | "smooth";
+  fabric?: Fabric;
   /** CC-BY items must credit `author`; absent = CC0. */
   license?: "CC-BY";
   author?: string;
@@ -80,6 +82,10 @@ export const WARDROBE: WardrobeItem[] = [
   { name: "turtleneck-halter", pack: "shirts01", id: "toigo_turtleneck_halter_top", label: "Turtleneck halter", category: "Tops", occupies: TOP, gender: "female", fabric: "knit" },
   { name: "bodice", pack: "shirts01", id: "toigo_bodice-style_top", label: "Bodice top", category: "Tops", occupies: TOP, gender: "female" },
   { name: "viking-tunic", pack: "suits02", id: "rehmanpolanski_viking_tunic", label: "Viking tunic", category: "Tops", occupies: TOP, gender: "male" },
+  { name: "embroidered-tunic", pack: "shirts02", id: "elvs_male_boho_top1", label: "Embroidered tunic", category: "Tops", occupies: TOP, license: "CC-BY", author: "Elvaerwyn" },
+  { name: "laced-chemise", pack: "shirts02", id: "punkduck_lace_up_blouse", label: "Laced chemise", category: "Tops", occupies: TOP, gender: "female", license: "CC-BY", author: "punkduck" },
+  { name: "peasant-blouse", pack: "shirts03", id: "elvs_ruffle_sleeve_peasant_blouse_1", label: "Peasant blouse", category: "Tops", occupies: TOP, gender: "female", license: "CC-BY", author: "Elvaerwyn" },
+  { name: "open-coat", pack: "shirts02", id: "mindfront_cardigan_long_open_front", label: "Long open coat", category: "Tops", occupies: ["coat"], skirt: true, license: "CC-BY", author: "Mindfront" },
 
   // --- Bottoms ---
   { name: "wool-pants", pack: "pants01", id: "toigo_wool_pants", label: "Wool trousers", category: "Bottoms", occupies: BOTTOM, coversAnatomy: true },
@@ -91,6 +97,7 @@ export const WARDROBE: WardrobeItem[] = [
   { name: "skirt-tiered", pack: "skirts01", id: "toigo_tiered_skirt", label: "Tiered skirt", category: "Bottoms", occupies: BOTTOM, gender: "female", skirt: true },
   { name: "skirt-tiered-mini", pack: "skirts01", id: "toigo_tiered_mini_skirt", label: "Tiered mini skirt", category: "Bottoms", occupies: BOTTOM, gender: "female", skirt: true },
   { name: "skirt-mini-2", pack: "skirts01", id: "frankyaye_mini_skirt_02", label: "Mini skirt 2", category: "Bottoms", occupies: BOTTOM, gender: "female", skirt: true },
+  { name: "gored-skirt", pack: "skirts02", id: "elvs_gored_midi_skirt", label: "Gored skirt", category: "Bottoms", occupies: BOTTOM, gender: "female", skirt: true, license: "CC-BY", author: "Elvaerwyn" },
 
   // --- Dresses and robes ---
   { name: "gown", pack: "dress01", id: "toigo_camisole_dress_with_full_skirt", label: "Full-skirt gown", category: "Dresses & robes", occupies: FULL, gender: "female", skirt: true },
@@ -109,6 +116,8 @@ export const WARDROBE: WardrobeItem[] = [
   { name: "monk-robe", pack: "suits02", id: "donitz_monk_robe", label: "Monk robe", category: "Dresses & robes", occupies: FULL, skirt: true, coversAnatomy: true },
   { name: "wizard-robe", pack: "suits03", id: "maciekg_wizard_robe", label: "Wizard robe", category: "Dresses & robes", occupies: FULL, skirt: true, coversAnatomy: true, license: "CC-BY", author: "maciekg" },
   { name: "medieval-dress", pack: "dress03", id: "punkduck_medieval_dress", label: "Medieval dress", category: "Dresses & robes", occupies: FULL, gender: "female", skirt: true, coversAnatomy: true, license: "CC-BY", author: "punkduck" },
+  { name: "long-gown", pack: "dress03", id: "mindfront_f_dress_05", label: "Long-sleeved gown", category: "Dresses & robes", occupies: FULL, gender: "female", skirt: true, coversAnatomy: true, license: "CC-BY", author: "Mindfront" },
+  { name: "square-neck-gown", pack: "dress03", id: "mindfront_f_dress_09", label: "Square-neck gown", category: "Dresses & robes", occupies: FULL, gender: "female", skirt: true, coversAnatomy: true, license: "CC-BY", author: "Mindfront" },
   { name: "goddess-dress", pack: "dress02", id: "elvs_goddess_dress1", label: "Goddess dress", category: "Dresses & robes", occupies: FULL, gender: "female", skirt: true, license: "CC-BY", author: "Elvaerwyn" },
   { name: "draped-gown", pack: "dress02", id: "elvs_goddess_dress3", label: "Draped gown", category: "Dresses & robes", occupies: FULL, gender: "female", skirt: true, license: "CC-BY", author: "Elvaerwyn" },
   { name: "halter-gown", pack: "dress02", id: "elvs_goddess_dress4", label: "Halter gown", category: "Dresses & robes", occupies: FULL, gender: "female", skirt: true, license: "CC-BY", author: "Elvaerwyn" },
@@ -157,6 +166,11 @@ export const WARDROBE: WardrobeItem[] = [
   { name: "pirate-boots", pack: "shoes01", id: "grinsegold_female_pirate_boots", label: "Cuffed riding boots", category: "Shoes", occupies: SHOES, gender: "female", hideRadius: 0.03, texSize: 512 },
   { name: "cuffed-knee-boots", pack: "shoes01", id: "culturalibre_hero_boots_1", label: "Cuffed knee boots", category: "Shoes", occupies: SHOES, hideRadius: 0.03, texSize: 512 },
   { name: "cuffed-boots", pack: "shoes01", id: "culturalibre_hero_boots_4", label: "Cuffed boots", category: "Shoes", occupies: SHOES, hideRadius: 0.03, texSize: 512 },
+  { name: "medieval-boots", pack: "shoes03", id: "punkduck_medieval_boots", label: "Medieval boots", category: "Shoes", occupies: SHOES, hideRadius: 0.03, texSize: 512, license: "CC-BY", author: "punkduck" },
+  { name: "riding-boots", pack: "shoes03", id: "punkduck_riding_boots", label: "Tall riding boots", category: "Shoes", occupies: SHOES, hideRadius: 0.03, texSize: 512, license: "CC-BY", author: "punkduck" },
+  { name: "leather-boots", pack: "shoes03", id: "madmanny_tight_leather_boots", label: "Leather boots", category: "Shoes", occupies: SHOES, hideRadius: 0.03, texSize: 512, license: "CC-BY", author: "madmanny" },
+  { name: "pointed-shoes", pack: "shoes02", id: "elvs_basic_felt_elf_shoes", label: "Pointed shoes", category: "Shoes", occupies: SHOES, hideRadius: 0.03, texSize: 512, license: "CC-BY", author: "Elvaerwyn" },
+  { name: "buckled-shoes", pack: "shoes02", id: "elvs_flatshoe_buckle_1", label: "Buckled shoes", category: "Shoes", occupies: SHOES, hideRadius: 0.03, texSize: 512, license: "CC-BY", author: "Elvaerwyn" },
 
   // --- Hats, glasses, gloves, masks ---
   { name: "fedora", pack: SYS, id: "fedora01", label: "Fedora", category: "Accessories", occupies: ["hat"], texSize: 512 },
@@ -186,5 +200,8 @@ export const WARDROBE: WardrobeItem[] = [
   { name: "mma-gloves", pack: "gloves01", id: "learning_mma_fighting_gloves", label: "Fighting gloves", category: "Accessories", occupies: ["gloves"], texSize: 512, hideRadius: 0.02 },
   { name: "gauntlet-gloves", pack: "gloves01", id: "culturalibre_hero-heroine_gloves_3", label: "Gauntlet gloves", category: "Accessories", occupies: ["gloves"], texSize: 512, hideRadius: 0.02 },
   { name: "monk-hood", pack: "suits02", id: "donitz_monk_robe_hood", label: "Hood", category: "Accessories", occupies: ["hat"], hidesHair: true, texSize: 512 },
+  { name: "hood-down", pack: "suits02", id: "donitz_monk_robe_hood_off", label: "Hood, lowered", category: "Accessories", occupies: ["hat"], texSize: 512 },
+  { name: "veil", pack: "hats03", id: "elvs_charity_veil1", label: "Veil", category: "Accessories", occupies: ["hat"], hidesHair: true, texSize: 512, license: "CC-BY", author: "Elvaerwyn" },
+  { name: "plague-mask", pack: "masks02", id: "elvs_plague_doctor_mask", label: "Plague doctor mask", category: "Accessories", occupies: ["mask"], texSize: 512, license: "CC-BY", author: "Elvaerwyn" },
   { name: "face-mask", pack: "masks01", id: "joepal_medical_mouth_protection", label: "Face mask", category: "Accessories", occupies: ["mask"], texSize: 512 },
 ];
