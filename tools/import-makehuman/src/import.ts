@@ -37,6 +37,7 @@ import { readZip } from "./zip";
 import { CMU_URL, importCmu } from "./cmu";
 import type { GarmentInfo, SkinTextureDef } from "@actors/human";
 import { WARDROBE } from "./wardrobe";
+import { buildMedieval } from "./medieval";
 import { type Vec3, closestOnTriangle } from "./geometry";
 import { HAIRSTYLES, PACK_LICENCE } from "./hairstyles";
 import { GARMENT_LODS, HAIR_LODS, type LodSteps, SMALL_LODS, humanLods, ready as meshoptReady, simplifyLevels } from "./lod";
@@ -50,6 +51,8 @@ const MASK_SIZE = 2048;
 const MH_RAW = "https://raw.githubusercontent.com/makehumancommunity/makehuman/master/makehuman/data";
 /** MakeHuman's CC0 asset packs; only the files used are fetched (HTTP range requests). */
 const MH_PACKS = "https://files.makehumancommunity.org/asset_packs";
+/** CC-BY packs whose zip is named `<pack>_ccby.zip` (the others use `<pack>_cc-by.zip`). */
+const CCBY_UNDASHED = new Set(["shirts02", "shirts03", "shoes02", "shoes03", "masks02"]);
 const SYSTEM_ASSETS = `${MH_PACKS}/makehuman_system_assets/makehuman_system_assets_cc0.zip`;
 
 function arg(name: string): string | undefined {
@@ -586,14 +589,26 @@ async function main() {
   garmentLabels[halo.mesh.name] = "3026 · Orbital halo";
   garmentInfo[halo.mesh.name] = { category: "Future · accessories", occupies: ["halo"] };
 
+  // Medieval clothing and armour (generated; each in its own file, loaded when worn).
+  mkdirSync(join(out, "garments"), { recursive: true });
+  const medieval = buildMedieval({ ...garmentCtx, obj, facesOf, coveredBody, skirtBlend: SKIRT_BLEND! });
+  proxies.push(...medieval.proxies);
+  meshes.push(...medieval.meshes);
+  for (const { file, data } of medieval.files) writeFileSync(join(out, file), data);
+  Object.assign(garmentLabels, medieval.labels);
+  Object.assign(garmentInfo, medieval.info);
+  console.log(`Medieval: ${medieval.meshes.length} garments, ${(medieval.files.reduce((s, f) => s + f.data.byteLength, 0) / 1e6).toFixed(1)} MB`);
+
   // --- Wardrobe: CC0 and CC-BY garments from MakeHuman asset packs, each in its own file, loaded when worn ---
   mkdirSync(join(out, "garments"), { recursive: true });
   let wardrobeBytes = 0;
   for (const item of WARDROBE) {
     const cc = item.license === "CC-BY" ? "cc-by" : "cc0";
-    const pack = `${MH_PACKS}/${item.pack}/${item.pack}_${cc}.zip`;
+    const pack = `${MH_PACKS}/${item.pack}/${item.pack}_${CCBY_UNDASHED.has(item.pack) ? "ccby" : cc}.zip`;
     const dir = `clothes/${item.id}`;
     const clo = parseMhclo(fetchZipText(CACHE, pack, `${dir}/${item.id}.mhclo`));
+    // A few garments have no scale references; use the head box most MakeHuman clothes use.
+    [[5399, 11998, 1.398], [791, 881, 2.2028], [962, 5320, 1.8441]].forEach((ref, k) => (clo.scale[k] ??= ref as [number, number, number]));
     const cloObj = parseObj(fetchZipText(CACHE, pack, `${dir}/${clo.objFile}`));
     let mhmat = "";
     try {

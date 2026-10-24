@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { useDualQuaternionSkinning } from "./dqs";
 import { GLSL_BIND_VERTEX, GLSL_EYE, GLSL_NOISE, GLSL_PATTERN, GLSL_STUBBLE } from "./racepatterns";
-import { fabricNormalMap, lashAlphaMap, poreNormalMap } from "./procedural";
+import { METAL_FABRICS, fabricNormalMap, lashAlphaMap, poreNormalMap } from "./procedural";
 import { type ScreenTexturePool, useScreenMaterial } from "./screens";
 
 /**
@@ -321,6 +321,8 @@ export function createClothMaterial(
     color: map ? new THREE.Color(1, 1, 1) : color,
     map,
     roughness,
+    // Armour (mail, plate) is metal; it needs an environment map to look right.
+    metalness: METAL_FABRICS[fabric] ?? 0,
     normalMap,
     normalScale: normal ? new THREE.Vector2(1, 1) : new THREE.Vector2(0.6, 0.6),
     // Textured garments can have transparent parts (lace, fishnet); others stay fully opaque.

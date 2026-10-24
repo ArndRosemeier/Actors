@@ -80,6 +80,26 @@ export function poreNormalMap(): THREE.DataTexture {
   return (poreCache = heightToNormal(h, size, 3));
 }
 
+/** Riveted mail: interlocking rings, 8 x 8 per tile, rows offset by half a ring. */
+function mailHeight(x: number, y: number, size: number): number {
+  const step = size / 8, radius = step * 0.47, wire = step * 0.16;
+  let h = 0;
+  const row = Math.floor(y / step);
+  for (let r = row - 1; r <= row + 1; r++) {
+    const shift = (r & 1) * step / 2;
+    const col = Math.floor((x - shift) / step);
+    for (let c = col - 1; c <= col + 1; c++) {
+      const d = Math.hypot(x - (c * step + step / 2 + shift), (y - (r * step + step / 2)) * 1.15);
+      const t = (d - radius) / wire;
+      if (Math.abs(t) < 1) h = Math.max(h, Math.sqrt(1 - t * t));
+    }
+  }
+  return h;
+}
+
+/** Fabrics drawn as metal (armour). */
+export const METAL_FABRICS: Record<string, number> = { mail: 0.8, plate: 0.85 };
+
 const fabricCache = new Map<string, THREE.DataTexture>();
 /** Weave/knit normal maps for garments. */
 export function fabricNormalMap(kind: string): THREE.DataTexture {
@@ -99,12 +119,24 @@ export function fabricNormalMap(kind: string): THREE.DataTexture {
         value = Math.abs(Math.sin(u * 32)) * (0.6 + 0.4 * Math.abs(Math.sin(v * 48 + Math.sin(u * 32) * 1.5)));
       } else if (kind === "lace") {
         value = 0.5 + 0.5 * Math.sin(u * 20) * Math.sin(v * 20);
+      } else if (kind === "weave") {
+        // Plain weave (linen, wool): threads alternately over and under.
+        value = 0.5 + 0.25 * Math.sin(u * 40) * Math.tanh(3 * Math.sin(v * 20)) + 0.25 * Math.sin(v * 40) * Math.tanh(3 * Math.sin(u * 20));
+      } else if (kind === "quilted") {
+        // Padded armour: puffy diamonds between stitched seams.
+        const a = Math.abs(((x + y) / size * 2) % 1 - 0.5), b = Math.abs(((x - y + size) / size * 2) % 1 - 0.5);
+        value = Math.sqrt(Math.min(1, Math.min(0.5 - a, 0.5 - b) * 6));
+      } else if (kind === "mail") {
+        value = mailHeight(x, y, size);
+      } else if (kind === "leather") {
+        value = 0.5 + (noise[(y * 7 % size) * size + (x * 7 % size)] - 0.5) * 0.8;
       } else {
         value = 0.5;
       }
       h[y * size + x] = value * 0.8 + noise[y * size + x] * 0.2;
     }
-  const tex = heightToNormal(h, size, kind === "smooth" ? 1 : 4);
+  const strength = kind === "smooth" ? 1 : kind === "plate" ? 0.5 : kind === "mail" ? 6 : 4;
+  const tex = heightToNormal(h, size, strength);
   fabricCache.set(kind, tex);
   return tex;
 }
