@@ -3,10 +3,10 @@ import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { ActorShape, Clip, Fetcher, MessagePortLike } from "@actors/core";
 import { ADULT_MIN_AGE, BEARD_STYLES, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type RaceId, raceScale, sanitizeRace } from "@actors/human";
 import { type ActorMaterialKit, type ScreenTexturePool, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
-import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, buildCatalog, defaultConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook } from "./catalog";
+import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, type SkeletalLook, buildCatalog, defaultConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook, sanitizeSkeletalLook } from "./catalog";
 
-/** A change to a character. `body` and `robotLook` are merged into the current body; every other field replaces the current value. */
-export type CharacterPatch = Partial<Omit<CharacterConfig, "body" | "robotLook">> & { body?: Partial<HumanParams>; robotLook?: Partial<RobotLook> };
+/** A change to a character. `body`, `robotLook` and `skeletalLook` are merged into the current values; every other field replaces the current value. */
+export type CharacterPatch = Partial<Omit<CharacterConfig, "body" | "robotLook" | "skeletalLook">> & { body?: Partial<HumanParams>; robotLook?: Partial<RobotLook>; skeletalLook?: Partial<SkeletalLook> };
 
 export interface CharacterOptions {
   /** URL of the pack's manifest.json (e.g. "/packs/human/manifest.json"). */
@@ -141,7 +141,11 @@ export class Character {
     body.ageYears = Math.min(MAX_AGE, Math.max(ADULT_MIN_AGE, body.ageYears));
     const defined = Object.fromEntries(Object.entries(structuredClone(patch)).filter(([, v]) => v !== undefined));
     const robotLook = sanitizeRobotLook({ ...this.cfg.robotLook, ...patch.robotLook });
-    this.cfg = { ...this.cfg, ...defined, body, robotLook, robot: !!(patch.robot ?? this.cfg.robot), outfit: this.normalizeOutfit(patch.outfit ?? this.cfg.outfit) };
+    const skeletalLook = sanitizeSkeletalLook({ ...this.cfg.skeletalLook, ...patch.skeletalLook });
+    // Robot and skeleton exclude each other: turning one on turns the other off.
+    const robot = !!(patch.robot ?? (patch.skeletal ? false : this.cfg.robot));
+    const skeletal = !robot && !!(patch.skeletal ?? this.cfg.skeletal);
+    this.cfg = { ...this.cfg, ...defined, body, robotLook, skeletalLook, robot, skeletal, outfit: this.normalizeOutfit(patch.outfit ?? this.cfg.outfit) };
     const race = sanitizeRace({ race: this.cfg.race, race2: this.cfg.race2, mix: this.cfg.raceMix, size: this.cfg.raceSize });
     Object.assign(this.cfg, { race: race.race, race2: race.race2, raceMix: race.race2 ? race.mix : this.cfg.raceMix, raceSize: race.size });
     const c = this.cfg, clamp01 = (v: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
@@ -344,8 +348,8 @@ export class Character {
     }
     const male = c.body.gender >= 0.5;
     a.setVisible("genitals-male", c.anatomy && male);
-    // Robots: the generated parts stand in for every pack mesh.
-    a.hidePackMeshes(c.robot);
+    // Robots: the generated parts stand in for every pack mesh. Skeletons keep their clothes.
+    a.hidePackMeshes(c.robot ? true : c.skeletal ? "body" : false);
     // One visibility pass for the whole look (and the meshes now worn exist from here on).
     a.flushVisibility();
     a.skin.uBrowDensity.value = c.brows === PAINTED_BROWS ? 0.92 : 0;
@@ -389,6 +393,12 @@ export class Character {
       a.setPartColor(["visor"], new THREE.Color(r.glow).multiplyScalar(0.04));
       a.setPartMaterial(["plate", "trim"], { metalness: f.metalness, roughness: f.roughness, clearcoat: f.clearcoat, clearcoatRoughness: f.clearcoatRoughness });
       a.setPartMaterial(["glow"], { emissiveIntensity: r.glowStrength * 3.2 });
+    } else if (c.skeletal) {
+      const k = c.skeletalLook;
+      a.setPartColor(["bone"], k.bone);
+      a.setPartColor(["glow"], k.glow);
+      a.setPartMaterial(["bone"], { roughness: 0.3 + k.dryness * 0.6, clearcoat: 0.35 * (1 - k.dryness) });
+      a.setPartMaterial(["glow"], { emissiveIntensity: k.glowStrength * 3.2 });
     }
   }
 
@@ -421,15 +431,19 @@ export class Character {
     const r = c.robotLook;
     // Robot parts are built with the shape (in the worker when there is one).
     const robotConfig = c.robot ? { head: r.head, ears: r.ears, plating: r.plating, thickness: r.thickness, core: r.core } : null;
-    const shapeKey = JSON.stringify([c.body, c.details, c.race, c.race2, c.raceMix, c.raceSize, robotConfig]);
+    const k = c.skeletalLook;
+    const skeletalConfig = c.skeletal && !c.robot ? { robust: k.robust, wear: k.wear, missing: k.missing, jaw: k.jaw, eyes: k.eyes, heart: k.heart, seed: c.seed } : null;
+    const shapeKey = JSON.stringify([c.body, c.details, c.race, c.race2, c.raceMix, c.raceSize, robotConfig, skeletalConfig]);
     // Only what is worn is fitted; wearing something the last shape left out needs a new one.
     const needed = this.actor.neededMeshes();
     const unfitted = !!this.shape && needed.some((n) => !this.fittedNames.has(n));
     if (shapeKey !== this.applied.shape || unfitted) {
       h.robotConfig = robotConfig;
+      h.skeletalConfig = skeletalConfig;
       h.fit = needed;
       const t0 = performance.now();
-      h.params = { ...c.body };
+      // A skeleton has no soft tissue: it is built from an average-build body of the same height and proportions.
+      h.params = skeletalConfig ? { ...c.body, weight: 0.5, muscle: 0.5, cupSize: 0, firmness: 0.5 } : { ...c.body };
       h.race = sanitizeRace({ race: c.race, race2: c.race2, mix: c.raceMix, size: c.raceSize });
       h.modifierValues = { ...c.details };
       this.shape = await h.evaluate(this.shape);
@@ -441,7 +455,7 @@ export class Character {
         return m.def.source.kind === "base" || shape.proxies.has(m.def.source.proxy);
       }));
       this.actor.applyShape(this.shape);
-      this.actor.object.position.y = this.actor.groundOffset() + (c.robot ? this.lift : 0);
+      this.actor.object.position.y = this.actor.groundOffset() + (c.robot || c.skeletal ? this.lift : 0);
       this.height = this.actor.height();
       // Pattern space: feet at 0, body scale, head joint (skin patterns stay sized and placed per body).
       const sk = this.shape.skeleton;
@@ -461,12 +475,24 @@ export class Character {
     }
     const partsKey = c.robot
       ? shapeKey
-      : JSON.stringify([shapeKey, c.hair, this.hidesHair(), c.beard, c.horns, c.hornSize, c.tusks, c.tail, c.tailLength, c.seed]);
+      : c.skeletal
+        ? JSON.stringify([shapeKey, c.horns, c.hornSize, c.hornColor, c.tusks])
+        : JSON.stringify([shapeKey, c.hair, this.hidesHair(), c.beard, c.horns, c.hornSize, c.tusks, c.tail, c.tailLength, c.seed]);
     if (partsKey !== this.applied.parts && this.shape && c.robot) {
       this.applied.parts = partsKey;
       const robot = h.robotParts ?? h.robot(this.shape, r);
       this.lift = robot.lift;
       this.actor.setParts(robot.parts);
+      this.actor.object.position.y = this.actor.groundOffset() + this.lift;
+      this.applyLook();
+    } else if (partsKey !== this.applied.parts && this.shape && c.skeletal) {
+      this.applied.parts = partsKey;
+      const bones = h.skeletalParts ?? h.skeletal(this.shape, skeletalConfig ?? {});
+      // Horns and tusks are bone too: a horned race keeps them.
+      const rgb = new THREE.Color(c.hornColor ?? "#d9cfb4").convertLinearToSRGB();
+      const extra = c.horns !== "none" || c.tusks > 0 ? await h.parts(this.shape, { seed: c.seed, horns: c.horns, hornSize: c.hornSize, hornColor: [rgb.r, rgb.g, rgb.b], tusks: c.tusks, tail: "none", tailLength: 0, beard: "none", hair: "none" }) : [];
+      this.lift = bones.lift;
+      this.actor.setParts([...bones.parts, ...extra]);
       this.actor.object.position.y = this.actor.groundOffset() + this.lift;
       this.applyLook();
     } else if (partsKey !== this.applied.parts && this.shape) {

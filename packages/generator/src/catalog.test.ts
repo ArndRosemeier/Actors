@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ADULT_MIN_AGE, RACE_IDS } from "@actors/human";
-import { type CharacterCatalog, DEFAULT_ROBOT_LOOK, GARMENT_COLORS, ROBOT_PALETTES, sanitizeRobotLook, concealedGarments, OUTFITS, defaultConfig, outfitGarments, randomConfig, resolveOutfit, seededRandom } from "./catalog";
+import { type CharacterCatalog, DEFAULT_ROBOT_LOOK, DEFAULT_SKELETAL_LOOK, SKELETAL_PALETTES, sanitizeSkeletalLook, GARMENT_COLORS, ROBOT_PALETTES, sanitizeRobotLook, concealedGarments, OUTFITS, defaultConfig, outfitGarments, randomConfig, resolveOutfit, seededRandom } from "./catalog";
 
 const IDS = ["briefs", "bra", "tshirt", "jeans", "socks", "skirt", "skirt-mini", "dress", "sneakers"];
 const catalog: CharacterCatalog = {
@@ -170,5 +170,37 @@ describe("robots", () => {
     expect(l.head).toBe(DEFAULT_ROBOT_LOOK.head);
     expect(l.glowStrength).toBe(1);
     expect(l.finish).toBe(DEFAULT_ROBOT_LOOK.finish);
+  });
+});
+
+describe("skeletons", () => {
+  const base = defaultConfig(catalog);
+
+  it("start as humans with a valid default look", () => {
+    expect(base.skeletal).toBe(false);
+    expect(sanitizeSkeletalLook(base.skeletalLook)).toEqual(base.skeletalLook);
+    for (const p of SKELETAL_PALETTES) expect(sanitizeSkeletalLook(p.look)).toMatchObject(p.look);
+  });
+
+  it("randomize into skeletons with palette looks, never robot and skeleton at once", () => {
+    const r = seededRandom(9);
+    for (let i = 0; i < 20; i++) {
+      const c = randomConfig(catalog, { ...base, robot: true }, { random: r, skeletal: true });
+      expect(c.skeletal).toBe(true);
+      expect(c.robot).toBe(false);
+      expect(sanitizeSkeletalLook(c.skeletalLook)).toEqual(c.skeletalLook);
+      expect(SKELETAL_PALETTES.some((p) => p.look.bone === c.skeletalLook.bone)).toBe(true);
+    }
+    const robot = randomConfig(catalog, { ...base, skeletal: true }, { random: seededRandom(9), robot: true });
+    expect(robot.robot).toBe(true);
+    expect(robot.skeletal).toBe(false);
+  });
+
+  it("sanitize bad skeleton looks", () => {
+    const l = sanitizeSkeletalLook({ bone: "white", wear: 3, glowStrength: -1, jaw: false });
+    expect(l.bone).toBe(DEFAULT_SKELETAL_LOOK.bone);
+    expect(l.wear).toBe(1);
+    expect(l.glowStrength).toBe(0);
+    expect(l.jaw).toBe(false);
   });
 });
