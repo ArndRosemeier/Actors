@@ -1,6 +1,6 @@
 {
   "name": "@actors/animal",
-  "version": "0.15.2",
+  "version": "0.15.3",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
@@ -10,6 +10,6 @@
     "./worker": "./src/worker.ts"
   },
   "dependencies": {
-    "@actors/core": "0.15.2"
+    "@actors/core": "0.15.3"
   }
 }

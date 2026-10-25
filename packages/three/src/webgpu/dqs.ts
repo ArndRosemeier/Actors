@@ -75,11 +75,15 @@ const dqSkinning = Fn(([mesh]: [SkinnedMesh], builder: N) => {
       sk.update();
     }
   });
-  const real: N[] = [], dual: N[] = [];
+  const real: N[] = [], dual: N[] = [], scale: N[] = [];
   for (const k of ["x", "y", "z", "w"]) {
     const m = bones.element(skinIndex[k]).toVar();
     const c0 = m.element(0), c1 = m.element(1), c2 = m.element(2), c3 = m.element(3);
-    const r = quatOf(c0.xyz, c1.xyz, c2.xyz).toVar();
+    // A bone matrix carries the scale of the actor's parents (a giant grown by its group): uniform, taken
+    // out before the rotation is read and put back on the blended result.
+    const sc = c0.xyz.length().toVar();
+    scale.push(sc);
+    const r = quatOf(c0.xyz.div(sc), c1.xyz.div(sc), c2.xyz.div(sc)).toVar();
     real.push(r);
     dual.push(quatMul(vec4(c3.xyz, 0), r).mul(0.5).toVar());
   }
@@ -93,16 +97,17 @@ const dqSkinning = Fn(([mesh]: [SkinnedMesh], builder: N) => {
   dqR.divAssign(len);
   dqD.divAssign(len);
   const t = dqR.w.mul(dqD.xyz).sub(dqD.w.mul(dqR.xyz)).add(cross(dqR.xyz, dqD.xyz)).mul(2).toVar();
+  const k = scale[0].mul(w.x).add(scale[1].mul(w.y)).add(scale[2].mul(w.z)).add(scale[3].mul(w.w)).toVar();
   const p = bindMatrix.mul(vec4(positionLocal, 1)).xyz;
-  positionLocal.assign(bindMatrixInverse.mul(vec4(quatRotate(dqR, p).add(t), 1)).xyz);
+  positionLocal.assign(bindMatrixInverse.mul(vec4(quatRotate(dqR, p).mul(k).add(t), 1)).xyz);
   if (builder.hasGeometryAttribute("normal")) {
     const n = bindMatrix.mul(vec4(normalLocal, 0)).xyz;
-    normalLocal.assign(bindMatrixInverse.mul(vec4(quatRotate(dqR, n), 0)).xyz);
+    normalLocal.assign(bindMatrixInverse.mul(vec4(quatRotate(dqR, n).mul(k), 0)).xyz);
   }
   // A fur's comb direction turns with the skin (read by the fur shells as `skinnedFlow`).
   if (builder.hasGeometryAttribute("furFlow")) {
     const f = bindMatrix.mul(vec4(attribute("furFlow", "vec3"), 0)).xyz;
-    skinnedFlow.assign(bindMatrixInverse.mul(vec4(quatRotate(dqR, f), 0)).xyz);
+    skinnedFlow.assign(bindMatrixInverse.mul(vec4(quatRotate(dqR, f).mul(k), 0)).xyz);
   }
 }, "void");
 
