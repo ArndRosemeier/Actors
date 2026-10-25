@@ -1,6 +1,7 @@
 import { raceParts, randomRaceLook } from "./racelook";
 import { FUTURE_OUTFITS } from "./future-outfits";
 import { MEDIEVAL_OUTFITS } from "./medieval-outfits";
+import { GARMENT_THEMES, HAIR_THEMES, RACE_THEMES } from "./themes";
 import { ADULT_MIN_AGE, DEFAULT_PARAMS, DEFAULT_ROBOT, DEFAULT_SKELETAL, type SkeletalConfig, sanitizeSkeletal, ROBOT_EARS, ROBOT_HEADS, ROBOT_PLATING, type RobotConfig, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type BeardStyle, type HornStyle, type PupilShape, RACES, RACE_IDS, type RaceId, type SkinPattern, type TailStyle } from "@actors/human";
 
 /** One choice in a list: the id the API takes and a display label. */
@@ -9,6 +10,8 @@ export interface Choice {
   label: string;
   /** Author, pack and licence, for assets whose licence asks for credit (CC-BY). */
   credit?: string;
+  /** Settings the option fits (see `THEMES` in themes.ts); absent = every setting. */
+  themes?: string[];
 }
 
 export interface GarmentChoice extends Choice {
@@ -382,6 +385,9 @@ export const GARMENT_COLORS: Choice[] = [
 
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 
+/** `{ themes }` from a tag table, or nothing for an untagged id. */
+const themed = (table: Record<string, string[]>, id: string) => (table[id] ? { themes: [...table[id]] } : {});
+
 const ROBOT_HEAD_LABELS: Record<string, string> = { visor: "Visor", optics: "Twin optics", mono: "Mono-eye", android: "Android face" };
 
 export function buildCatalog(human: Human, irisPresets: string[]): CharacterCatalog {
@@ -402,6 +408,7 @@ export function buildCatalog(human: Human, irisPresets: string[]): CharacterCata
         hidesHair: !!d.tags?.includes("covers:hair"),
         ...(d.tags?.includes("license:CC-BY") && g.credit ? { credit: g.credit, author: g.author } : {}),
         ...(g.gender ? { gender: g.gender } : {}),
+        ...themed(GARMENT_THEMES, d.name),
       };
     });
   const have = new Set(garments.map((g) => g.id));
@@ -409,7 +416,7 @@ export function buildCatalog(human: Human, irisPresets: string[]): CharacterCata
   const ccBy = new Set(m.meshes.filter((d) => d.tags?.includes("license:CC-BY")).map((d) => d.name));
   const choices = (r: Record<string, string> | undefined) => Object.entries(r ?? {}).map(([id, label]) => ({ id, label }));
   return {
-    races: RACE_IDS.map((id) => ({ id, label: RACES[id].name, description: RACES[id].description })),
+    races: RACE_IDS.map((id) => ({ id, label: RACES[id].name, description: RACES[id].description, ...themed(RACE_THEMES, id) })),
     animations: human.runtime.clipDefs.map((c) => {
       const library = m.clipLibraries?.find((l) => c.file.startsWith(l.file.slice(0, l.file.lastIndexOf("/") + 1)))?.name ?? "";
       const label = library && c.description ? `${c.name.replace(/^\S+\s/, "")} · ${c.description}` : cap(c.name);
@@ -421,7 +428,7 @@ export function buildCatalog(human: Human, irisPresets: string[]): CharacterCata
     hair: [
       ...choices(human.extra.hairLabels).map((h) => (ccBy.has(h.id) && human.extra.hairCredits?.[h.id] ? { ...h, credit: human.extra.hairCredits[h.id] } : h)),
       ...choices(PROCEDURAL_HAIR),
-    ],
+    ].map((h) => ({ ...h, ...themed(HAIR_THEMES, h.id) })),
     hairColors: HAIR_COLORS,
     garmentColors: GARMENT_COLORS,
     brows: choices(human.extra.browLabels),
@@ -533,8 +540,8 @@ export interface RandomOptions {
   animation?: boolean;
   /** Restrict gender: "female", "male" or "any" (default). */
   gender?: "female" | "male" | "any";
-  /** Race of the new character (default: the base's race and mix). */
-  race?: RaceId;
+  /** Race of the new character, "any" for one from `catalog.races` (default: the base's race and mix). */
+  race?: RaceId | "any";
   /** Make a robot (true), a human (false), or keep the base's kind (default). Robots get a random robot look. */
   robot?: boolean;
   /** Make a skeleton (true), not one (false), or keep the base's kind (default). Skeletons get a random skeleton look. */
@@ -589,7 +596,7 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
   // About half the garments get a colour from the palette; the rest keep their own.
   const garmentColors: Record<string, string> = {};
   if (outfitPreset) for (const g of outfit) if (r() < 0.5) garmentColors[g] = pick(catalog.garmentColors)?.id ?? "#808080";
-  const race = options.race ?? base.race;
+  const race = options.race === "any" ? (pick(catalog.races)?.id ?? base.race) : (options.race ?? base.race);
   const race2 = options.race ? null : base.race2;
   const human = race === "human" && !race2;
   const look = human ? undefined : randomRaceLook(catalog, race, race2, base.raceMix, body, r);

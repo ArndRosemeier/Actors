@@ -13,6 +13,8 @@ const { character, stage } = await createCharacterGenerator({
   title: "Character",
   // `?webgpu` draws with three's WebGPURenderer and node materials, `?webgpu-gl` with its WebGL 2 backend.
   renderer: params.has("webgpu") ? "webgpu" : params.has("webgpu-gl") ? "webgpu-gl" : "webgl",
+  // `?themes=medieval,fantasy&without=real-faith` offers only what a game in that setting would (see THEMES).
+  themes: params.has("themes") || params.has("without") ? { themes: params.get("themes")?.split(","), without: params.get("without")?.split(",") } : undefined,
 });
 
 // Share a wardrobe preview, e.g. ?outfit=future-orbit. Older packs may not contain it yet.

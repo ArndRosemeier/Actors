@@ -3,6 +3,7 @@ import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { ActorShape, Clip, Fetcher, MessagePortLike } from "@actors/core";
 import { ADULT_MIN_AGE, BEARD_STYLES, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type RaceId, raceScale, sanitizeRace } from "@actors/human";
 import { type ActorMaterialKit, type ScreenTexturePool, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
+import { type ThemeFilter, filterCatalog } from "./themes";
 import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, type SkeletalLook, buildCatalog, defaultConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook, sanitizeSkeletalLook } from "./catalog";
 
 /** A change to a character. `body`, `robotLook` and `skeletalLook` are merged into the current values; every other field replaces the current value. */
@@ -32,6 +33,11 @@ export interface CharacterOptions {
    * game that leaves out fantasy outfits or CC-BY garments. Gets the pack's whole catalog.
    */
   catalog?: (catalog: CharacterCatalog) => CharacterCatalog;
+  /**
+   * Only the options that fit these themes (garments, hairstyles, races, outfit presets, robots and
+   * skeletons; see `THEMES` and `filterCatalog`), applied before `catalog`.
+   */
+  themes?: ThemeFilter;
   /** Also list the pack's large clip libraries (e.g. 2,548 CMU motions; default true). Only their index is loaded up front. */
   clipLibraries?: boolean;
   fetcher?: Fetcher;
@@ -89,11 +95,13 @@ export class Character {
     materials?: ActorMaterialKit,
     narrow?: (catalog: CharacterCatalog) => CharacterCatalog,
     screenTextures?: ScreenTexturePool | null,
+    themes?: ThemeFilter,
   ) {
     // three's WebGPURenderer can draw with a reversed depth buffer (garment offsets then flip).
     const reversedDepth = (renderer as { reversedDepthBuffer?: boolean } | null)?.reversedDepthBuffer === true;
     this.actor = new ThreeActor(human.runtime, materials, { screenTextures, reversedDepth });
-    const all = buildCatalog(human, Object.keys(IRIS_PRESETS));
+    const built = buildCatalog(human, Object.keys(IRIS_PRESETS));
+    const all = themes ? filterCatalog(built, themes) : built;
     this.catalog = narrow ? narrow(all) : all;
     this.cfg = defaultConfig(this.catalog);
   }
@@ -103,14 +111,14 @@ export class Character {
       const human = Human.share(options.shareWith.human);
       // Its own worker: the lead of a worker pool (crowd members then share with one of the leads).
       if (options.worker) await human.useWorker(options.worker);
-      const c = new Character(human, options.renderer, options.materials ?? options.shareWith.actor.kit, options.catalog, options.screenTextures === undefined ? options.shareWith.actor.screenTextures : options.screenTextures);
+      const c = new Character(human, options.renderer, options.materials ?? options.shareWith.actor.kit, options.catalog, options.screenTextures === undefined ? options.shareWith.actor.screenTextures : options.screenTextures, options.themes);
       await c.set(options.config ?? {});
       return c;
     }
     const human = await Human.load(options.pack, options.fetcher);
     if (options.clipLibraries !== false) await Promise.all((human.runtime.manifest.clipLibraries ?? []).map((l) => human.runtime.loadClipLibrary(l.name)));
     if (options.worker) await human.useWorker(options.worker);
-    const c = new Character(human, options.renderer, options.materials, options.catalog, options.screenTextures);
+    const c = new Character(human, options.renderer, options.materials, options.catalog, options.screenTextures, options.themes);
     await c.set(options.config ?? {});
     return c;
   }

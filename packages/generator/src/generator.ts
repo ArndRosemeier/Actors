@@ -1,6 +1,7 @@
 import type { MessagePortLike } from "@actors/core";
 import { Character, type CharacterPatch } from "./character";
 import { CharacterEditor, type EditorOptions } from "./editor";
+import type { ThemeFilter } from "./themes";
 import { CharacterStage, type StageOptions } from "./stage";
 
 export interface GeneratorOptions extends StageOptions, EditorOptions {
@@ -13,6 +14,8 @@ export interface GeneratorOptions extends StageOptions, EditorOptions {
   /** Optional Web Worker running `@actors/human/worker`. */
   worker?: MessagePortLike;
   config?: CharacterPatch;
+  /** Only the options that fit these themes (see `Character.load`). */
+  themes?: ThemeFilter;
 }
 
 export interface CharacterGenerator {
@@ -34,7 +37,7 @@ export interface CharacterGenerator {
  */
 export async function createCharacterGenerator(options: GeneratorOptions): Promise<CharacterGenerator> {
   const stage = await CharacterStage.create(options.view, options);
-  const character = await Character.load({ pack: options.pack, renderer: stage.renderer, materials: stage.materials, screenTextures: stage.screenTextures, worker: options.worker, config: options.config });
+  const character = await Character.load({ pack: options.pack, renderer: stage.renderer, materials: stage.materials, screenTextures: stage.screenTextures, worker: options.worker, config: options.config, themes: options.themes });
   const remove = stage.add(character);
   character.lodCamera = stage.camera;
   // Keep very small or very tall characters (goblins, giantkin) in frame.
