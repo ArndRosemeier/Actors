@@ -46,6 +46,7 @@ import { addMorphAttributes, clearDeltas, morphArrays, morphsChanged, setDelta }
 import { createCrowdMaterial } from "./crowd";
 import { garmentLayer } from "./layers";
 import { ScreenTexturePool, setScreenTexturePool, setScreenColor, updateScreen } from "./screens";
+import { srgb } from "./color";
 
 export * from "./materials";
 export * from "./dqs";
@@ -57,6 +58,7 @@ export * from "./parts";
 export * from "./morphs";
 export * from "./crowd";
 export * from "./fur";
+export { srgb } from "./color";
 export * from "./drone";
 export * from "./mount";
 export { screenPixels, SCREEN_TEXTURE_SIZE, ScreenTexturePool } from "./screens";
@@ -84,16 +86,16 @@ export const defaultMaterials: MaterialFactory = (data, actor) => {
     case "eye":
       return createEyeMaterial(tex("color", true), actor.eye);
     case "teeth":
-      return createWetMaterial(new THREE.Color(0.92, 0.89, 0.8), 0.25);
+      return createWetMaterial(srgb(0.92, 0.89, 0.8), 0.25);
     case "mouth":
-      return createWetMaterial(new THREE.Color(0.75, 0.38, 0.38), 0.4);
+      return createWetMaterial(srgb(0.75, 0.38, 0.38), 0.4);
     case "hair":
       if (def.textures?.color) {
         const mat = createHairMaterial(tex("color", true), def.tags?.includes("brows"));
         mat.userData.meanColor = new THREE.Color().setRGB(...(def.material.color ?? [0.3, 0.2, 0.1]), THREE.SRGBColorSpace);
         return mat;
       }
-      return createLashMaterial(new THREE.Color(0.05, 0.035, 0.03));
+      return createLashMaterial(new THREE.Color(0.05, 0.035, 0.03)); // linear: near black either way
     case "cloth": {
       const fabric = def.tags?.find((t) => t.startsWith("fabric:"))?.slice(7) ?? "smooth";
       // Garments follow their own layer order: proxies (socks) over base garments (tights), outerwear over underwear.
@@ -321,6 +323,41 @@ export class ThreeActor {
    * `ActorRuntime.loadMeshes`). They start hidden if optional; apply a shape
    * that includes them (re-evaluate) before showing them.
    */
+  /** The worn garments in outfit order (`setGarmentOrder`). */
+  private garmentOrder: string[] = [];
+
+  /**
+   * The outfit's garments, inner first. Garments on the same layer (a chemise and a skirt, both cut
+   * from the body) would otherwise share one polygon offset and cut through each other where they
+   * overlap: each later one is drawn a quarter layer further out.
+   */
+  setGarmentOrder(names: readonly string[]): void {
+    this.garmentOrder = [...names];
+    for (const [name, mesh] of this.meshes) {
+      const data = this.data.get(name);
+      if (data) this.orderLayer(mesh, data);
+    }
+  }
+
+  /** A garment's polygon offset for its layer and its place among the worn garments on that layer. */
+  private orderLayer(mesh: THREE.Mesh, data: MeshData): void {
+    if (data.def.material.kind !== "cloth") return;
+    const mat = mesh.material as THREE.Material;
+    if (!mat.polygonOffset) return;
+    const layer = garmentLayer(data.def);
+    let rank = 0;
+    for (const name of this.garmentOrder) {
+      if (name === data.def.name) break;
+      const other = this.data.get(name);
+      if (other?.def.material.kind === "cloth" && garmentLayer(other.def) === layer) rank++;
+    }
+    // Negative pulls toward the camera; a reversed depth buffer has the other sign (see reverseOffsets).
+    const out = (layer + rank * 0.25) * (this.reversedDepth ? 1 : -1);
+    if (mat.polygonOffsetFactor === 2 * out && mat.polygonOffsetUnits === 4 * out) return;
+    mat.polygonOffsetFactor = 2 * out;
+    mat.polygonOffsetUnits = 4 * out;
+  }
+
   /** Those of `list` this actor has no mesh for yet (e.g. loaded into a shared pack by another actor). */
   newMeshes(list: MeshData[]): MeshData[] {
     return list.filter((d) => !d.def.internal && !this.data.has(d.def.name));
@@ -414,6 +451,7 @@ export class ThreeActor {
       }
       const mesh = new THREE.SkinnedMesh(g, materials(data, this));
       if (this.reversedDepth) reverseOffsets(mesh.material);
+      this.orderLayer(mesh, data);
       mesh.name = data.def.name;
       if (attributeMorphs) mesh.morphTargetInfluences = ThreeActor.MORPHS.map(() => 0);
       else if (morphable) mesh.updateMorphTargets();

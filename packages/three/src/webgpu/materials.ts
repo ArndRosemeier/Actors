@@ -59,6 +59,7 @@ import { useNodeDqs } from "./dqs";
 import { bumpNormal } from "./noise";
 import { eyeColor, skinPattern, ss, stubble } from "./patterns";
 import type { N } from "./types";
+import { srgb } from "../color";
 
 const white = (() => {
   const t = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
@@ -311,20 +312,23 @@ export function createNodeEyeMaterial(map: THREE.Texture | null, actor: ThreeAct
 }
 
 /** Recolours the material's colour (color x map) to `tint`, keeping its brightness pattern; mix 0 = own colour. */
-function tinted(tint: N, mixNode: N, meanLum: N, maxGain: number): N {
+function tinted(tint: N, mixNode: N, meanLum: N): N {
   const base = materialColor;
-  const lum = dot(base.rgb, vec3(0.2126, 0.7152, 0.0722));
-  return vec4(mix(base.rgb, tint.mul(clamp(lum.div(meanLum), 0, maxGain)), mixNode), base.a);
+  const g = dot(base.rgb, vec3(0.2126, 0.7152, 0.0722)).div(meanLum);
+  // A soft knee above 1 (as tintGain in ../materials.ts): bright patches of a dark, high-contrast texture
+  // stay lighter than the tint instead of turning white (gain below 2).
+  const gain = select(g.greaterThan(1), g.sub(1).div(g).add(1), g);
+  return vec4(mix(base.rgb, tint.mul(gain), mixNode), base.a);
 }
 
 /** A garment's colour, recoloured to its tint (shared graph). */
-const clothColor = once(() => tinted(input("tint.color", new THREE.Color(1, 1, 1)), input("tint.mix", 0), input("tint.meanLum", 0.2), 3));
+const clothColor = once(() => tinted(input("tint.color", new THREE.Color(1, 1, 1)), input("tint.mix", 0), input("tint.meanLum", 0.2)));
 
 /** A garment's cut-out: its colour texture's alpha at full resolution (shared graph). */
 const clothCutout = once(() => inputTexture("cloth.map", white, undefined, 0).a);
 
 /** Hair's colour, recoloured to its tint (shared graph). */
-const hairColor = once(() => tinted(input("hair.color", new THREE.Color(1, 1, 1)), input("hair.mix", 0), input("hair.meanLum", 0.2), 2.5));
+const hairColor = once(() => tinted(input("hair.color", new THREE.Color(1, 1, 1)), input("hair.mix", 0), input("hair.meanLum", 0.2)));
 
 /** Garment (see createClothMaterial), recolourable through `userData.tint`. */
 export function createNodeClothMaterial(
@@ -535,16 +539,16 @@ export function nodeMeshMaterial(data: MeshData, actor: ThreeActor): THREE.Mater
     case "eye":
       return createNodeEyeMaterial(tex("color", true), actor);
     case "teeth":
-      return createNodeWetMaterial(new THREE.Color(0.92, 0.89, 0.8), 0.25);
+      return createNodeWetMaterial(srgb(0.92, 0.89, 0.8), 0.25);
     case "mouth":
-      return createNodeWetMaterial(new THREE.Color(0.75, 0.38, 0.38), 0.4);
+      return createNodeWetMaterial(srgb(0.75, 0.38, 0.38), 0.4);
     case "hair":
       if (def.textures?.color) {
         const mat = createNodeHairMaterial(tex("color", true), def.tags?.includes("brows"));
         mat.userData.meanColor = new THREE.Color().setRGB(...(def.material.color ?? [0.3, 0.2, 0.1]), THREE.SRGBColorSpace);
         return mat;
       }
-      return createNodeLashMaterial(new THREE.Color(0.05, 0.035, 0.03));
+      return createNodeLashMaterial(new THREE.Color(0.05, 0.035, 0.03)); // linear: near black either way
     case "cloth": {
       const fabric = def.tags?.find((t) => t.startsWith("fabric:"))?.slice(7) ?? "smooth";
       const layer = garmentLayer(def);
