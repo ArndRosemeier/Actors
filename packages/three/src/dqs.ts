@@ -28,8 +28,11 @@ vec4 dqsQuat( mat3 m ) {
 vec4 dqsMul( vec4 a, vec4 b ) {
   return vec4( a.w * b.xyz + b.w * a.xyz + cross( a.xyz, b.xyz ), a.w * b.w - dot( a.xyz, b.xyz ) );
 }
-void dqsFromMatrix( mat4 m, out vec4 r, out vec4 d ) {
-  r = normalize( dqsQuat( mat3( m ) ) );
+void dqsFromMatrix( mat4 m, out vec4 r, out vec4 d, out float k ) {
+  // A bone matrix carries the scale of the actor's parents (a giant grown by its group): uniform, taken
+  // out before the rotation is read and put back on the blended result.
+  k = length( m[0].xyz );
+  r = normalize( dqsQuat( mat3( m ) / k ) );
   d = 0.5 * dqsMul( vec4( m[3].xyz, 0.0 ), r );
 }
 vec3 dqsRotate( vec4 r, vec3 v ) {
@@ -40,10 +43,12 @@ vec3 dqsRotate( vec4 r, vec3 v ) {
 const DQS_BLEND = /* glsl */ `
 #ifdef USE_SKINNING
   vec4 dqR0, dqD0, dqR1, dqD1, dqR2, dqD2, dqR3, dqD3;
-  dqsFromMatrix( boneMatX, dqR0, dqD0 );
-  dqsFromMatrix( boneMatY, dqR1, dqD1 );
-  dqsFromMatrix( boneMatZ, dqR2, dqD2 );
-  dqsFromMatrix( boneMatW, dqR3, dqD3 );
+  float dqK0, dqK1, dqK2, dqK3;
+  dqsFromMatrix( boneMatX, dqR0, dqD0, dqK0 );
+  dqsFromMatrix( boneMatY, dqR1, dqD1, dqK1 );
+  dqsFromMatrix( boneMatZ, dqR2, dqD2, dqK2 );
+  dqsFromMatrix( boneMatW, dqR3, dqD3, dqK3 );
+  float dqK = skinWeight.x * dqK0 + skinWeight.y * dqK1 + skinWeight.z * dqK2 + skinWeight.w * dqK3;
   // Keep all rotations in the same hemisphere as the first before blending.
   float dqS1 = dot( dqR0, dqR1 ) < 0.0 ? -1.0 : 1.0;
   float dqS2 = dot( dqR0, dqR2 ) < 0.0 ? -1.0 : 1.0;
@@ -59,9 +64,9 @@ const DQS_BLEND = /* glsl */ `
 
 const DQS_NORMAL = /* glsl */ `
 #ifdef USE_SKINNING
-  objectNormal = ( bindMatrixInverse * vec4( dqsRotate( dqR, ( bindMatrix * vec4( objectNormal, 0.0 ) ).xyz ), 0.0 ) ).xyz;
+  objectNormal = ( bindMatrixInverse * vec4( dqK * dqsRotate( dqR, ( bindMatrix * vec4( objectNormal, 0.0 ) ).xyz ), 0.0 ) ).xyz;
   #ifdef USE_TANGENT
-    objectTangent = ( bindMatrixInverse * vec4( dqsRotate( dqR, ( bindMatrix * vec4( objectTangent, 0.0 ) ).xyz ), 0.0 ) ).xyz;
+    objectTangent = ( bindMatrixInverse * vec4( dqK * dqsRotate( dqR, ( bindMatrix * vec4( objectTangent, 0.0 ) ).xyz ), 0.0 ) ).xyz;
   #endif
 #endif
 `;
@@ -69,7 +74,7 @@ const DQS_NORMAL = /* glsl */ `
 const DQS_POSITION = /* glsl */ `
 #ifdef USE_SKINNING
   vec3 dqP = ( bindMatrix * vec4( transformed, 1.0 ) ).xyz;
-  transformed = ( bindMatrixInverse * vec4( dqsRotate( dqR, dqP ) + dqT, 1.0 ) ).xyz;
+  transformed = ( bindMatrixInverse * vec4( dqK * dqsRotate( dqR, dqP ) + dqT, 1.0 ) ).xyz;
 #endif
 `;
 

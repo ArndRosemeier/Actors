@@ -318,8 +318,8 @@ function tinted(tint: N, mixNode: N, meanLum: N): N {
   const base = materialColor;
   const g = dot(base.rgb, vec3(0.2126, 0.7152, 0.0722)).div(meanLum);
   // A soft knee above 1 (as tintGain in ../materials.ts): bright patches of a dark, high-contrast texture
-  // stay lighter than the tint instead of turning white (gain below 2).
-  const gain = select(g.greaterThan(1), g.sub(1).div(g).add(1), g);
+  // stay lighter than the tint instead of turning white (gain below 1.5).
+  const gain = select(g.greaterThan(1), g.sub(1).mul(0.5).div(g.sub(0.5)).add(1), g);
   return vec4(mix(base.rgb, tint.mul(gain), mixNode), base.a);
 }
 
