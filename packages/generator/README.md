@@ -123,6 +123,24 @@ new CharacterEditor(character, panel, {
 });
 ```
 
+### Themes: only what fits a game's setting
+
+Garments, hairstyles and races carry theme tags (`themes` on each catalog choice; the tables are `GARMENT_THEMES`, `HAIR_THEMES` and `RACE_THEMES`). A game passes the themes it allows, and the character, its editor and `randomize` then offer only what fits:
+
+```ts
+const character = await Character.load({
+  pack, renderer,
+  themes: { themes: ["medieval", "nordic", "fantasy"], without: ["real-faith"] },
+});
+```
+
+* Themes (`THEMES`): `modern`, `vintage`, `future`, `antique`, `medieval`, `nordic`, `eastern`, `fantasy`. An option fits when it shares one of the game's themes; untagged options (underwear, plain socks, most hairstyles, humans) fit every game.
+* Flags (`THEME_FLAGS`) are left out whatever the themes when listed in `without`: `real-faith` marks real-world religious symbols (the templar knight helmet, the Santa hat).
+* Outfit presets stay when all their garments do. Robots come with `future`, skeletons with `fantasy`; other races than humans are `fantasy`.
+* `filterCatalog(catalog, filter)` and `fitsThemes(tags, filter)` do the same for a catalog you hold; `catalog` (above) narrows further after the themes.
+* `randomize({ race: "any" })` picks one of the races the catalog offers.
+* The viewer takes `?themes=medieval,fantasy&without=real-faith`.
+
 Restyle the panel with its CSS variables (`--ae-panel`, `--ae-text`, `--ae-muted`, `--ae-accent`, `--ae-border`) on `.actors-editor`.
 
 ## three's WebGPURenderer
