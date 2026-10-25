@@ -83,3 +83,34 @@ describe("scene meshes on demand", () => {
     expect(actor.meshes.has("hat")).toBe(false);
   });
 });
+
+describe("meshes another actor loaded", () => {
+  it("lists the meshes an actor has no scene mesh for", async () => {
+    const rt = await tinyPack();
+    const actor = new ThreeActor(rt);
+    expect(actor.newMeshes(rt.meshes)).toEqual([]);
+    // As if another actor sharing the runtime had loaded a garment after this one was made.
+    const cloak = { ...rt.meshes[1], def: { ...rt.meshes[1].def, name: "cloak" } };
+    expect(actor.newMeshes([...rt.meshes, cloak])).toEqual([cloak]);
+    actor.addMeshes([cloak]);
+    expect(actor.newMeshes([cloak])).toEqual([]);
+  });
+});
+
+describe("reversed depth", () => {
+  it("flips garment polygon offsets once", async () => {
+    const shown = async (reversedDepth: boolean) => {
+      const rt = await tinyPack();
+      const actor = new ThreeActor(rt, undefined, { reversedDepth });
+      actor.setVisible("shirt", true);
+      actor.flushVisibility();
+      actor.applyShape(rt.evaluateLoaded(new Map(), undefined, undefined, actor.neededMeshes()));
+      return actor.meshes.get("shirt")!.material as import("three").Material;
+    };
+    const plain = await shown(false), reversed = await shown(true);
+    expect(plain.polygonOffset).toBe(true);
+    expect(plain.polygonOffsetUnits).toBeLessThan(0);
+    expect(reversed.polygonOffsetUnits).toBe(-plain.polygonOffsetUnits);
+    expect(reversed.polygonOffsetFactor).toBe(-plain.polygonOffsetFactor);
+  });
+});

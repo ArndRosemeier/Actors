@@ -90,7 +90,9 @@ export class Character {
     narrow?: (catalog: CharacterCatalog) => CharacterCatalog,
     screenTextures?: ScreenTexturePool | null,
   ) {
-    this.actor = new ThreeActor(human.runtime, materials, { screenTextures });
+    // three's WebGPURenderer can draw with a reversed depth buffer (garment offsets then flip).
+    const reversedDepth = (renderer as { reversedDepthBuffer?: boolean } | null)?.reversedDepthBuffer === true;
+    this.actor = new ThreeActor(human.runtime, materials, { screenTextures, reversedDepth });
     const all = buildCatalog(human, Object.keys(IRIS_PRESETS));
     this.catalog = narrow ? narrow(all) : all;
     this.cfg = defaultConfig(this.catalog);
@@ -421,7 +423,11 @@ export class Character {
     // Garments and hairstyles with their own data file are loaded the first time they are worn.
     const lazy = new Set(h.runtime.manifest.meshes.filter((m) => m.blob).map((m) => m.name));
     // (Also those the main thread already has: this character's worker may not, when characters share a pack through several workers.)
-    const added = await h.loadMeshes([...c.outfit, c.hair ?? ""].filter((g) => lazy.has(g)));
+    const worn = new Set([...c.outfit, c.hair ?? ""].filter((g) => lazy.has(g)));
+    await h.loadMeshes([...worn]);
+    // Every worn mesh this actor has no scene mesh for yet: also those another character sharing the
+    // pack loaded first (loadMeshes only returns what this call loaded).
+    const added = this.actor.newMeshes(h.runtime.meshes.filter((m) => worn.has(m.def.name)));
     if (added.length) {
       this.actor.addMeshes(added);
       this.applied.shape = ""; // the next shape must include the new garments
