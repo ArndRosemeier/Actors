@@ -5,7 +5,7 @@ import type { MeshDef } from "@actors/core";
  * jeans, by thickness) above it, fitted garments (proxies) on top. Tucked-in
  * tops (tag "tucked") stay with the body-cut layer, under the trousers.
  * A "layer:<n>" tag puts a fitted garment at 2 + n, for outer garments whose
- * distance from the body isn't their inflate (armour, cloaks).
+ * distance from the body isn't their inflate (armour, mantles).
  */
 export function garmentLayer(def: MeshDef): number {
   if (def.role === "body") return 0;
