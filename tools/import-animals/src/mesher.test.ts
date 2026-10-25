@@ -28,6 +28,14 @@ describe("surface nets", () => {
     }
     expect(Math.abs(vol)).toBeCloseTo((4 / 3) * Math.PI * r ** 3, 3);
   });
+
+  it("gives the same mesh with a narrow band (coarse pass first)", () => {
+    const f = (p: [number, number, number]) => Math.max(Math.hypot(p[0], p[1], p[2]) - 0.1, -(Math.hypot(p[0] - 0.08, p[1], p[2]) - 0.04));
+    const full = surfaceNets(f, [-0.15, -0.15, -0.15], [0.15, 0.15, 0.15], 0.005);
+    const band = surfaceNets(f, [-0.15, -0.15, -0.15], [0.15, 0.15, 0.15], 0.005, 4);
+    expect(band.quads.length).toBe(full.quads.length);
+    expect(band.positions.length).toBe(full.positions.length);
+  });
 });
 
 describe("primitives", () => {

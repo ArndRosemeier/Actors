@@ -12,16 +12,48 @@ export interface QuadMesh {
   quads: Uint32Array;
 }
 
-export function surfaceNets(f: (p: Vec3) => number, min: Vec3, max: Vec3, cell: number): QuadMesh {
+/**
+ * `band` > 1 samples a grid `band` times coarser first and evaluates f at the
+ * fine points only near the surface (where the coarse values are within two
+ * coarse cells of it); elsewhere only the sign matters, and the coarse value
+ * has the right one. Much faster for large bodies.
+ */
+export function surfaceNets(f: (p: Vec3) => number, min: Vec3, max: Vec3, cell: number, band = 1): QuadMesh {
   const nx = Math.ceil((max[0] - min[0]) / cell) + 1;
   const ny = Math.ceil((max[1] - min[1]) / cell) + 1;
   const nz = Math.ceil((max[2] - min[2]) / cell) + 1;
   const idx = (x: number, y: number, z: number) => (z * ny + y) * nx + x;
   const values = new Float32Array(nx * ny * nz);
   const p: Vec3 = [0, 0, 0];
+  let coarse: ((x: number, y: number, z: number) => number) | null = null;
+  if (band > 1) {
+    const cx = Math.ceil((nx - 1) / band) + 1, cy = Math.ceil((ny - 1) / band) + 1, cz = Math.ceil((nz - 1) / band) + 1;
+    const cv = new Float32Array(cx * cy * cz);
+    for (let z = 0; z < cz; z++)
+      for (let y = 0; y < cy; y++)
+        for (let x = 0; x < cx; x++) {
+          p[0] = min[0] + x * band * cell;
+          p[1] = min[1] + y * band * cell;
+          p[2] = min[2] + z * band * cell;
+          cv[(z * cy + y) * cx + x] = f(p);
+        }
+    // The coarse value nearest to fine point (x, y, z) less how far that point may be from it.
+    coarse = (x, y, z) => {
+      const i = Math.round(x / band), j = Math.round(y / band), k = Math.round(z / band);
+      return cv[(Math.min(k, cz - 1) * cy + Math.min(j, cy - 1)) * cx + Math.min(i, cx - 1)];
+    };
+  }
+  const margin = band * cell * 1.8;
   for (let z = 0; z < nz; z++)
     for (let y = 0; y < ny; y++)
       for (let x = 0; x < nx; x++) {
+        if (coarse) {
+          const c = coarse(x, y, z);
+          if (Math.abs(c) > margin) {
+            values[idx(x, y, z)] = c;
+            continue;
+          }
+        }
         p[0] = min[0] + x * cell;
         p[1] = min[1] + y * cell;
         p[2] = min[2] + z * cell;

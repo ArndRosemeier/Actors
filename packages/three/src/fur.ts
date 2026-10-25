@@ -65,6 +65,13 @@ export interface FurCoat {
   patches?: number;
   /** 0: round pupil .. 1: narrow vertical slit. */
   pupil?: number;
+  // Horse markings (packs whose coatE.z marks the mane and tail hair; see tools/import-animals/src/horsecoat.ts).
+  /** Mane and tail in the `tan` colour. */
+  maneTail?: number;
+  /** Lower legs in the `second` colour (black points of bays and buckskins). */
+  darkLegs?: number;
+  /** Dapples: round patches of lighter coat (`white`). */
+  dapples?: number;
   /** Nose leather colour without nostril detail (default near black; `noseColor` draws the detailed nose instead). */
   nose?: RGB;
   /** Strand spacing in metres (default 1.9 mm times `grain`). */
@@ -114,6 +121,8 @@ export interface FurUniforms {
   uMarkG: THREE.IUniform<THREE.Vector4>;
   /** cat: tabby, tortoiseshell patches, inner ear, pupil slit */
   uMarkH: THREE.IUniform<THREE.Vector4>;
+  /** horse: mane and tail, dark legs, dapples, face marking */
+  uMarkI: THREE.IUniform<THREE.Vector4>;
   /** Plain nose leather colour (linear). */
   uLeather: THREE.IUniform<THREE.Color>;
   /** length (m), fluff, strand spacing (m), actor scale */
@@ -138,6 +147,7 @@ export function createFurUniforms(): FurUniforms {
     uMarkF: { value: new THREE.Vector4(0, 1, 0, 0) },
     uMarkG: { value: new THREE.Vector4() },
     uMarkH: { value: new THREE.Vector4() },
+    uMarkI: { value: new THREE.Vector4() },
     uLeather: { value: new THREE.Color(0.025, 0.02, 0.02) },
     uFur: { value: new THREE.Vector4(0.012, 0.2, 0.0019, 1) },
     uIris: { value: new THREE.Color().setRGB(0.32, 0.18, 0.06, THREE.SRGBColorSpace) },
@@ -151,7 +161,10 @@ export function setFurCoat(u: FurUniforms, coat: FurCoat, scale = 1): void {
   u.uTan.value.setRGB(...coat.tan, THREE.SRGBColorSpace);
   u.uWhite.value.setRGB(...coat.white, THREE.SRGBColorSpace);
   u.uMarkA.value.set(coat.saddle, coat.mask, coat.points, coat.belly);
-  u.uMarkB.value.set(coat.bib, coat.socks, coat.blaze, coat.tailTip);
+  // Horse packs draw their face marking themselves (a stripe down the face, not the dog's blaze).
+  const horse = coat.maneTail !== undefined;
+  u.uMarkB.value.set(coat.bib, coat.socks, horse ? 0 : coat.blaze, coat.tailTip);
+  u.uMarkI.value.set(coat.maneTail ?? 0, coat.darkLegs ?? 0, coat.dapples ?? 0, horse ? coat.blaze : 0);
   u.uMarkC.value.set(coat.spots, coat.spotSize, coat.shade, coat.glands ?? 0);
   u.uMarkD.value.set(coat.paleMask ?? 0, coat.agouti ?? 0, coat.tanLegs ?? 0, 0);
   // Deer packs keep their eye ring in another channel (coatB.z, where dog packs have the brow).
@@ -209,7 +222,7 @@ varying vec4 vCoatA; varying vec4 vCoatB; varying vec4 vCoatC; varying vec4 vCoa
 varying vec3 vCoatPos; varying vec3 vFlow; varying float vShell;
 uniform vec4 uNose;
 uniform vec3 uBase; uniform vec3 uSecond; uniform vec3 uTan; uniform vec3 uWhite;
-uniform vec4 uMarkA; uniform vec4 uMarkB; uniform vec4 uMarkC; uniform vec4 uMarkD; uniform vec4 uMarkE; uniform vec4 uMarkF; uniform vec4 uMarkG; uniform vec4 uMarkH; uniform vec4 uFur; uniform vec3 uLeather;
+uniform vec4 uMarkA; uniform vec4 uMarkB; uniform vec4 uMarkC; uniform vec4 uMarkD; uniform vec4 uMarkE; uniform vec4 uMarkF; uniform vec4 uMarkG; uniform vec4 uMarkH; uniform vec4 uMarkI; uniform vec4 uFur; uniform vec3 uLeather;
 uniform float uGrain;
 vec3 furHash( vec3 p ) {
   p = fract( p * vec3( 0.1031, 0.1030, 0.0973 ) );
@@ -301,6 +314,22 @@ vec3 deerCoat( vec3 col, float n ) {
   col = mix( col, uSecond * 0.6, clamp( smoothstep( 0.25, 0.6, vCoatD.w + n * 0.2 ) + smoothstep( 0.3, 0.6, vCoatE.w ), 0.0, 1.0 ) * uMarkG.x );
   return col;
 }
+/**
+ * Horse colours over the coat (all amounts 0 for other animals): mane and tail
+ * in their own colour, black points on the lower legs, and dapples. On horse
+ * packs coatE.z is the long hair (mane, forelock, tail), coatD.w the midline of the face.
+ */
+vec3 horseCoat( vec3 col, float n ) {
+  float hair = smoothstep( 0.3, 0.7, vCoatE.z );
+  // Dapples: rounded patches of lighter coat on the body, fading on the head and lower legs.
+  float dp = furSpots( vCoatPos / 0.08 + n * 0.7 ) * ( 1.0 - 0.7 * vCoatA.y ) * smoothstep( 0.7, 0.95, vCoatA.x ) * ( 1.0 - hair );
+  col = furMixP( col, uWhite, dp * uMarkI.z * 0.8 );
+  col = mix( col, uSecond, smoothstep( 0.97, 0.78, vCoatA.x + n * 0.12 ) * uMarkI.y );
+  // Mane and tail hair: streaky, lighter and darker locks.
+  vec3 mane = uTan * ( 0.75 + 0.5 * furStreak( vCoatPos * 0.6 + 2.1 ) );
+  col = mix( col, mane, hair * uMarkI.x );
+  return col;
+}
 /** Dark band of a stripe pattern: s in stripe periods, dark around whole numbers, about a third of the period wide. */
 float furStripe( float s, float width ) {
   float d = abs( fract( s + 0.5 ) - 0.5 );
@@ -361,6 +390,7 @@ vec3 furCoat() {
   // Tan lower legs.
   col = mix( col, uTan, smoothstep( 1.0, 0.7, legT + n * 0.15 ) * uMarkD.z );
   col = deerCoat( col, n );
+  col = horseCoat( col, n );
   // Cats: tortoiseshell patches (tan), then tabby stripes (darker red inside the patches), light inner ears.
   if ( uMarkH.x + uMarkH.y + uMarkH.z > 0.0 ) {
     float tortie = smoothstep( 0.6, 0.68, furFbm( p * 7.0 + 5.3 ) + n * 0.15 + 0.06 * vCoatD.x ) * uMarkH.y * ( 1.0 - headW * 0.5 ) * ( 1.0 - vCoatD.y );
@@ -377,6 +407,8 @@ vec3 furCoat() {
   white = max( white, ( 1.0 - smoothstep( uMarkB.y * 0.92 - 0.1, uMarkB.y * 0.92, legT + n * 0.1 ) ) * step( 0.01, uMarkB.y ) );
   white = max( white, smoothstep( 0.25, 0.5, blaze * 1.4 * uMarkB.z + muzzleT * uMarkB.z * 0.6 * step( 0.5, uMarkB.z ) + n * 0.1 ) * step( 0.01, uMarkB.z ) );
   white = max( white, smoothstep( 1.0 - 0.3 * uMarkB.w, 1.0 - 0.24 * uMarkB.w, tailT ) * step( 0.01, uMarkB.w ) );
+  // Horse face marking: wider down the face's midline as the amount grows (strip, blaze, bald face).
+  white = max( white, smoothstep( 1.0 - uMarkI.w, 1.06 - uMarkI.w, vCoatD.w + n * 0.08 ) * step( 0.01, uMarkI.w ) * ( 1.0 - smoothstep( 0.3, 0.6, vCoatE.z ) ) );
   col = mix( col, uWhite, white );
   // Frosted (grizzled) coats: salt-and-pepper flecks of light and dark hair tips, big enough to read from afar.
   {
@@ -491,8 +523,9 @@ function patchFur<T extends THREE.Material>(material: T, shell: boolean, uniform
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>\n${GLSL_FRAG_PARS}`)
       .replace("#include <color_fragment>", GLSL_FRAG_MAIN)
-      // No sheen on bare skin (nose, lips, pads); wet nose and lips.
-      .replace("#include <lights_physical_fragment>", "#include <lights_physical_fragment>\n#ifdef USE_SHEEN\nmaterial.sheenColor *= 1.0 - furBare;\n#endif\nmaterial.roughness = mix( material.roughness, 0.45, vCoatC.x );")
+      // No sheen on bare skin (nose, lips, pads); wet nose and lips. The sheen takes the coat colour, so dark coats
+      // (a bay horse) don't turn pale where the shells thin out.
+      .replace("#include <lights_physical_fragment>", "#include <lights_physical_fragment>\n#ifdef USE_SHEEN\nmaterial.sheenColor *= ( 1.0 - furBare ) * clamp( diffuseColor.rgb * 2.5, 0.0, 1.0 );\n#endif\nmaterial.roughness = mix( material.roughness, 0.45, vCoatC.x );")
       // Hair scatters light instead of mirroring it: damp the specular except on the nose.
       .replace("#include <aomap_fragment>", "#include <aomap_fragment>\nreflectedLight.directSpecular *= mix( 0.15, 1.0, vCoatC.x );\nreflectedLight.indirectSpecular *= mix( 0.15, 1.0, vCoatC.x );");
   };
@@ -553,6 +586,12 @@ export function createAnimalEyeMaterial(uniforms: FurUniforms): THREE.MeshPhysic
   return useDualQuaternionSkinning(mat);
 }
 
+/** Tack (saddle, bridle, stirrups): leather, or steel for `metal`. Colours are linear. */
+export function createTackMaterial(color: [number, number, number] = [0.2, 0.1, 0.05], roughness = 0.5, metal = false): THREE.MeshStandardMaterial {
+  const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(...color), roughness, metalness: metal ? 0.9 : 0 });
+  return useDualQuaternionSkinning(mat);
+}
+
 /** Whiskers: thin, slightly glossy hairs. */
 export function createWhiskerMaterial(color: [number, number, number] = [0.86, 0.84, 0.8]): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(...color, THREE.SRGBColorSpace), roughness: 0.35 });
@@ -571,6 +610,7 @@ export function animalMaterials(uniforms: FurUniforms): ActorMaterialKit {
       if (kind === "fur") return createFurMaterial(uniforms);
       if (kind === "eye" && data.def.tags?.includes("animal")) return createAnimalEyeMaterial(uniforms);
       if (data.def.tags?.includes("whiskers")) return createWhiskerMaterial(data.def.material.color);
+      if (data.def.tags?.includes("tack") && kind === "other") return createTackMaterial(data.def.material.color, data.def.material.roughness, data.def.tags.includes("metal"));
       return webglMaterials.mesh(data, actor);
     },
     depth(material, clip) {

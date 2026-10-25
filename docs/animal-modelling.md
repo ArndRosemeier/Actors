@@ -126,3 +126,15 @@ Tooling traps on this machine: `pkill -f vite` and `pgrep -f` match the shell ru
 - Keep the per-vertex coat channels generic (regions, back, underside, masks). Species-specific patterns (stripes, rosettes) can be shader functions driven by `coatPos` and the flow.
 - Small animals need shorter fur and a finer strand spacing (`uFur.z`), or strands become blobs.
 - Check every existing preset or animation after a stance change. A screenshot sheet from `apps/viewer/scripts/animals.mjs` is the quickest check.
+
+## The horse (ridable)
+
+The horse (`horse.ts`, `horsecoat.ts`, `horsemorphs.ts`, `tack.ts` in `tools/import-animals/src`) is a bay Thoroughbred-type gelding of 1.60 m at the withers, modelled on one side-on photo supplied by Arnd, on the skeleton and 13 clips of Mesh2Motion's CC0 horse (`horse-animations.glb`; its low-poly mesh is not used). Quaternius' horse was the first choice, but its Google Drive download was over quota; Mesh2Motion's rig also has trot and turn clips.
+
+- **Limbs as horizontal slices.** Ellipsoids for thigh, hams and stifle bulged out sideways and left shelves where they met. A horse's quarters, gaskin, arm and forearm are now lofts of horizontal slices (`slices()`): each row gives the photo's front and back edge at one height, plus the slice's distance from the midline and its half width from anatomy. The side view then matches the photo by construction, and the widths are checked in cross-sections.
+- **Check widths, not only the side view.** A scratch script (`scratch/sections.ts`) draws cross-sections at photo columns and a top view. Reference half widths: shoulders about 0.2 m, barrel 0.27 m, flank 0.23 m, quarters at the stifle 0.26 m.
+- **Flat loft caps make shelves.** Where one loft ends inside another of the same size, the cap shows. Let one loft run on through the joint (the gaskin runs through the hock) or overlap two lofts by a couple of rows.
+- **Weights follow the part's bones.** A part's weight is split between its bones by inverse distance, so the quarters (thigh bones) and the gaskin (tibia, femur, hock) are separate parts that overlap by a few rows, blended with a smooth union.
+- **Hooves are slices too**: a sloping toe wall, upright heels and a flat sole carved at the ground. Capsules looked like blobs.
+- **Coat:** the dog's lighter underside (`shade`) and pale inner ear turned a bay's belly, inner legs and ears whitish, so horse presets set both to 0. Mane and tail colour, black points, dapples and the face marking are a `horseCoat()` GLSL function driven by `uMarkI`.
+- **Riding:** the importer appends a `saddle` bone (no glTF node, so clips never move it on its own; it keeps its bind relation to `spine_2`) whose head is the lowest point of the seat. `Mount` in `@actors/three` puts a human's hips there every frame, and `RIDE` in `@actors/human` is the seated pose. Tack (saddlecloth, saddle, stirrups, bridle, bit) is generated as layers over the skin SDF and ships as optional meshes.

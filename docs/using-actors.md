@@ -128,6 +128,21 @@ pool is supplied; `shareWith` inherits its character's pool unless overridden.
 The pool is renderer-independent and also works with the regular WebGL kit.
 Emissive glTF snapshots and the existing flat-colour crowd LOD are unchanged.
 
+## Riding (horses)
+
+The horse pack (`animals.html?animal=horse` in the viewer) has a `saddle` bone where a rider sits and optional tack meshes (`saddlecloth`, `saddle`, `stirrups`, `bridle`, `bit`, tagged `tack`), hidden until you show them. `Mount` (from `@actors/three`) keeps a human on the saddle through every gait, and `RIDE` (from `@actors/human`) is the seated pose:
+
+```ts
+import { Mount } from "@actors/three";
+import { RIDE } from "@actors/human";
+
+for (const name of ["saddlecloth", "saddle", "stirrups", "bridle", "bit"]) horse.setVisible(name, true);
+const mount = new Mount(horse, character.actor, { pose: RIDE });
+horse.play(await runtime.loadClip("trot")); // runtime: the horse pack's runtime
+// every frame, after both actors' update(dt):
+mount.update();
+```
+
 ## Licences and credits
 
 Code is MIT. Most assets are CC0, but some garments and hairstyles are **CC-BY**: if your app shows a character wearing one, credit its author. `character.catalog` carries the credit line for those choices (`credit`), and `NOTICE-ASSETS.md` (also inside each package) lists them all. The CMU motion capture data may be used freely but not resold as data.

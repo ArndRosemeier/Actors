@@ -56,6 +56,7 @@ export * from "./morphs";
 export * from "./crowd";
 export * from "./fur";
 export * from "./drone";
+export * from "./mount";
 export { screenPixels, SCREEN_TEXTURE_SIZE, ScreenTexturePool } from "./screens";
 
 export interface MaterialFactory {
