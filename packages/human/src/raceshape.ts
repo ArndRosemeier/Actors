@@ -122,7 +122,11 @@ export function raceBareTargetWeights(race: RaceSettings, gender = 0.5): Map<str
   const get = (s: RaceStyle, k: string) => ((s.face as Record<string, number>)[k] ?? (s.body as Record<string, number>)[k] ?? 0);
   for (const k of keys) features[k] = lerp(get(A, k), get(B, k), mix);
   const y = sanitizeRace(race).youth ?? 0;
-  if (y) for (const [k, v] of Object.entries({ ...YOUTH.face, ...YOUTH.body })) features[k] = (features[k] ?? 0) + v * y;
+  // The face turns young early (a ten-year-old already has most of a child's face); the build follows the size.
+  if (y) {
+    for (const [k, v] of Object.entries(YOUTH.face)) features[k] = (features[k] ?? 0) + v * Math.min(1, 1.5 * y);
+    for (const [k, v] of Object.entries(YOUTH.body)) features[k] = (features[k] ?? 0) + v * y;
+  }
   featureWeights(features, out, gender);
   netPairs(out);
   return out;

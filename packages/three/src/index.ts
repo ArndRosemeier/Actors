@@ -229,6 +229,34 @@ const MAX_LIFT = 0.04;
 /** Fitted garments under another count only this far out from the body (m): a flaring hem lifts nothing. */
 const MAX_REACH = 0.05;
 
+/**
+ * Spreads a garment's lift over its body anchors: each anchor takes the most any of its vertices
+ * needs, and each vertex the weighted mean of its anchors. A garment with an inside (a lined skirt,
+ * a hem turned in) lifts its inside and outside together, so the lining never ends up outside.
+ */
+function evenLift(lift: Float32Array, refs: Uint32Array, weights: Float32Array, baseCount: number): Float32Array | null {
+  const need = new Float32Array(baseCount);
+  let any = false;
+  for (let i = 0; i < lift.length; i++) {
+    if (!lift[i]) continue;
+    any = true;
+    for (let k = 0; k < 3; k++) if (weights[i * 3 + k] > 0) need[refs[i * 3 + k]] = Math.max(need[refs[i * 3 + k]], lift[i]);
+  }
+  if (!any) return null;
+  const out = new Float32Array(lift.length);
+  for (let i = 0; i < lift.length; i++) {
+    let sum = 0, wsum = 0;
+    for (let k = 0; k < 3; k++) {
+      const w = weights[i * 3 + k];
+      if (w <= 0) continue;
+      sum += w * need[refs[i * 3 + k]];
+      wsum += w;
+    }
+    out[i] = wsum > 0 ? Math.max(lift[i], sum / wsum) : lift[i];
+  }
+  return out;
+}
+
 export function reverseOffsets(material: THREE.Material | THREE.Material[]): void {
   for (const m of Array.isArray(material) ? material : [material]) {
     if (!m.polygonOffset || m.userData.offsetReversed) continue;
@@ -905,6 +933,7 @@ export class ThreeActor {
         }
         if (best > -Infinity) lift[i] = Math.min(MAX_LIFT, Math.max(0, best + 0.003 - own));
       }
+      lift = evenLift(lift, refs, weights, this.runtime.manifest.vertexCount);
     }
     this.lifts.set(data.def.name, lift);
     return lift;
@@ -1137,10 +1166,14 @@ export class ThreeActor {
       const mesh = this.meshes.get(def.name);
       if (!mesh) continue;
       const isGarment = def.role === "garment" && def.source.kind === "base";
-      if (def.role !== "body" && !isGarment) {
+      // Fitted garments under a fitted one (trousers in boots, a chemise under a gown) lose the
+      // triangles it covers, as body-cut ones do: else they poke through where the two cross.
+      const fitted = def.role === "garment" && def.source.kind === "proxy" && !!data.dominant;
+      if (def.role !== "body" && !isGarment && !fitted) {
         this.useIndices(mesh, data, level);
         continue;
       }
+      if (fitted && !this.shown.has(def.name)) continue;
       // Hidden garments keep their last index list; it is rebuilt when they are shown.
       if (isGarment && !this.shown.has(def.name)) continue;
       const layer = garmentLayer(def);
@@ -1167,7 +1200,8 @@ export class ThreeActor {
         out[n++] = indices[t + 1];
         out[n++] = indices[t + 2];
       }
-      mesh.geometry.setIndex(new THREE.BufferAttribute(out.slice(0, n), 1));
+      if (n === indices.length) this.useIndices(mesh, data, level); // nothing covered: the shared list
+      else mesh.geometry.setIndex(new THREE.BufferAttribute(out.slice(0, n), 1));
     }
     if (this.lods[level].merge) {
       // Merged into the crowd mesh: hide the parts now, rebuild the merged mesh before the next frame.

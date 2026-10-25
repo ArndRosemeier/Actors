@@ -77,7 +77,7 @@ export const YOUTH = {
   /** Head scale at youth 1 (not capped by MAX_HEAD_SCALE). */
   head: 1.34,
   bones: { legs: { len: 0.9 }, arms: { len: 0.92 }, hands: { len: 0.9, girth: 0.9 }, feet: { len: 0.92 }, spine: { girth: 0.9 }, neck: { len: 0.82, girth: 0.86 }, clavicles: { len: 0.86 }, pelvis: { girth: 0.86 } } as Partial<Record<BoneGroup, BoneScale>>,
-  face: { eyeSize: 0.7, noseSize: -0.7, noseBridge: -0.5, jaw: -0.7, chin: -0.4, browRidge: -0.7, cheekbones: -0.4, lipFullness: 0.15, foreheadSlope: -0.3 } as Partial<FaceFeatures>,
+  face: { eyeSize: 1, noseSize: -0.7, noseBridge: -0.5, jaw: -0.7, chin: -0.4, browRidge: -0.7, cheekbones: -0.4, lipFullness: 0.15, foreheadSlope: -0.3 } as Partial<FaceFeatures>,
   body: { shoulders: -0.7, chest: -0.7, waist: -0.3, hips: -0.6, neck: -0.5, hands: -0.3, feet: -0.2 } as Partial<BodyFeatures>,
 };
 
