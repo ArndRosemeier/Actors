@@ -215,6 +215,19 @@ const isRetargetClip = (c: PlayableClip): c is Clip => "def" in c;
  * playback, two GPU morph channels for the face ("expression" and "blink")
  * and slot-based visibility (only one mesh per slot is shown).
  */
+/**
+ * Flips a material's polygon offset for a reversed depth buffer (once per material: kits may share
+ * materials between meshes and actors), so a negative offset still pulls toward the camera.
+ */
+export function reverseOffsets(material: THREE.Material | THREE.Material[]): void {
+  for (const m of Array.isArray(material) ? material : [material]) {
+    if (!m.polygonOffset || m.userData.offsetReversed) continue;
+    m.polygonOffsetFactor = -m.polygonOffsetFactor;
+    m.polygonOffsetUnits = -m.polygonOffsetUnits;
+    m.userData.offsetReversed = true;
+  }
+}
+
 export class ThreeActor {
   readonly object = new THREE.Group();
   readonly meshes = new Map<string, THREE.SkinnedMesh>();
@@ -249,6 +262,11 @@ export class ThreeActor {
   readonly kit: ActorMaterialKit;
   /** Free for the kit (e.g. the WebGL skin compositor). */
   readonly userData: Record<string, unknown> = {};
+  /**
+   * The renderer uses a reversed depth buffer (WebGPURenderer `reversedDepthBuffer`): garment layers
+   * are drawn over the skin by polygon offsets toward the camera, which then have the other sign.
+   */
+  readonly reversedDepth: boolean;
   /** The pack's detail levels (see `setLod`). */
   readonly lods: LodDef[];
   private level = 0;
@@ -261,9 +279,10 @@ export class ThreeActor {
   constructor(
     readonly runtime: ActorRuntime,
     materials: MaterialFactory | ActorMaterialKit = webglMaterials,
-    options: { screenTextures?: ScreenTexturePool | null } = {},
+    options: { screenTextures?: ScreenTexturePool | null; reversedDepth?: boolean } = {},
   ) {
     this.screenPool = options.screenTextures ?? null;
+    this.reversedDepth = options.reversedDepth ?? false;
     this.kit = typeof materials === "function" ? { ...webglMaterials, mesh: materials } : materials;
     this.lods = lodLevels(runtime.manifest);
     this.rendered = runtime.meshes.filter((m) => !m.def.internal);
@@ -290,6 +309,11 @@ export class ThreeActor {
    * `ActorRuntime.loadMeshes`). They start hidden if optional; apply a shape
    * that includes them (re-evaluate) before showing them.
    */
+  /** Those of `list` this actor has no mesh for yet (e.g. loaded into a shared pack by another actor). */
+  newMeshes(list: MeshData[]): MeshData[] {
+    return list.filter((d) => !d.def.internal && !this.data.has(d.def.name));
+  }
+
   addMeshes(list: MeshData[]): void {
     for (const data of list) {
       if (data.def.internal || this.data.has(data.def.name)) continue;
@@ -360,6 +384,7 @@ export class ThreeActor {
         g.morphTargetsRelative = true;
       }
       const mesh = new THREE.SkinnedMesh(g, materials(data, this));
+      if (this.reversedDepth) reverseOffsets(mesh.material);
       mesh.name = data.def.name;
       if (attributeMorphs) mesh.morphTargetInfluences = ThreeActor.MORPHS.map(() => 0);
       else if (morphable) mesh.updateMorphTargets();
