@@ -28,8 +28,7 @@ uniform vec3 uCenter;
 // body's centre line (horizontally), until it sits on the capsule. Moving every
 // vertex the same way (rather than away from each leg) keeps the cloth whole
 // where both legs are close. On a level leg (seated) that direction runs along
-// the thigh, so there the cloth is moved straight off the bone instead (the
-// lap). A soft band lets the cloth tent over the leg.
+// the thigh, so there the cloth is moved up instead, onto the lap. A soft band lets the cloth tent over the leg.
 const PUSH = /* glsl */ `
 {
   vec3 out_ = transformed - uCenter;
@@ -50,11 +49,11 @@ const PUSH = /* glsl */ `
     // Monotonic remap [0, soft] -> [r, soft]: stacked cloth layers keep their order.
     float target = r + ( soft - r ) * ( dist / soft );
     // Walk along n (projected off the axis) until the offset reaches target: |d + s m| = target.
-    // Away from the centre line on an upright leg; straight off the bone on a level one (a seated
-    // lap), where the centre line points along the thigh.
+    // Away from the centre line on an upright leg; up on a level one (a seated lap: the centre line
+    // points along the thigh there, and the cloth, skinned between the legs, belongs on top).
     vec3 side = n - axis * dot( n, axis );
-    vec3 radial = dist > 1e-4 ? d / dist : side;
-    vec3 m = mix( side, radial, smoothstep( 0.3, 0.8, 1.0 - abs( axis.y ) ) );
+    vec3 up = vec3( 0.0, 1.0, 0.0 ) - axis * axis.y;
+    vec3 m = mix( side, up, smoothstep( 0.3, 0.8, 1.0 - abs( axis.y ) ) );
     float ml = length( m );
     if ( ml < 1e-3 ) continue;
     m /= ml;

@@ -401,11 +401,11 @@ const collidersGraph = once(() => {
         If(dist.lessThan(soft), () => {
           // Monotonic remap [0, soft] -> [r, soft]: stacked cloth layers keep their order.
           const target = r.add(soft.sub(r).mul(dist.div(soft)));
-          // Away from the centre line on an upright leg; straight off the bone on a level one (a seated
-          // lap), where the centre line points along the thigh.
+          // Away from the centre line on an upright leg; up on a level one (a seated lap: the centre line
+          // points along the thigh there, and the cloth, skinned between the legs, belongs on top).
           const side = n.sub(axis.mul(dot(n, axis))).toVar();
-          const radial = select(dist.greaterThan(1e-4), d.div(max(dist, 1e-4)), side);
-          const m = mix(side, radial, smoothstep(0.3, 0.8, float(1).sub(abs(axis.y)))).toVar();
+          const up = vec3(0, 1, 0).sub(axis.mul(axis.y));
+          const m = mix(side, up, smoothstep(0.3, 0.8, float(1).sub(abs(axis.y)))).toVar();
           const ml = m.length().toVar();
           If(ml.greaterThanEqual(1e-3), () => {
             m.divAssign(ml);
