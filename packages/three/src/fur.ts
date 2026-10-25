@@ -634,6 +634,11 @@ export interface FurShells {
  * Shells are only drawn at the full detail level.
  */
 export function addFurShells(actor: ThreeActor, uniforms: FurUniforms, shells = 16): FurShells[] {
+  return addFurShellsWith(actor, () => createFurShellMaterial(uniforms), shells);
+}
+
+/** `addFurShells` with a shell material of the caller's (the node kit's, see webgpu/fur.ts). */
+export function addFurShellsWith(actor: ThreeActor, material: () => THREE.Material, shells = 16): FurShells[] {
   const out: FurShells[] = [];
   for (const body of actor.meshes.values()) {
     if (!(body.material as THREE.Material).userData.fur) continue;
@@ -643,7 +648,7 @@ export function addFurShells(actor: ThreeActor, uniforms: FurUniforms, shells = 
     const heights = new Float32Array(shells).map((_, i) => (i + 1) / shells);
     g.setAttribute("furShell", new THREE.InstancedBufferAttribute(heights, 1));
     g.instanceCount = shells;
-    const mesh = new THREE.SkinnedMesh(g, createFurShellMaterial(uniforms));
+    const mesh = new THREE.SkinnedMesh(g, material());
     mesh.name = `${body.name}:fur`;
     mesh.frustumCulled = false;
     mesh.castShadow = false;

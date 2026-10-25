@@ -370,11 +370,28 @@ export class ThreeActor {
         g.setAttribute("skinWeight", new THREE.BufferAttribute(data.weights, 4));
       }
       if (data.clip) g.setAttribute("clipValue", new THREE.BufferAttribute(data.clip.slice(), 1));
-      // Extra per-vertex data from the pack (e.g. fur flow and coat regions), under its own name.
-      for (const [name, attr] of Object.entries(data.attributes ?? {})) g.setAttribute(name, new THREE.BufferAttribute(attr.array, attr.size));
+      // Extra per-vertex data from the pack (e.g. fur flow and coat regions), under its own name, all in
+      // one interleaved buffer (WebGPU draws from at most 8 vertex buffers).
+      const extras = Object.entries(data.attributes ?? {});
+      if (extras.length) {
+        const stride = extras.reduce((s, [, a]) => s + a.size, 0);
+        const all = new Float32Array(n * stride);
+        let at = 0;
+        for (const [, attr] of extras) {
+          for (let v = 0; v < n; v++) for (let c = 0; c < attr.size; c++) all[v * stride + at + c] = attr.array[v * attr.size + c];
+          at += attr.size;
+        }
+        const buffer = new THREE.InterleavedBuffer(all, stride);
+        at = 0;
+        for (const [name, attr] of extras) {
+          g.setAttribute(name, new THREE.InterleavedBufferAttribute(buffer, attr.size, at));
+          at += attr.size;
+        }
+      }
       g.setIndex(new THREE.BufferAttribute(data.indices, 1));
       // Face morph channels only on base-following meshes (body, lashes, teeth...), not garments.
-      const morphable = data.def.source.kind === "base" && data.def.role !== "garment";
+      // (Animals have no faces to animate: no channels, which also keeps a fur body under WebGPU's 16 vertex attributes.)
+      const morphable = data.def.source.kind === "base" && data.def.role !== "garment" && !this.runtime.manifest.extra?.animal;
       const attributeMorphs = morphable && !!this.kit.attributeMorphs;
       if (attributeMorphs) {
         addMorphAttributes(g, n, ThreeActor.MORPHS.length, true);
