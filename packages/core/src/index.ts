@@ -8,6 +8,7 @@ export * from "./runtime";
 export * from "./animation";
 export * from "./retarget";
 export * from "./pose";
+export * from "./hands";
 export * from "./locomotion";
 export * from "./worker";
 export * from "./subdivide";

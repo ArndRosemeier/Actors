@@ -4,6 +4,7 @@ import {
   type ActorShape,
   type AxisClip,
   type Clip,
+  type FingerCurl,
   type FittedSkeleton,
   type Pose,
   type LodDef,
@@ -15,6 +16,7 @@ import {
   bakeAxisClip,
   drawnAt,
   fillMerged,
+  fistCurls,
   lodBoneMap,
   lodForDistance,
   lodIndices,
@@ -204,6 +206,7 @@ const skinTextures = new Map<string, Promise<THREE.Texture>>();
 const textureLoader = new THREE.TextureLoader();
 
 export type PlayableClip = AxisClip | Clip;
+const gripTurn = new THREE.Quaternion(), gripAxis = new THREE.Vector3();
 const isRetargetClip = (c: PlayableClip): c is Clip => "def" in c;
 
 /**
@@ -256,6 +259,12 @@ export class ThreeActor {
   /** Actions fading out after a cross-fade, and the seconds until they are gone. */
   private fading: THREE.AnimationAction[] = [];
   private fadeLeft = 0;
+  /** How closed each hand is (setGrip), the curls of a fist on the fitted skeleton, and the bones curled this frame with their poses before. */
+  private readonly grips = { l: 0, r: 0 };
+  private fists?: { fitted: FittedSkeleton; l: FingerCurl[]; r: FingerCurl[] };
+  private readonly gripBones: THREE.Bone[] = [];
+  private readonly gripBase: THREE.Quaternion[] = [];
+  private gripped = 0;
   private lastShape?: ActorShape;
   private readonly data = new Map<string, MeshData>();
   /** Meshes that are drawn (internal helper meshes are skipped). */
@@ -1185,6 +1194,7 @@ export class ThreeActor {
   }
 
   private rebind(fitted: FittedSkeleton): void {
+    this.ungrip();
     this.fitted = fitted;
     fitted.names.forEach((_, i) => {
       const bone = this.bones[i];
@@ -1209,6 +1219,7 @@ export class ThreeActor {
    * (a walk blends into a jog step for step); 0 (the default) cuts, keeping the time.
    */
   play(clip: PlayableClip | null, options: { fade?: number } = {}): void {
+    this.ungrip();
     const prev = this.action;
     const time = prev?.time ?? 0;
     const fade = clip && prev && this.fitted ? (options.fade ?? 0) : 0;
@@ -1245,6 +1256,39 @@ export class ThreeActor {
       this.action.crossFadeFrom(prev!, fade, false);
     } else {
       this.action.time = time % three.duration;
+    }
+  }
+
+  /**
+   * Closes a hand round what it holds, over whatever the clip does with the fingers: 0 leaves the clip's
+   * fingers, 1 is a fist (`side`: "l" or "r").
+   */
+  setGrip(side: "l" | "r", amount: number): void {
+    this.grips[side] = Math.min(1, Math.max(0, amount));
+  }
+
+  /** The fingers back as the clip (or the bind pose) left them, before this frame's mixer. */
+  private ungrip(): void {
+    for (let i = 0; i < this.gripped; i++) this.gripBones[i].quaternion.copy(this.gripBase[i]);
+    this.gripped = 0;
+  }
+
+  /** The fingers curled toward the palm, after the mixer posed them. */
+  private applyGrip(): void {
+    const f = this.fitted;
+    if (!f || (!this.grips.l && !this.grips.r)) return;
+    if (this.fists?.fitted !== f) this.fists = { fitted: f, l: fistCurls(f, "l"), r: fistCurls(f, "r") };
+    for (const side of ["l", "r"] as const) {
+      const amount = this.grips[side];
+      if (!amount) continue;
+      for (const c of this.fists[side]) {
+        const bone = this.bones[c.bone];
+        if (!bone) continue;
+        const i = this.gripped++;
+        this.gripBones[i] = bone;
+        (this.gripBase[i] ??= new THREE.Quaternion()).copy(bone.quaternion);
+        bone.quaternion.multiply(gripTurn.setFromAxisAngle(gripAxis.fromArray(c.axis), c.angle * amount));
+      }
     }
   }
 
@@ -1360,8 +1404,10 @@ export class ThreeActor {
   update(dt: number): void {
     this.flushVisibility();
     if (this.crowdDirty) this.buildCrowd();
+    this.ungrip();
     this.mixer.update(dt);
     if (this.fading.length && (this.fadeLeft -= dt) <= 0) this.endFades();
+    this.applyGrip();
     for (const mesh of this.meshes.values()) if (mesh.visible) updateScreen(mesh.material as THREE.Material, dt);
     // Leg colliders only matter while a skirt-skinned garment is drawn.
     if ([...this.shown].some((n) => this.usesColliders(this.data.get(n)!))) this.updateColliders();
