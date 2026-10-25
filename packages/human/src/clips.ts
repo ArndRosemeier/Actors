@@ -54,4 +54,37 @@ export const WALK: AxisClip = {
   ],
 };
 
+/**
+ * Riding seat (for a horse, see `Mount` in @actors/three): thighs forward and
+ * apart round the barrel, knees bent, heels down, upright back, hands low in
+ * front holding the reins. A held pose with a little breathing in the back.
+ */
+export const RIDE: AxisClip = {
+  name: "ride",
+  duration: 4,
+  tracks: [
+    track("thigh_l", X, [0, -62], [4, -62]),
+    track("thigh_r", X, [0, -62], [4, -62]),
+    track("thigh_l", Z, [0, 24], [4, 24]),
+    track("thigh_r", Z, [0, -24], [4, -24]),
+    track("calf_l", X, [0, 78], [4, 78]),
+    track("calf_r", X, [0, 78], [4, 78]),
+    track("foot_l", X, [0, -14], [4, -14]),
+    track("foot_r", X, [0, -14], [4, -14]),
+    track("foot_l", Y, [0, 10], [4, 10]),
+    track("foot_r", Y, [0, -10], [4, -10]),
+    track("spine_02", X, [0, 3], [2, 4.5], [4, 3]),
+    track("spine_03", X, [0, 2], [2, 3], [4, 2]),
+    track("neck_01", X, [0, -4], [4, -4]),
+    // Arms: down from the A-pose and a little forward, forearms turned in so the hands meet low in front (the reins).
+    ...armsDown(4),
+    track("upperarm_l", X, [0, -15], [4, -15]),
+    track("upperarm_r", X, [0, -15], [4, -15]),
+    track("lowerarm_l", X, [0, -10], [4, -10]),
+    track("lowerarm_r", X, [0, -10], [4, -10]),
+    track("lowerarm_l", Z, [0, -50], [4, -50]),
+    track("lowerarm_r", Z, [0, 50], [4, 50]),
+  ],
+};
+
 export const CLIPS: AxisClip[] = [IDLE, WALK];

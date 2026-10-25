@@ -38,7 +38,7 @@ export const TAIL_DROP = [-70, -8, 6];
 /** Ears turned forward, so they stand up rather than lean back. */
 export const EAR_TILT = 18;
 
-export type Region = "torso" | "neck" | "head" | "muzzle" | "jaw" | "nose" | "ear" | "leg" | "paw" | "hoof" | "tail" | "eye";
+export type Region = "torso" | "neck" | "head" | "muzzle" | "jaw" | "nose" | "ear" | "leg" | "paw" | "hoof" | "tail" | "eye" | "mane";
 
 export interface BodyPart extends Part {
   /** Bones that carry this part; each vertex is shared between them by distance to the bone. */
@@ -59,6 +59,8 @@ export interface DogBody {
   rig: Rig;
   /** Length scale of the small details (blend widths, marking sizes) relative to the dog (1). */
   unit?: number;
+  /** Narrow-band meshing: the coarse grid is this many cells wide (see surfaceNets; default 1, off). */
+  band?: number;
   parts: BodyPart[];
   /** Eye centres and radius (eyes are separate meshes in the sockets). */
   eyes: { center: Vec3; radius: number; look: Vec3 }[];

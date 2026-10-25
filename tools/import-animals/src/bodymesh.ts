@@ -84,7 +84,7 @@ export async function meshBody(body: DogBody, cell: number, triangles: number): 
       hi[k] = Math.max(hi[k], prim.max[k] + 0.03 * u);
     }
   }
-  const nets = surfaceNets(f, lo, hi, cell);
+  const nets = surfaceNets(f, lo, hi, cell, body.band ?? 1);
   project(f, nets.positions);
   relax(f, nets.positions, neighbours(nets.positions.length / 3, nets.quads, 4), 2, 0.5);
 

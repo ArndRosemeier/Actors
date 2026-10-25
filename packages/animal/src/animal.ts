@@ -1,6 +1,7 @@
 import { type ActorShape, ActorRuntime, type BoneScale, type Fetcher, type MessagePortLike, RemoteRuntime, type ShapeOptions } from "@actors/core";
 import { DEFAULT_PRESET, type DogCoat, type DogShape, SHAPE_RANGES, SQUIRRELS, BREEDS, CAT_BREEDS, breedParams, sanitizeShape } from "./breeds";
 import { DEER_PRESETS, DEER_SHAPE_RANGES, type DeerCoat, type DeerShape, deerParams, deerShapeOptions, deerTargetWeights } from "./deer";
+import { HORSE_PRESETS, HORSE_SHAPE_RANGES, type HorseCoat, type HorseShape, horseParams, horseShapeOptions, horseTargetWeights } from "./horse";
 
 /** What the animal importer writes into `manifest.extra.animal`. */
 export interface AnimalExtra {
@@ -9,6 +10,8 @@ export interface AnimalExtra {
   visibleVertices: number;
   /** Morph target names. */
   morphs: string[];
+  /** Where a rider sits (horses): a bone whose head is the lowest point of the saddle's seat. */
+  seat?: { bone: string };
 }
 
 const SIDES = ["L", "R"];
@@ -143,8 +146,18 @@ export const DEER: Species<DeerShape, DeerCoat> = {
   shapeOptions: deerShapeOptions,
 };
 
+export const HORSE: Species<HorseShape, HorseCoat> = {
+  kind: "horse",
+  base: DEFAULT_PRESET.horse,
+  presets: HORSE_PRESETS,
+  ranges: HORSE_SHAPE_RANGES,
+  params: horseParams,
+  targetWeights: horseTargetWeights,
+  shapeOptions: horseShapeOptions,
+};
+
 /** Species by pack kind (`manifest.extra.animal.kind`). */
-export const SPECIES: Record<string, Species<object, object>> = { dog: DOG as never, squirrel: SQUIRREL as never, cat: CAT as never, deer: DEER as never };
+export const SPECIES: Record<string, Species<object, object>> = { dog: DOG as never, squirrel: SQUIRREL as never, cat: CAT as never, deer: DEER as never, horse: HORSE as never };
 
 /**
  * An animal actor: shape parameters -> target weights and bone scales -> shape.
@@ -248,3 +261,6 @@ export class Animal<S extends object = DogShape, C extends object = DogCoat> {
 
 /** A deer actor (see DEER). */
 export type Deer = Animal<DeerShape, DeerCoat>;
+
+/** A horse actor (see HORSE). Its tack meshes (`saddlecloth`, `saddle`, `stirrups`, `bridle`, `bit`) are optional: show them with `ThreeActor.setVisible`. */
+export type Horse = Animal<HorseShape, HorseCoat>;

@@ -6,9 +6,12 @@
  *   fur material. They share the rig's bones, so clips play on each; the
  *   squirrel adds its own clips, the cat renames a few (catcoat.ts: tabby);
  * - deer: the rig and clips of Quaternius' CC0 low-poly Deer, a sika hind body
- *   generated the same way (deer.ts, deercoat.ts, deermorphs.ts).
+ *   generated the same way (deer.ts, deercoat.ts, deermorphs.ts);
+ * - horse: the rig and clips of Mesh2Motion's CC0 low-poly horse, a bay body
+ *   generated the same way (horse.ts, horsecoat.ts, horsemorphs.ts) and tack
+ *   (saddle, bridle; tack.ts) with a `saddle` bone where a rider sits.
  *
- *   npm run import:animals [-- --only dog|squirrel|cat|deer] [--out <dir>] [--cell <meters>] [--triangles <n>]
+ *   npm run import:animals [-- --only dog|squirrel|cat|deer|horse] [--out <dir>] [--cell <meters>] [--triangles <n>]
  *
  * Source files are downloaded once into .cache/. No mesh is taken from the
  * sources; only their skeletons and animations.
@@ -35,7 +38,11 @@ import { QUATERNIUS_NOTE, QUATERNIUS_PACK, deerGlb } from "./quaternius";
 import { type Rig, readRig } from "./rig";
 import { squirrelBody } from "./squirrel";
 import { squirrelClips } from "./squirrelclips";
-import { FOX_ANIMATIONS, MESH2MOTION_COMMIT, SOURCE_NOTE } from "./source";
+import { FOX_ANIMATIONS, HORSE_ANIMATIONS, HORSE_SOURCE_NOTE, MESH2MOTION_COMMIT, SOURCE_NOTE } from "./source";
+import { type HorseBody, clipRig, horseBody } from "./horse";
+import { horseCoat } from "./horsecoat";
+import { horseMorphs } from "./horsemorphs";
+import { type TackPiece, horseTack } from "./tack";
 import { type Morph, type MorphInput, dogMorphs, squirrelMorphs } from "./targets";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -95,6 +102,12 @@ interface AnimalSpec {
   manifestSource: ActorPackManifest["source"];
   cell: number;
   triangles: number;
+  /** Skeleton name in the manifest (default "quadruped"). */
+  skeleton?: string;
+  /** Extra meshes skinned like the body under them (horse tack). */
+  tack?(body: DogBody, surface: { positions: Float32Array; indices: Uint32Array; joints: Uint16Array; weights: Float32Array }): Promise<TackPiece[]>;
+  /** More data for `manifest.extra.animal`. */
+  extra?: Record<string, unknown>;
 }
 
 /** A whisker: a 4-sided tube along a drooping curve, tapering to a point (v runs root to tip). */
@@ -213,6 +226,52 @@ function deerSpec(cell: number, triangles: number): AnimalSpec {
   };
 }
 
+const HORSE_CLIPS: [string, string, boolean, string][] = [
+  ["idle", "Idle", true, "Idle"],
+  ["eat", "Eating", true, "Idle"],
+  ["sleep", "Sleep", true, "Idle"],
+  ["walk", "Walk", true, "Locomotion"],
+  ["trot", "Trot", true, "Locomotion"],
+  ["gallop", "Run", true, "Locomotion"],
+  ["turnLeft", "Turn_Left", true, "Locomotion"],
+  ["turnRight", "Turn_Right", true, "Locomotion"],
+  ["rear", "Rear", false, "Actions"],
+  ["kick", "Kick", false, "Actions"],
+  ["headbutt", "Head_But", false, "Actions"],
+  ["getUp", "lay_to_idle", false, "Reactions"],
+  ["death", "Death", false, "Reactions"],
+];
+
+/** Horse: a bay on Mesh2Motion's horse rig, with tack and a seat for a rider. */
+function horseSpec(cell: number, triangles: number): AnimalSpec {
+  const glb = parseGlb(readFileSync(fetchCached(CACHE, HORSE_ANIMATIONS)));
+  const body = horseBody(readRig(glb));
+  const eye = body.eyes[0].center;
+  return {
+    id: "horse",
+    glb,
+    // Clips are read for the source bones (the saddle bone has none; it follows its parent).
+    source: clipRig(body.rig),
+    body,
+    coat: horseCoat,
+    morphs: horseMorphs,
+    noseTip: body.marks.nose,
+    stop: [0, eye[1] + 0.02, eye[2] + 0.04],
+    clipSource: "Mesh2Motion horse rig (CC0)",
+    clipOptions: { clips: HORSE_CLIPS, rootBone: "hips", feet: (n) => /_leg_leaf_[lr]$/.test(n), tailMotion: 0.5, isTail: (n) => n.startsWith("tail_") },
+    crowdDrops: /leaf|^ear_2|^tail_[34]/,
+    lodDistances: [8, 24],
+    furColor: [0.3, 0.13, 0.06],
+    eyeColor: [0.1, 0.05, 0.03],
+    manifestSource: { name: `Generated bay horse body and tack; ${HORSE_SOURCE_NOTE}`, license: "CC0-1.0", url: `https://github.com/scottpetrovic/mesh2motion-app/tree/${MESH2MOTION_COMMIT}` },
+    cell,
+    triangles,
+    skeleton: "horse",
+    tack: (b, surface) => horseTack(b as HorseBody, surface, cell),
+    extra: { seat: { bone: "saddle" } },
+  };
+}
+
 async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
   const { body, glb } = spec;
   const { rig } = body;
@@ -255,6 +314,15 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
     whiskerTris.push(...tube.indices.map((i) => i + first - whiskerFirst));
   }
   const whiskerCount = positions.length / 3 - whiskerFirst;
+  // Tack: its own vertices, skinned like the body under them.
+  const tackPieces = spec.tack ? await spec.tack(body, skinned) : [];
+  const tackMeshes = tackPieces.map((piece) => {
+    const first = positions.length / 3;
+    for (const v of piece.positions) positions.push(v);
+    for (const v of piece.joints) joints.push(v);
+    for (const v of piece.weights) weights.push(v);
+    return { piece, first, count: piece.positions.length / 3 };
+  });
   const nVisible = positions.length / 3;
   const helper = (p: Vec3, bone: number) => {
     positions.push(...p);
@@ -346,6 +414,20 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
     },
   ];
 
+  for (const { piece, first, count } of tackMeshes)
+    meshes.push({
+      name: piece.name,
+      source: { kind: "base" },
+      role: "bodypart",
+      baseIndex: blob.add("u32", Array.from({ length: count }, (_, i) => first + i)),
+      uv: blob.add("f32", piece.uv),
+      indices: blob.add("u32", piece.indices),
+      material: { kind: piece.material, color: piece.color, roughness: piece.roughness },
+      optional: true,
+      tags: ["animal", "tack", ...piece.tags],
+      lods: [0, 1],
+    });
+
   if (whiskerCount)
     meshes.push({
       name: "whiskers",
@@ -399,12 +481,12 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
     basePositions,
     meshes,
     proxies: [],
-    skeleton: { name: spec.id === "deer" ? "deer" : "quadruped", bones },
+    skeleton: { name: spec.skeleton ?? (spec.id === "deer" ? "deer" : "quadruped"), bones },
     skin: { joints: blob.add("u16", joints), weights: blob.add("f32", weights) },
     targets,
     clips,
     lods,
-    extra: { animal: { kind: spec.id, visibleVertices: nVisible, morphs: morphs.map((m) => m.name) } },
+    extra: { animal: { kind: spec.id, visibleVertices: nVisible, morphs: morphs.map((m) => m.name), ...spec.extra } },
   };
   writeFileSync(join(out, "base.bin"), blob.toBuffer());
   writeFileSync(join(out, "manifest.json"), JSON.stringify(manifest));
@@ -414,15 +496,16 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
 
 async function main(): Promise<void> {
   const only = arg("only");
-  const ids = only ? only.split(",") : ["dog", "squirrel", "cat", "deer"];
+  const ids = only ? only.split(",") : ["dog", "squirrel", "cat", "deer", "horse"];
   if (arg("out") && ids.length > 1) throw new Error("--out needs --only <animal>");
   const specs: Record<string, (cell: number, triangles: number) => AnimalSpec> = {
     dog: (c, t) => quadrupedSpec("dog", c, t),
     squirrel: (c, t) => quadrupedSpec("squirrel", c, t),
     cat: catSpec,
     deer: deerSpec,
+    horse: horseSpec,
   };
-  const defaults: Record<string, [number, number]> = { dog: [0.0035, 44000], squirrel: [0.0011, 40000], cat: [0.002, 44000], deer: [0.003, 52000] };
+  const defaults: Record<string, [number, number]> = { dog: [0.0035, 44000], squirrel: [0.0011, 40000], cat: [0.002, 44000], deer: [0.003, 52000], horse: [0.005, 64000] };
   for (const id of ids) {
     const make = specs[id];
     if (!make) throw new Error(`Unknown animal ${id}`);
