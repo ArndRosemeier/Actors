@@ -10,3 +10,4 @@
  */
 export { nodeMaterials, nodeMeshMaterial, createNodeSkinMaterial, createNodeEyeMaterial, createNodeClothMaterial, createNodeHairMaterial, createNodeLashMaterial, createNodeWetMaterial, createNodePartMaterial, createNodeCrowdMaterial, useNodeClip, useNodeColliders } from "./materials";
 export { useNodeDqs } from "./dqs";
+export { animalNodeMaterials, addNodeFurShells, createNodeFurMaterial, createNodeFurShellMaterial, createNodeAnimalEyeMaterial, createNodeTackMaterial, createNodeWhiskerMaterial } from "./fur";

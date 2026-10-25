@@ -1,6 +1,6 @@
 {
   "name": "@actors/generator",
-  "version": "0.11.1",
+  "version": "0.12.0",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
@@ -9,9 +9,9 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@actors/core": "0.11.1",
-    "@actors/human": "0.11.1",
-    "@actors/three": "0.11.1"
+    "@actors/core": "0.12.0",
+    "@actors/human": "0.12.0",
+    "@actors/three": "0.12.0"
   },
   "peerDependencies": {
     "three": ">=0.180.0"

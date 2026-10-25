@@ -11,7 +11,7 @@
  * skinned with linear blending; the difference at the joints is far below a
  * shadow map's resolution.
  */
-import { Fn, If, OnObjectUpdate, attribute, cross, dot, float, morphReference, normalLocal, normalize, positionLocal, reference, referenceBuffer, select, skinning, sqrt, subBuild, uniform, vec4 } from "./tsl";
+import { Fn, If, OnObjectUpdate, attribute, cross, dot, float, morphReference, normalLocal, normalize, positionLocal, property, reference, referenceBuffer, select, skinning, sqrt, subBuild, uniform, vec4 } from "./tsl";
 import type { Material, Object3D, Skeleton, SkinnedMesh } from "three";
 import { morphAttribute } from "../morphs";
 import type { N } from "./types";
@@ -99,7 +99,15 @@ const dqSkinning = Fn(([mesh]: [SkinnedMesh], builder: N) => {
     const n = bindMatrix.mul(vec4(normalLocal, 0)).xyz;
     normalLocal.assign(bindMatrixInverse.mul(vec4(quatRotate(dqR, n), 0)).xyz);
   }
+  // A fur's comb direction turns with the skin (read by the fur shells as `skinnedFlow`).
+  if (builder.hasGeometryAttribute("furFlow")) {
+    const f = bindMatrix.mul(vec4(attribute("furFlow", "vec3"), 0)).xyz;
+    skinnedFlow.assign(bindMatrixInverse.mul(vec4(quatRotate(dqR, f), 0)).xyz);
+  }
 }, "void");
+
+/** The `furFlow` attribute turned with the skin (set by dual-quaternion skinning, in the vertex stage). */
+export const skinnedFlow: N = property("vec3", "actorSkinnedFlow");
 
 /**
  * Face morphs carried as plain attributes (see ../morphs.ts): each channel's

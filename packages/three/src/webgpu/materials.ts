@@ -75,7 +75,7 @@ const black = (() => {
 type Inputs = Record<string, () => unknown>;
 
 /** Gives `mat` its values for the shared graph's inputs (see `input`). Returns `mat`. */
-function feed<T extends THREE.Material>(mat: T, inputs: Inputs): T {
+export function feed<T extends THREE.Material>(mat: T, inputs: Inputs): T {
   mat.userData.actorInputs = { ...(mat.userData.actorInputs as Inputs | undefined), ...inputs };
   return mat;
 }
@@ -89,7 +89,7 @@ function read(frame: { material?: THREE.Material | null }, name: string): unknow
  * `name` (`feed`). `initial` gives its type. (Another pass's own material, a
  * shadow's, has none: the uniform keeps its last value, which that pass does not use.)
  */
-function input(name: string, initial: unknown): N {
+export function input(name: string, initial: unknown): N {
   return uniform(initial as never).onObjectUpdate((frame: { material?: THREE.Material | null }) => read(frame, name));
 }
 
@@ -103,7 +103,7 @@ function inputTexture(name: string, fallback: THREE.Texture, at?: N, level?: N |
 }
 
 /** `make` once, on first use (graphs are built when the first material of a kind is). */
-function once<T>(make: () => T): () => T {
+export function once<T>(make: () => T): () => T {
   let made: T | undefined;
   return () => (made ??= make());
 }
