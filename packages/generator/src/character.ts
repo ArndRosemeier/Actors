@@ -197,10 +197,17 @@ export class Character {
     return this.set({ outfit: outfitGarments(preset, this.cfg.body), garmentColors: { ...this.cfg.garmentColors, ...preset.colors } });
   }
 
-  /** Plays a clip from `catalog.animations` (looping), or the bind pose for null. */
-  play(animation: string | null): Promise<void> {
+  /**
+   * Plays a clip from `catalog.animations` (looping), or the bind pose for null. `fade` (seconds) cross-fades
+   * from the clip playing now; 0 cuts.
+   */
+  play(animation: string | null, fade = 0): Promise<void> {
+    this.fade = fade;
     return this.set({ animation });
   }
+
+  /** Cross-fade (seconds) for the next clip change (`play`). */
+  private fade = 0;
 
   /**
    * Detail level: a fixed level (0 = full detail; see `lods`) or "auto", which
@@ -528,7 +535,9 @@ export class Character {
     await this.actor.setSkinTextures(this.renderer, c.skin === "photo" ? h.skinTextures() : null);
     if (c.animation !== this.applied.animation) {
       this.applied.animation = c.animation;
-      this.actor.play(c.animation ? await this.loadClip(c.animation) : null);
+      const fade = this.fade;
+      this.fade = 0;
+      this.actor.play(c.animation ? await this.loadClip(c.animation) : null, { fade });
     }
   }
 }

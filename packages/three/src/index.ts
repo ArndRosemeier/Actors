@@ -253,6 +253,9 @@ export class ThreeActor {
   private fitted?: FittedSkeleton;
   private clip?: PlayableClip;
   private action?: THREE.AnimationAction;
+  /** Actions fading out after a cross-fade, and the seconds until they are gone. */
+  private fading: THREE.AnimationAction[] = [];
+  private fadeLeft = 0;
   private lastShape?: ActorShape;
   private readonly data = new Map<string, MeshData>();
   /** Meshes that are drawn (internal helper meshes are skipped). */
@@ -1200,11 +1203,23 @@ export class ThreeActor {
     if (this.clip) this.play(this.clip);
   }
 
-  /** Plays a clip (looping): retargeted mocap from the pack (`runtime.loadClip`) or a procedural clip. Null = bind pose. */
-  play(clip: PlayableClip | null): void {
-    const time = this.action?.time ?? 0;
-    this.mixer.stopAllAction();
-    if (this.action) this.mixer.uncacheClip(this.action.getClip());
+  /**
+   * Plays a clip (looping): retargeted mocap from the pack (`runtime.loadClip`) or a procedural clip. Null = bind pose.
+   * `fade` (seconds) cross-fades from the clip playing now, the new one starting at the same phase of its loop
+   * (a walk blends into a jog step for step); 0 (the default) cuts, keeping the time.
+   */
+  play(clip: PlayableClip | null, options: { fade?: number } = {}): void {
+    const prev = this.action;
+    const time = prev?.time ?? 0;
+    const fade = clip && prev && this.fitted ? (options.fade ?? 0) : 0;
+    this.endFades();
+    if (fade > 0) {
+      this.fading = [prev!];
+      this.fadeLeft = fade;
+    } else {
+      this.mixer.stopAllAction();
+      if (prev) this.mixer.uncacheClip(prev.getClip());
+    }
     this.action = undefined;
     this.clip = clip ?? undefined;
     if (!clip || !this.fitted) {
@@ -1224,7 +1239,23 @@ export class ThreeActor {
     }
     this.action = this.mixer.clipAction(three);
     this.action.play();
-    this.action.time = time % three.duration;
+    if (fade > 0) {
+      const from = prev!.getClip().duration;
+      this.action.time = from > 0 ? ((time % from) / from) * three.duration : 0;
+      this.action.crossFadeFrom(prev!, fade, false);
+    } else {
+      this.action.time = time % three.duration;
+    }
+  }
+
+  /** Stops and forgets the actions still fading out. */
+  private endFades(): void {
+    for (const a of this.fading) {
+      a.stop();
+      this.mixer.uncacheClip(a.getClip());
+    }
+    this.fading = [];
+    this.fadeLeft = 0;
   }
 
   private restPose(): void {
@@ -1330,6 +1361,7 @@ export class ThreeActor {
     this.flushVisibility();
     if (this.crowdDirty) this.buildCrowd();
     this.mixer.update(dt);
+    if (this.fading.length && (this.fadeLeft -= dt) <= 0) this.endFades();
     for (const mesh of this.meshes.values()) if (mesh.visible) updateScreen(mesh.material as THREE.Material, dt);
     // Leg colliders only matter while a skirt-skinned garment is drawn.
     if ([...this.shown].some((n) => this.usesColliders(this.data.get(n)!))) this.updateColliders();
