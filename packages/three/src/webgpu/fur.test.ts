@@ -8,10 +8,10 @@ const mesh = (kind: string, tags: string[] = []) => ({ def: { name: kind, materi
 describe("node fur", () => {
   it("picks fur, animal eye and tack materials by kind and tag", () => {
     const kit = animalNodeMaterials(createFurUniforms());
-    const fur = kit.mesh(mesh("fur"), null as never) as { userData: { fur?: boolean }; isNodeMaterial?: boolean };
+    const fur = kit.mesh(mesh("fur"), null as never) as unknown as { userData: { fur?: boolean }; isNodeMaterial?: boolean };
     expect(fur.userData.fur).toBe(true);
     expect(fur.isNodeMaterial).toBe(true);
-    const tack = kit.mesh(mesh("other", ["tack", "metal"]), null as never) as { metalness: number };
+    const tack = kit.mesh(mesh("other", ["tack", "metal"]), null as never) as unknown as { metalness: number };
     expect(tack.metalness).toBeGreaterThan(0.5);
   });
 
