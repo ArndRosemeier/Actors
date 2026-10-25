@@ -6,7 +6,7 @@ import { ThreeActor } from "./index";
  * A tiny pack: a quad body on four base vertices and two optional garments (a "shirt" and a
  * "hat"), each a one-triangle proxy bound to the body.
  */
-async function tinyPack(): Promise<ActorRuntime> {
+async function tinyPack(rigged = false): Promise<ActorRuntime> {
   const parts: ArrayBufferView[] = [];
   let offset = 0;
   const put = <T extends "f32" | "u32">(type: T, values: number[]) => {
@@ -41,6 +41,16 @@ async function tinyPack(): Promise<ActorRuntime> {
   const manifest: ActorPackManifest = {
     format: "actors-pack", version: 1, id: "tiny", species: "test", units: "meters", source: { name: "test", license: "CC0", url: "" },
     blob: "base.bin", vertexCount: 4, basePositions, meshes, proxies, targets: [],
+    ...(rigged
+      ? {
+          // Two bones up the quad, the lower half on the first.
+          skeleton: { name: "tiny", bones: [
+            { name: "root", parent: -1, head: { vertices: [0, 1] }, tail: { vertices: [0, 1, 2, 3] }, roll: 0 },
+            { name: "top", parent: 0, head: { vertices: [0, 1, 2, 3] }, tail: { vertices: [2, 3] }, roll: 0 },
+          ] },
+          skin: { joints: put("u32", [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]), weights: put("f32", [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]) },
+        }
+      : {}),
   };
   const blob = new Uint8Array(offset);
   let at = 0;
@@ -112,5 +122,43 @@ describe("reversed depth", () => {
     expect(plain.polygonOffsetUnits).toBeLessThan(0);
     expect(reversed.polygonOffsetUnits).toBe(-plain.polygonOffsetUnits);
     expect(reversed.polygonOffsetFactor).toBe(-plain.polygonOffsetFactor);
+  });
+});
+
+describe("cross-fades", () => {
+  const bend = (name: string, deg: number) => ({ name, duration: 1, tracks: [{ bone: "top", axis: [1, 0, 0] as [number, number, number], keys: [{ t: 0, deg }, { t: 1, deg }] }] });
+
+  it("blends from the clip playing to the next, then lets the old one go", async () => {
+    const rt = await tinyPack(true);
+    const actor = new ThreeActor(rt);
+    actor.applyShape(rt.evaluateLoaded(new Map(), undefined, undefined, actor.neededMeshes()));
+    actor.play(bend("a", 0));
+    actor.update(0.5);
+    actor.play(bend("b", 90), { fade: 0.4 });
+    const to = actor.currentAction!;
+    // Same phase of the loop, both still running.
+    expect(to.time).toBeCloseTo(0.5);
+    expect(actor.mixer.stats.actions.inUse).toBe(2);
+    actor.update(0.2);
+    expect(to.getEffectiveWeight()).toBeGreaterThan(0);
+    expect(to.getEffectiveWeight()).toBeLessThan(1);
+    actor.update(0.3);
+    expect(actor.mixer.stats.actions.inUse).toBe(1);
+    expect(actor.mixer.stats.actions.total).toBe(1);
+    expect(to.getEffectiveWeight()).toBe(1);
+  });
+
+  it("cuts without a fade, keeping the time", async () => {
+    const rt = await tinyPack(true);
+    const actor = new ThreeActor(rt);
+    actor.applyShape(rt.evaluateLoaded(new Map(), undefined, undefined, actor.neededMeshes()));
+    actor.play(bend("a", 0));
+    actor.update(0.25);
+    const from = actor.currentAction!;
+    actor.play(bend("b", 90));
+    expect(actor.currentAction).not.toBe(from);
+    expect(actor.mixer.stats.actions.inUse).toBe(1);
+    expect(actor.currentAction!.time).toBeCloseTo(0.25);
+    expect(actor.currentAction!.getEffectiveWeight()).toBe(1);
   });
 });

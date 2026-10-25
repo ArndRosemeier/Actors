@@ -42,6 +42,7 @@ await character.wear("casual");             // outfit preset; "nude" undresses
 await character.set({ outfit: ["briefs", "jeans"] }); // or any garment list
 await character.set({ garmentColors: { jeans: "#1f2a44" } }); // recolour any garment (sRGB hex)
 await character.play("walk");               // any id from character.catalog.animations; null = bind pose
+await character.play("jog", 0.3);         // cross-fades from the clip playing now over 0.3 s
 character.rootMotion = true;                // move through the scene instead of walking in place
 await character.randomize({ gender: "female", outfit: true });
 
