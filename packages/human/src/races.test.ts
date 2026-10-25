@@ -70,8 +70,8 @@ describe("youth (child proportions on the adult body)", () => {
     expect(raceScale(child)).toBeLessThan(raceScale(adult) * 0.6);
     const bones = ["head", "thigh_l", "calf_l", "upperarm_l", "spine_02"];
     const opts = raceShapeOptions(child, bones, () => undefined);
-    expect(opts.bones.head.len).toBeGreaterThan(1.3);
-    expect(opts.bones.thigh_l.len).toBeLessThan(0.95);
+    expect(opts.bones?.head.len).toBeGreaterThan(1.3);
+    expect(opts.bones?.thigh_l.len).toBeLessThan(0.95);
     const w = raceBareTargetWeights(child);
     expect(w.get("l-eye-scale-incr")).toBeGreaterThan(0.5);
     expect(w.get("nose-scale-vert-decr")).toBeGreaterThan(0.5);
