@@ -125,7 +125,7 @@ export function writeJpeg(srcPath: string, dstPath: string, quality = 88): void 
  */
 /**
  * Writes a PNG at most `maxSize` wide (halving, alpha-weighted) and returns its
- * mean sRGB colour (0..1) over opaque texels, or, with `sampleUVs` (u, v pairs,
+ * mean colour over opaque texels (averaged in linear light, returned as sRGB 0..1), or, with `sampleUVs` (u, v pairs,
  * OBJ convention), over the texels at those UVs, i.e. only the parts the mesh uses.
  */
 export function writeRgbaDownsampled(srcPath: string, dstPath: string, maxSize: number, sampleUVs?: ArrayLike<number>): [number, number, number] {
@@ -156,7 +156,8 @@ export function writeRgbaDownsampled(srcPath: string, dstPath: string, maxSize: 
   const add = (i: number) => {
     if (img.data[i + 3] <= 128) return;
     n++;
-    for (let c = 0; c < 3; c++) mean[c] += img.data[i + c] / 255;
+    // Averaged in linear light: the renderer divides each (linear) texel's brightness by this mean.
+    for (let c = 0; c < 3; c++) mean[c] += srgbToLinear(img.data[i + c] / 255);
   };
   if (sampleUVs?.length) {
     const wrap = (t: number) => t - Math.floor(t);
@@ -167,8 +168,11 @@ export function writeRgbaDownsampled(srcPath: string, dstPath: string, maxSize: 
     }
   }
   if (!n) for (let i = 0; i < img.data.length; i += 4) add(i);
-  return mean.map((v) => (n ? v / n : 0.5)) as [number, number, number];
+  return mean.map((v) => (n ? linearToSrgb(v / n) : 0.5)) as [number, number, number];
 }
+
+const srgbToLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+const linearToSrgb = (c: number) => (c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055);
 
 /** Mean sRGB colour (0..1) of an image's non-black pixels (e.g. a skin texture without its empty UV space). */
 export function meanColor(path: string, step = 7): [number, number, number] {

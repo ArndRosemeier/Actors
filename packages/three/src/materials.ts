@@ -340,7 +340,7 @@ export function createClothMaterial(
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform vec3 uTint;\nuniform float uTintMix;\nuniform float uTintMeanLum;\n// A pixel's brightness over the texture's mean, with a soft knee above 1: bright patches of a dark,\n// high-contrast texture stay lighter than the tint instead of turning white (gain below 2).\nfloat tintGain( float g ) { return g > 1.0 ? 1.0 + ( g - 1.0 ) / g : g; }")
+      .replace("#include <common>", "#include <common>\nuniform vec3 uTint;\nuniform float uTintMix;\nuniform float uTintMeanLum;\n// A pixel's brightness over the texture's mean, with a soft knee above 1: bright patches of a dark,\n// high-contrast texture stay lighter than the tint instead of turning white (gain below 1.5).\nfloat tintGain( float g ) { return g > 1.0 ? 1.0 + 0.5 * ( g - 1.0 ) / ( g - 0.5 ) : g; }")
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
@@ -392,7 +392,7 @@ export function createHairMaterial(map: THREE.Texture | null, blended = false): 
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform vec3 uHairTint;\nuniform float uHairMix;\nuniform float uHairMeanLum;\n// A pixel's brightness over the texture's mean, with a soft knee above 1: bright patches of a dark,\n// high-contrast texture stay lighter than the tint instead of turning white (gain below 2).\nfloat tintGain( float g ) { return g > 1.0 ? 1.0 + ( g - 1.0 ) / g : g; }")
+      .replace("#include <common>", "#include <common>\nuniform vec3 uHairTint;\nuniform float uHairMix;\nuniform float uHairMeanLum;\n// A pixel's brightness over the texture's mean, with a soft knee above 1: bright patches of a dark,\n// high-contrast texture stay lighter than the tint instead of turning white (gain below 1.5).\nfloat tintGain( float g ) { return g > 1.0 ? 1.0 + 0.5 * ( g - 1.0 ) / ( g - 0.5 ) : g; }")
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
