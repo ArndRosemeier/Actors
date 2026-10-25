@@ -190,6 +190,8 @@ export class CharacterEditor {
     const mixRow = detailed(this.slider(raceSec, "Mix", 0, 1, 0.01, pct, (c) => c.raceMix, (v) => set({ raceMix: v }), "raceMix"));
     this.syncers.push((c) => (mixRow.hidden = !c.race2));
     detailed(this.slider(raceSec, "Size", 0, 1, 0.01, pct, (c) => c.raceSize, (v) => set({ raceSize: v }), "raceSize"));
+    // Child proportions on the adult body (no anatomy for children).
+    detailed(this.slider(raceSec, "Youth", 0, 1, 0.01, pct, (c) => c.youth, (v) => set({ youth: v }), "youth"));
 
     // Robot: same skeleton and clips, shaped by the body and race sliders.
     const robotOpts = cat.robot;

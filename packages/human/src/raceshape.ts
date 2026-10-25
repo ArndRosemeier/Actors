@@ -1,5 +1,5 @@
 import type { ShapeOptions, Vec3 } from "@actors/core";
-import { BONE_GROUPS, type BodyFeatures, type BoneGroup, type FaceFeatures, MAX_HEAD_SCALE, RACE_IDS, RACE_STYLES, type RaceId, type RaceStyle } from "./races";
+import { BONE_GROUPS, type BodyFeatures, type BoneGroup, type FaceFeatures, MAX_HEAD_SCALE, RACE_IDS, RACE_STYLES, type RaceId, type RaceStyle, YOUTH } from "./races";
 
 /** Which race a body has: one race, or two blended (half-elves, half-orcs...). */
 export interface RaceSettings {
@@ -10,6 +10,8 @@ export interface RaceSettings {
   mix: number;
   /** 0..1 position in the race's size range (0.5 = typical). */
   size: number;
+  /** 0 = grown up .. 1 = a child of about five (see YOUTH). */
+  youth?: number;
 }
 
 export const DEFAULT_RACE: RaceSettings = { race: "human", race2: null, mix: 0, size: 0.5 };
@@ -21,7 +23,8 @@ const isRace = (r: unknown): r is RaceId => RACE_IDS.includes(r as RaceId);
 export function sanitizeRace(r: Partial<RaceSettings> | undefined): RaceSettings {
   const race = isRace(r?.race) ? r.race : "human";
   const race2 = isRace(r?.race2) && r.race2 !== race ? r.race2 : null;
-  return { race, race2, mix: race2 ? clamp(r?.mix ?? 0.5, 0, 1) : 0, size: clamp(r?.size ?? 0.5, 0, 1) };
+  const youth = clamp(r?.youth ?? 0, 0, 1);
+  return { race, race2, mix: race2 ? clamp(r?.mix ?? 0.5, 0, 1) : 0, size: clamp(r?.size ?? 0.5, 0, 1), ...(youth > 0 ? { youth } : {}) };
 }
 
 /** The two styles and the blend weight of the second. */
@@ -118,6 +121,8 @@ export function raceBareTargetWeights(race: RaceSettings, gender = 0.5): Map<str
   const features: Record<string, number> = {};
   const get = (s: RaceStyle, k: string) => ((s.face as Record<string, number>)[k] ?? (s.body as Record<string, number>)[k] ?? 0);
   for (const k of keys) features[k] = lerp(get(A, k), get(B, k), mix);
+  const y = sanitizeRace(race).youth ?? 0;
+  if (y) for (const [k, v] of Object.entries({ ...YOUTH.face, ...YOUTH.body })) features[k] = (features[k] ?? 0) + v * y;
   featureWeights(features, out, gender);
   netPairs(out);
   return out;
@@ -146,12 +151,13 @@ export function raceTargetWeights(race: RaceSettings, resolve: (bare: string) =>
 export function raceScale(race: RaceSettings): number {
   const s = sanitizeRace(race);
   const [A, B, mix] = styles(s);
-  return lerp(lerp(A.scale[0], A.scale[1], s.size), lerp(B.scale[0], B.scale[1], s.size), mix);
+  return lerp(lerp(A.scale[0], A.scale[1], s.size), lerp(B.scale[0], B.scale[1], s.size), mix) * lerp(1, YOUTH.scale, s.youth ?? 0);
 }
 
+/** Head scale relative to the body: the race's (capped at MAX_HEAD_SCALE), and a child's bigger head on top. */
 export function raceHeadScale(race: RaceSettings): number {
   const [A, B, mix] = styles(race);
-  return Math.min(MAX_HEAD_SCALE, lerp(A.headScale, B.headScale, mix));
+  return Math.min(MAX_HEAD_SCALE, lerp(A.headScale, B.headScale, mix)) * lerp(1, YOUTH.head, sanitizeRace(race).youth ?? 0);
 }
 
 /** Ear masks: the ear-scale targets cover each whole ear. "l" is the actor's left (+X). */
@@ -173,6 +179,16 @@ export function raceShapeOptions(race: RaceSettings, boneNames: string[], resolv
       const b = (bones[name] ??= { len: 1, girth: 1 });
       b.len *= len;
       b.girth *= girth;
+    }
+  }
+  // A child's proportions (see YOUTH).
+  const y = sanitizeRace(race).youth ?? 0;
+  if (y) for (const [g, sc] of Object.entries(YOUTH.bones) as [BoneGroup, { len?: number; girth?: number }][]) {
+    for (const name of boneNames) {
+      if (!BONE_GROUPS[g].test(name)) continue;
+      const b = (bones[name] ??= { len: 1, girth: 1 });
+      b.len *= lerp(1, sc.len ?? 1, y);
+      b.girth *= lerp(1, sc.girth ?? 1, y);
     }
   }
   const head = raceHeadScale(race);

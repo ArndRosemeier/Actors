@@ -74,5 +74,5 @@ await character.play("walk");
 
 ## Content rules
 
-* **Adults only.** Age is clamped to 18+ in the data path (`@actors/human` `sanitizeParams`), not just in the UI, and the importer never ships the baby targets. Small races (halflings, goblins) keep adult proportions: head scale is capped (`MAX_HEAD_SCALE`).
+* **Adult anatomy only.** Age is clamped to 18+ in the data path (`@actors/human` `sanitizeParams`), not just in the UI, and the importer never ships the baby targets. Small races (halflings, goblins) keep adult proportions: head scale is capped (`MAX_HEAD_SCALE`). Children are the adult body with child proportions (`youth` in the character config: smaller, bigger head and eyes, the youngest face), and never show anatomy.
 * Code: MIT (see [LICENSE](LICENSE)). Assets: see [NOTICE-ASSETS.md](NOTICE-ASSETS.md). No MakeHuman/MPFB *code* is used; the runtime is an independent implementation.
