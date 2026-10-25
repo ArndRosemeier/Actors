@@ -187,3 +187,26 @@ describe("garments on one layer", () => {
     expect(r.shirt).toBe(-a.shirt);
   });
 });
+
+describe("fitted garments over fitted garments", () => {
+  it("lifts the outer one off the one worn under it, whichever is outer", async () => {
+    const zs = async (order: string[]) => {
+      const rt = await tinyPack();
+      const actor = new ThreeActor(rt);
+      actor.setGarmentOrder(order);
+      actor.setVisible("shirt", true);
+      actor.setVisible("hat", true);
+      actor.flushVisibility();
+      actor.applyShape(rt.evaluateLoaded(new Map(), undefined, undefined, actor.neededMeshes()));
+      actor.flushVisibility();
+      const z = (n: string) => (actor.meshes.get(n)!.geometry.getAttribute("position").array as Float32Array)[2];
+      return { shirt: z("shirt"), hat: z("hat") };
+    };
+    // Both are fitted to the same spot, on the same layer: the later one sits 3 mm on top.
+    const a = await zs(["shirt", "hat"]);
+    expect(a.hat - a.shirt).toBeCloseTo(0.003, 4);
+    const b = await zs(["hat", "shirt"]);
+    expect(b.shirt - b.hat).toBeCloseTo(0.003, 4);
+    expect(b.hat).toBeCloseTo(a.shirt, 6); // the inner one stays where it was fitted
+  });
+});
