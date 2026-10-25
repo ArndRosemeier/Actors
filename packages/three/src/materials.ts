@@ -3,6 +3,7 @@ import { useDualQuaternionSkinning } from "./dqs";
 import { GLSL_BIND_VERTEX, GLSL_EYE, GLSL_NOISE, GLSL_PATTERN, GLSL_STUBBLE } from "./racepatterns";
 import { METAL_FABRICS, fabricNormalMap, lashAlphaMap, poreNormalMap } from "./procedural";
 import { type ScreenTexturePool, useScreenMaterial } from "./screens";
+import { srgb } from "./color";
 
 /**
  * Skin: physically based base + region tints from masks (lips, areolae,
@@ -43,9 +44,10 @@ export interface SkinUniforms {
 
 export function createSkinUniforms(): SkinUniforms {
   return {
-    uTone: { value: new THREE.Color(0.8, 0.6, 0.5) },
+    uTone: { value: srgb(0.8, 0.6, 0.5) }, // until setSkinTone
     uMaskA: { value: null },
     uMaskB: { value: null },
+    // Lip and areola are factors on the tone (linear); brow, accent and stubble dark linear colours.
     uLip: { value: new THREE.Color(1.0, 0.62, 0.62) },
     uAreola: { value: new THREE.Color(0.78, 0.58, 0.52) },
     uBrowColor: { value: new THREE.Color(0.03, 0.02, 0.012) },
@@ -338,12 +340,12 @@ export function createClothMaterial(
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform vec3 uTint;\nuniform float uTintMix;\nuniform float uTintMeanLum;")
+      .replace("#include <common>", "#include <common>\nuniform vec3 uTint;\nuniform float uTintMix;\nuniform float uTintMeanLum;\n// A pixel's brightness over the texture's mean, with a soft knee above 1: bright patches of a dark,\n// high-contrast texture stay lighter than the tint instead of turning white (gain below 2).\nfloat tintGain( float g ) { return g > 1.0 ? 1.0 + ( g - 1.0 ) / g : g; }")
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
 float clothLum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
-diffuseColor.rgb = mix( diffuseColor.rgb, uTint * clamp( clothLum / uTintMeanLum, 0.0, 3.0 ), uTintMix );`,
+diffuseColor.rgb = mix( diffuseColor.rgb, uTint * tintGain( clothLum / uTintMeanLum ), uTintMix );`,
       )
       // Cut-outs (lace, fishnet) from the texture's full-resolution alpha: smaller mip levels blur the
       // transparent space around UV islands into the cloth and punched holes along every seam from afar.
@@ -390,12 +392,12 @@ export function createHairMaterial(map: THREE.Texture | null, blended = false): 
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform vec3 uHairTint;\nuniform float uHairMix;\nuniform float uHairMeanLum;")
+      .replace("#include <common>", "#include <common>\nuniform vec3 uHairTint;\nuniform float uHairMix;\nuniform float uHairMeanLum;\n// A pixel's brightness over the texture's mean, with a soft knee above 1: bright patches of a dark,\n// high-contrast texture stay lighter than the tint instead of turning white (gain below 2).\nfloat tintGain( float g ) { return g > 1.0 ? 1.0 + ( g - 1.0 ) / g : g; }")
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
 float hairLum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
-diffuseColor.rgb = mix( diffuseColor.rgb, uHairTint * clamp( hairLum / uHairMeanLum, 0.0, 2.5 ), uHairMix );`,
+diffuseColor.rgb = mix( diffuseColor.rgb, uHairTint * tintGain( hairLum / uHairMeanLum ), uHairMix );`,
       );
   };
   mat.customProgramCacheKey = () => "actors-hair";

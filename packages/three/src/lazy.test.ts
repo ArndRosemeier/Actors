@@ -162,3 +162,28 @@ describe("cross-fades", () => {
     expect(actor.currentAction!.getEffectiveWeight()).toBe(1);
   });
 });
+
+describe("garments on one layer", () => {
+  it("are drawn in outfit order, later ones further out, before and after their meshes exist", async () => {
+    const offsets = async (reversedDepth: boolean, order: string[]) => {
+      const rt = await tinyPack();
+      const actor = new ThreeActor(rt, undefined, { reversedDepth });
+      actor.setVisible("shirt", true);
+      actor.flushVisibility();
+      actor.setGarmentOrder(order); // the shirt exists, the hat not yet
+      actor.setVisible("hat", true);
+      actor.flushVisibility();
+      actor.applyShape(rt.evaluateLoaded(new Map(), undefined, undefined, actor.neededMeshes()));
+      const units = (n: string) => (actor.meshes.get(n)!.material as import("three").Material).polygonOffsetUnits;
+      return { shirt: units("shirt"), hat: units("hat") };
+    };
+    const a = await offsets(false, ["shirt", "hat"]);
+    expect(a.hat).toBeLessThan(a.shirt); // more negative: nearer the camera
+    const b = await offsets(false, ["hat", "shirt"]);
+    expect(b.shirt).toBeLessThan(b.hat);
+    expect(b.hat).toBe(a.shirt); // the inner one keeps its layer's offset
+    const r = await offsets(true, ["shirt", "hat"]);
+    expect(r.hat).toBeGreaterThan(r.shirt); // reversed depth: the other sign
+    expect(r.shirt).toBe(-a.shirt);
+  });
+});

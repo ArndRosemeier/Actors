@@ -356,6 +356,8 @@ export class Character {
     const a = this.actor;
     // Underwear under outer clothes is not drawn at all, so it can't peek through them.
     const concealed = concealedGarments(this.catalog, c.outfit);
+    // Garments on the same layer are drawn in outfit order (inner first), so they don't cut through each other.
+    a.setGarmentOrder(c.outfit);
     for (const g of this.catalog.garments) {
       a.setVisible(g.id, c.outfit.includes(g.id));
       a.setConcealed(g.id, concealed.includes(g.id));
