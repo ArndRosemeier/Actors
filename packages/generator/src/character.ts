@@ -50,7 +50,15 @@ export interface CharacterOptions {
   shareWith?: Character;
 }
 
-const SKIN_TONES = [new THREE.Color(0.93, 0.76, 0.66), new THREE.Color(0.78, 0.57, 0.43), new THREE.Color(0.5, 0.33, 0.22), new THREE.Color(0.25, 0.15, 0.1)];
+/** Procedural skin tones from light to dark, as sRGB (the colours one sees; `new Color(r, g, b)` would read them as linear and turn them almost white). */
+const SKIN_TONES = [[0.93, 0.76, 0.66], [0.78, 0.57, 0.43], [0.5, 0.33, 0.22], [0.25, 0.15, 0.1]].map(([r, g, b]) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace));
+
+/** The procedural skin colour for `skinTone` (0 = light .. 1 = dark). */
+export function skinToneColor(tone: number): THREE.Color {
+  const f = Math.min(1, Math.max(0, tone)) * (SKIN_TONES.length - 1);
+  const i = Math.min(SKIN_TONES.length - 2, Math.floor(f));
+  return SKIN_TONES[i].clone().lerp(SKIN_TONES[i + 1], f - i);
+}
 
 /**
  * A complete, animated character: body shape, skin, eyes, hair, eyebrows,
@@ -381,10 +389,8 @@ export class Character {
     a.setPartColor(["horn"], c.hornColor ?? "#d9cfb4");
     if (c.eyeColor) a.setIris(irisFromColor(c.eyeColor));
     else if (IRIS_PRESETS[c.eyes]) a.setIris(c.eyes);
-    const f = Math.min(1, Math.max(0, c.skinTone)) * (SKIN_TONES.length - 1);
-    const i = Math.min(SKIN_TONES.length - 2, Math.floor(f));
     const custom = c.skinColor ? new THREE.Color(c.skinColor) : null;
-    a.setSkinTone(custom ?? SKIN_TONES[i].clone().lerp(SKIN_TONES[i + 1], f - i));
+    a.setSkinTone(custom ?? skinToneColor(c.skinTone));
     // Photo skin: scale its channels so its mean colour becomes the custom colour.
     const ref = custom && c.skin === "photo" ? this.human.skinTextureTone(c.body) : null;
     if (custom && ref) {
