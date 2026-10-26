@@ -6,8 +6,8 @@ The character generator ships as six installable packages, attached to each [Git
 |---|---|
 | `@actors/generator` | `Character`, `CharacterStage`, `CharacterEditor`, `createCharacterGenerator` ([README](../packages/generator/README.md)). Pulls in the three below. |
 | `@actors/human` | Human sliders, races, robots, expressions, and the `@actors/human/worker` Web Worker entry. |
-| `@actors/three` | three.js adapter (materials, skinning, playback). |
-| `@actors/animal` | Generated animals (dog breeds, squirrel, ...) on a shared quadruped rig, plus the `@actors/animal/worker` entry. Install its tarball separately. |
+| `@actors/three` | three.js adapter (materials, skinning, playback), and `loadLibraryAnimal` for the library animals. |
+| `@actors/animal` | Generated animals (dog breeds, squirrel, ...) on a shared quadruped rig, the `@actors/animal/worker` entry, and `@actors/animal/library` (catalogue of the private library animals, see below). Install its tarball separately. |
 | `@actors/drone` | Procedural drones from building blocks (`@actors/three` has the matching adapter). Install its tarball separately. |
 | `@actors/core` | Renderer-free runtime (pack format, morphs, fitting, retargeting). |
 
@@ -169,9 +169,62 @@ setFurCoat(fur, hen.coat, hen.shape.size); // drawn feathers: lacing, barring, h
 actor.play(await runtime.loadClip("peck")); // runtime: the chicken pack's runtime
 ```
 
+## Library animals (WildMesh3D, private)
+
+Besides the generated animals, Actors can load 100 ready-made, rigged and animated animals (64 realistic, 36 stylized: wolf, fox, bears, big cats, deer, horse, cow, elephant, birds, fish, ...; 3,744 clips). They are licensed for Arnd's projects only, so the models are **not** in Actors, its releases or its Pages site: they live in the private repository [ArndRosemeier/PrivateAssets](https://github.com/ArndRosemeier/PrivateAssets) (`wildmesh3d/<id>/<id>.glb`). Actors has the loader and a catalogue of names and facts; the [library page](https://arndrosemeier.github.io/Actors/library.html) lists every animal with its clips.
+
+**Get the files into your game.** Add PrivateAssets as a git submodule (needs access to the private repo, also in CI), and copy the animals you use into your public folder before `dev` and `build`:
+
+```bash
+git submodule add https://github.com/ArndRosemeier/PrivateAssets.git vendor/private-assets
+```
+
+```js
+// scripts/library-animals.mjs ("predev" and "prebuild" in package.json)
+import { cpSync, rmSync } from "node:fs";
+const USED = ["wolf", "deer", "horse"];
+rmSync("public/wildmesh3d", { recursive: true, force: true });
+for (const id of USED) cpSync(`vendor/private-assets/wildmesh3d/${id}`, `public/wildmesh3d/${id}`, { recursive: true });
+```
+
+Put `public/wildmesh3d/` in `.gitignore`. Shipping the animals inside a built game is fine; committing the files to a public repo, or offering them for download on their own, is not. (A git dependency, `npm i -D git+https://github.com/ArndRosemeier/PrivateAssets.git`, works too, but clones all 270 MB into `node_modules`.)
+
+**Load and play.** `loadLibraryAnimal` (from `@actors/three`) loads an animal once and clones it for every further call, so a herd costs one download:
+
+```ts
+import { loadLibraryAnimal } from "@actors/three";
+
+const wolf = await loadLibraryAnimal("wolf", { baseUrl: "./wildmesh3d/", rootMotion: "move" });
+scene.add(wolf.object);                      // faces +Z; position and turn wolf.object
+wolf.play(wolf.clipFor("walk")!, { fade: 0.3 });
+
+// every frame:
+const step = wolf.update(dt);                // advances the clip; returns this frame's ground travel
+wolf.updateLod(camera);                      // farther away: animation updated less often, no shadows
+```
+
+- `clipNames` lists the clips; clip names differ between rigs ("WalkFast_F", "G0_Walk", "walk_fwd_01"), so `clipFor("idle" | "walk" | "trot" | "run" | "eat" | "sit" | "lie" | "attack" | "hit" | "death" | "swim" | "fly")` picks the plain forward loop (skipping transitions, turns and broken partial clips). `play(name, { fade, loop: false, speed })`; `play(null)` stops.
+- `rootMotion`: `"in-place"` (default) keeps the animal on `object` and only reports the travel; `"move"` moves `object` along it, turned by the object's rotation; `"keep"` plays the clips as authored. The travel is the clip's root motion where it has one, and otherwise (most clips walk on the spot) estimated from the planted foot sliding back, so `speedOf(name)` gives a ground speed in m/s for every walk, trot and run (wolf walk 2.0, cat walk 0.5, horse gallop 7.2). With "in-place", steer by moving `object` at `speedOf(clip)` yourself.
+- `travelled` sums the steps; `height()` and `size` are the bind-pose size; `dispose()` stops the animal and removes it (shared geometry stays loaded; `clearLibraryCache()` forgets the files).
+
+**Pick animals in code** with the catalogue (no files needed), from `@actors/animal/library`:
+
+```ts
+import { LIBRARY_ANIMALS, findLibraryAnimals, libraryAnimal, libraryClips } from "@actors/animal/library";
+
+findLibraryAnimals("deer");          // deer, deer-1, female-deer, raindeer-stylized (a reindeer), red-deer-male
+findLibraryAnimals("bird stylized"); // by name, group (mammal, bird, reptile, fish, crustacean) and set
+libraryAnimal("horse");              // { name, set, group, rig: "G", size: [0.93, 1.95, 2.86], triangles, mb, clips }
+libraryClips("horse", /gallop/i);    // clip names
+```
+
+Animals with the same `rig` family share bone names, so their clips play on each other (`animal.mixer.clipAction(other.clip("Idle")!)`).
+
+Quirks: the horse and `donkey-1` are big files (13 MB, 288-bone rigs with tack; `donkey-1` is horse-sized); the crow and mammoth were rescaled; a few clips are partial (only some channels, e.g. the buck's "Walk"; `clipFor` skips them, the library page greys them out); clip names are the pack's own, typos included. To preview the models on the library page, serve PrivateAssets' `wildmesh3d/` folder locally (with CORS) and open `library.html?base=<its URL>` from `npm run dev`.
+
 ## Licences and credits
 
-Code is MIT. Most assets are CC0, but some garments and hairstyles are **CC-BY**: if your app shows a character wearing one, credit its author. `character.catalog` carries the credit line for those choices (`credit`), and `NOTICE-ASSETS.md` (also inside each package) lists them all. The CMU motion capture data may be used freely but not resold as data.
+Code is MIT. Most assets are CC0, but some garments and hairstyles are **CC-BY**: if your app shows a character wearing one, credit its author. `character.catalog` carries the credit line for those choices (`credit`), and `NOTICE-ASSETS.md` (also inside each package) lists them all. The CMU motion capture data may be used freely but not resold as data. The library animals (WildMesh3D) are not part of Actors: their licence covers Arnd's own projects only (use, modify, sell games with them; don't redistribute or resell the models themselves).
 
 ## Publishing a new version (maintainers)
 
