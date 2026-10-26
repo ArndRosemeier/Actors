@@ -164,8 +164,10 @@ export class Character {
     const robot = !!(patch.robot ?? (patch.skeletal ? false : this.cfg.robot));
     const skeletal = !robot && !!(patch.skeletal ?? this.cfg.skeletal);
     this.cfg = { ...this.cfg, ...defined, body, robotLook, skeletalLook, robot, skeletal, outfit: this.normalizeOutfit(patch.outfit ?? this.cfg.outfit) };
-    const race = sanitizeRace({ race: this.cfg.race, race2: this.cfg.race2, mix: this.cfg.raceMix, size: this.cfg.raceSize });
-    Object.assign(this.cfg, { race: race.race, race2: race.race2, raceMix: race.race2 ? race.mix : this.cfg.raceMix, raceSize: race.size });
+    const race = sanitizeRace({ race: this.cfg.race, race2: this.cfg.race2, mix: this.cfg.raceMix, size: this.cfg.raceSize, youth: this.cfg.youth });
+    Object.assign(this.cfg, { race: race.race, race2: race.race2, raceMix: race.race2 ? race.mix : this.cfg.raceMix, raceSize: race.size, youth: race.youth ?? 0 });
+    // A child never shows anatomy.
+    if (this.cfg.youth > 0) this.cfg.anatomy = false;
     const c = this.cfg, clamp01 = (v: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
     if (!BEARD_STYLES.includes(c.beard)) c.beard = "none";
     if (!HORN_STYLES.includes(c.horns)) c.horns = "none";
@@ -462,7 +464,7 @@ export class Character {
     const robotConfig = c.robot ? { head: r.head, ears: r.ears, plating: r.plating, thickness: r.thickness, core: r.core } : null;
     const k = c.skeletalLook;
     const skeletalConfig = c.skeletal && !c.robot ? { robust: k.robust, wear: k.wear, missing: k.missing, jaw: k.jaw, eyes: k.eyes, heart: k.heart, seed: c.seed } : null;
-    const shapeKey = JSON.stringify([c.body, c.details, c.race, c.race2, c.raceMix, c.raceSize, robotConfig, skeletalConfig]);
+    const shapeKey = JSON.stringify([c.body, c.details, c.race, c.race2, c.raceMix, c.raceSize, c.youth, robotConfig, skeletalConfig]);
     // Only what is worn is fitted; wearing something the last shape left out needs a new one.
     const needed = this.actor.neededMeshes();
     const unfitted = !!this.shape && needed.some((n) => !this.fittedNames.has(n));
@@ -472,8 +474,8 @@ export class Character {
       h.fit = needed;
       const t0 = performance.now();
       // A skeleton has no soft tissue: it is built from an average-build body of the same height and proportions.
-      h.params = skeletalConfig ? { ...c.body, weight: 0.5, muscle: 0.5, cupSize: 0, firmness: 0.5 } : { ...c.body };
-      h.race = sanitizeRace({ race: c.race, race2: c.race2, mix: c.raceMix, size: c.raceSize });
+      h.params = skeletalConfig ? { ...c.body, weight: 0.5, muscle: 0.5, cupSize: 0, firmness: 0.5 } : c.youth > 0 ? childParams(c.body, c.youth) : { ...c.body };
+      h.race = sanitizeRace({ race: c.race, race2: c.race2, mix: c.raceMix, size: c.raceSize, youth: c.youth });
       h.modifierValues = { ...c.details };
       this.shape = await h.evaluate(this.shape);
       const shape = this.shape;
@@ -584,4 +586,11 @@ export function irisFromColor(hex: string): { hue: number; sat: number; light: n
   const sat = max > 0 ? (max - min) / max : 0;
   // The iris texture is a mid brown (value ~0.35, saturation ~0.6).
   return { hue: hsl.h, sat: Math.min(1.4, Math.max(0.15, sat / 0.6)), light: Math.min(2.6, Math.max(0.4, max / 0.35)) };
+}
+
+/** A child's body on the adult model: the youngest face, a flat chest, slight and little muscle (see YOUTH). */
+function childParams(body: HumanParams, youth: number): HumanParams {
+  const t = Math.min(1, youth * 2); // full child build from youth 0.5 (about ten) down
+  const lerp = (a: number, b: number) => a + (b - a) * t;
+  return { ...body, ageYears: ADULT_MIN_AGE, cupSize: lerp(body.cupSize, 0), firmness: lerp(body.firmness, 0.5), muscle: lerp(body.muscle, 0.2), weight: lerp(body.weight, 0.4), proportions: lerp(body.proportions, 0.5) };
 }

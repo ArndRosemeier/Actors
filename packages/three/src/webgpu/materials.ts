@@ -19,6 +19,7 @@ import {
   If,
   TBNViewMatrix,
   attribute,
+  abs,
   clamp,
   diffuseContribution,
   dot,
@@ -38,6 +39,7 @@ import {
   property,
   select,
   sin,
+  smoothstep,
   sqrt,
   texture,
   uniform,
@@ -399,7 +401,11 @@ const collidersGraph = once(() => {
         If(dist.lessThan(soft), () => {
           // Monotonic remap [0, soft] -> [r, soft]: stacked cloth layers keep their order.
           const target = r.add(soft.sub(r).mul(dist.div(soft)));
-          const m = n.sub(axis.mul(dot(n, axis))).toVar();
+          // Away from the centre line on an upright leg; up on a level one (a seated lap: the centre line
+          // points along the thigh there, and the cloth, skinned between the legs, belongs on top).
+          const side = n.sub(axis.mul(dot(n, axis))).toVar();
+          const up = vec3(0, 1, 0).sub(axis.mul(axis.y));
+          const m = mix(side, up, smoothstep(0.3, 0.8, float(1).sub(abs(axis.y)))).toVar();
           const ml = m.length().toVar();
           If(ml.greaterThanEqual(1e-3), () => {
             m.divAssign(ml);
