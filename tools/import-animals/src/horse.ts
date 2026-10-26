@@ -256,17 +256,25 @@ export function horseBody(source: Rig): HorseBody {
   const headLen = len(sub(tip, poll));
   const HEAD: [number, number, number, number][] = [
     // t along the axis, height in front of it (forehead side) and behind it (jaw side) in pixels, half width (m).
-    [-0.02, 8, 26, 0.06],
-    [0.08, 15, 50, 0.085],
-    [0.2, 20, 62, 0.1],
-    [0.32, 22, 58, 0.1],
-    [0.45, 21, 44, 0.088],
-    [0.58, 19, 33, 0.074],
-    [0.7, 18, 27, 0.064],
-    [0.8, 17, 25, 0.06],
-    [0.89, 16, 26, 0.064],
-    [0.96, 11, 24, 0.058],
-    [1.0, 4, 16, 0.042],
+    // Profile and widths after a sculpted reference horse (measured, scaled to this head's length): a short,
+    // deep wedge with big jowls behind, the face narrowing to the nose and widening again at the muzzle.
+    [-0.02, 10, 30, 0.07],
+    [0.04, 20, 40, 0.08],
+    [0.1, 18, 50, 0.095],
+    [0.2, 20, 76, 0.1],
+    [0.3, 22, 88, 0.108],
+    [0.4, 23, 88, 0.095],
+    [0.46, 21, 82, 0.085],
+    [0.52, 21, 76, 0.076],
+    [0.58, 22, 68, 0.068],
+    [0.64, 23, 61, 0.062],
+    [0.7, 23, 52, 0.057],
+    [0.76, 23, 45, 0.054],
+    [0.82, 23, 38, 0.058],
+    [0.88, 22, 35, 0.064],
+    [0.93, 16, 33, 0.06],
+    [0.97, 12, 22, 0.048],
+    [1.0, 4, 14, 0.035],
   ];
   // Sections lie across the axis; "up" (the loft's v) points to the forehead.
   const hd = ([t, up, down, w]: [number, number, number, number]): LoftKey => ({ at: add(poll, scale(headAxis, t * headLen)), w: c(w, 0.6), up: c(up * PX, 0.6), down: c(down * PX, 0.6), n: 2.3 });
@@ -279,20 +287,20 @@ export function horseBody(source: Rig): HorseBody {
     return add(add(poll, scale(headAxis, t * headLen)), add(scale(v, fwd), [x, 0, 0]));
   };
   // Jowls: the big round cheeks (masseters) over the back of the lower jaw.
-  for (const s of [1, -1]) put(ellipsoid("jowl", headPt(0.24, -0.105, 0.074 * s), frameFrom(headAxis, [1, 0, 0]), [0.05, 0.1, 0.1]), 0.08, ["head", "mouth"], "head", BACKWARD, 0.6);
+  for (const s of [1, -1]) put(ellipsoid("jowl", headPt(0.36, -0.13, 0.075 * s), frameFrom(headAxis, [1, 0, 0]), [0.045, 0.1, 0.11]), 0.1, ["head", "mouth"], "head", BACKWARD, 0.6);
   // Facial crest below the eye, running towards the nose.
   for (const s of [1, -1]) put(capsule("facialcrest", headPt(0.26, -0.035, 0.085 * s), headPt(0.5, -0.03, 0.068 * s), 0.012, 0.008), 0.03, ["head"], "head", BACKWARD, 0.6);
   // Lower jaw: the two mandibles meeting at the chin; the chin groove and lower lip.
-  put(capsule("jaw", headPt(0.42, -0.1), headPt(0.88, -0.075), 0.045, 0.035, [1, 0, 0], [1.2, 0.9]), 0.05, ["mouth", "head"], "jaw", BACKWARD, 0.6);
+  put(capsule("jaw", headPt(0.48, -0.17), headPt(0.86, -0.075), 0.045, 0.032, [1, 0, 0], [1.2, 0.9]), 0.06, ["mouth", "head"], "jaw", BACKWARD, 0.6);
   put(ellipsoid("chin", headPt(0.93, -0.085), frameFrom(headAxis, [1, 0, 0]), [0.036, 0.03, 0.036]), 0.025, ["mouth_tip", "mouth"], "jaw", BACKWARD, 0.5);
   // Muzzle: soft lips and the big nostrils.
-  put(ellipsoid("muzzle", headPt(0.94, -0.01), frameFrom(headAxis, [1, 0, 0]), [0.06, 0.055, 0.05]), 0.03, ["head_leaf", "nose"], "muzzle", BACKWARD, 0.4);
+  put(ellipsoid("muzzle", headPt(0.93, -0.015), frameFrom(headAxis, [1, 0, 0]), [0.066, 0.06, 0.055]), 0.035, ["head_leaf", "nose"], "muzzle", BACKWARD, 0.4);
   const nostrils: Vec3[] = [];
   for (const s of [1, -1]) {
-    const n = headPt(0.92, 0.015, 0.045 * s);
+    const n = headPt(0.92, 0.012, 0.05 * s);
     nostrils.push(n);
     // A comma-shaped opening: long, slanting up and back, carved into the side of the muzzle.
-    put(ellipsoid("nostril", n, frameFrom(normalize(add(headAxis, [0, 0.9, 0])), [s, 0, 0]), [0.016, 0.007, 0.026]), 0.006, ["nose", "head_leaf"], "nose", BACKWARD, 0, true);
+    put(ellipsoid("nostril", n, frameFrom(normalize(add(headAxis, [0, 0.9, 0])), [s, 0, 0]), [0.02, 0.009, 0.03]), 0.006, ["nose", "head_leaf"], "nose", BACKWARD, 0, true);
     // Its rim (the alar fold) above.
     put(capsule("nostrilrim", headPt(0.88, 0.035, 0.04 * s), headPt(0.95, 0.03, 0.048 * s), 0.008, 0.006), 0.012, ["nose", "head_leaf"], "muzzle", BACKWARD, 0.4);
   }
@@ -303,7 +311,7 @@ export function horseBody(source: Rig): HorseBody {
   // Eyes: large, on the sides of the head behind the facial crest; sunk into almond lids.
   const eyeR = 0.024;
   const eyes = [1, -1].map((s) => {
-    const from = headPt(0.27, 0.0, 0);
+    const from = headPt(0.3, 0.0, 0);
     const out = normalize([s, 0.12, 0.28]);
     let t = 0;
     while (t < 0.3 && bodyDistance(parts, add(from, scale(out, t))) < 0) t += 0.0005;
@@ -312,6 +320,11 @@ export function horseBody(source: Rig): HorseBody {
   });
   for (const e of eyes) {
     put(ellipsoid("brow", add(e.center, [0.006 * e.side, 0.02, -0.006]), frameFrom([0, 0.2, 1]), [0.018, 0.012, 0.03]), 0.02, ["head"], "head", BACKWARD, 0.5);
+    // Eyelids: soft rims over the top and under the eye, so it sits in an almond opening.
+    for (const [up, r] of [[0.82, 0.0065], [-0.78, 0.0045]] as const) {
+      const rim = (fwd: number) => add(e.center, add(scale(e.out, eyeR * 0.5), [0, eyeR * up, eyeR * fwd]));
+      put(capsule("lid", rim(-0.95), rim(0.9), r, r), 0.008, ["head"], "head", BACKWARD, 0.3);
+    }
     put(lens("socket", add(e.center, scale(e.out, eyeR * 0.55)), frameFrom(e.out, normalize([0, 0.15, -1])), eyeR * 1.35, eyeR * 0.62), 0.004, ["head"], "head", BACKWARD, 0.3, true);
   }
 

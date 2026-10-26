@@ -551,7 +551,7 @@ vec3 furCoat() {
   white = max( white, smoothstep( 0.25, 0.5, blaze * 1.4 * uMarkB.z + muzzleT * uMarkB.z * 0.6 * step( 0.5, uMarkB.z ) + n * 0.1 ) * step( 0.01, uMarkB.z ) );
   white = max( white, smoothstep( 1.0 - 0.3 * uMarkB.w, 1.0 - 0.24 * uMarkB.w, tailT ) * step( 0.01, uMarkB.w ) );
   // Horse face marking: wider down the face's midline as the amount grows (strip, blaze, bald face).
-  white = max( white, smoothstep( 1.0 - uMarkI.w, 1.06 - uMarkI.w, vCoatD.w + n * 0.08 ) * step( 0.01, uMarkI.w ) * step( 0.002, vCoatD.w ) * ( 1.0 - smoothstep( 0.3, 0.6, vCoatE.z ) ) );
+  white = max( white, smoothstep( 0.96 - uMarkI.w, 1.1 - uMarkI.w, vCoatD.w + n * 0.16 ) * step( 0.01, uMarkI.w ) * step( 0.002, vCoatD.w ) * ( 1.0 - smoothstep( 0.3, 0.6, vCoatE.z ) ) );
   col = mix( col, uWhite, white );
   // Frosted (grizzled) coats: salt-and-pepper flecks of light and dark hair tips, big enough to read from afar.
   {

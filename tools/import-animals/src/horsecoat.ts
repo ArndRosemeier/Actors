@@ -80,10 +80,10 @@ export const horseCoat: CoatFunction = (dogBody, P, N, W, B, regions, furLen) =>
     const under = Math.min(1, torso[v] * smoothstep(-0.2, -0.7, nn[1]) + inner * smoothstep(0.3, 0.6, p[1]));
     // Muzzle: the soft nose and lips (dark on bays, mealy on some), fading out up the face.
     const muz = Math.min(1, muzzle[v] + jaw[v] * 0.7 + nose[v]) * smoothstep(0.55, 0.85, muzzleT);
-    // Face stripe: 1 along the midline of the front of the face, from the forehead to the nose.
+    // Face stripe: 1 along the midline of the front of the face, from the forehead to the nose, widening towards the nose.
     const along = ((p[1] - poll[1]) * faceDir[1] + (p[2] - poll[2]) * faceDir[2]) / (faceLen * faceLen);
     const facing = nn[2] * 0.8 + nn[1] * 0.45;
-    const stripe = headW * (1 - ear[v]) * Math.exp(-((p[0] / 0.022) ** 2)) * smoothstep(0.1, 0.45, facing) * smoothstep(0.12, 0.22, along) * (1 - smoothstep(0.4, 0.8, mane[v]));
+    const stripe = headW * (1 - ear[v]) * Math.exp(-((p[0] / (0.012 + 0.026 * Math.max(0, Math.min(1, along)) ** 1.5)) ** 2)) * smoothstep(0.1, 0.45, facing) * smoothstep(0.12, 0.22, along) * (1 - smoothstep(0.4, 0.8, mane[v]));
     coatD.set([back, under, muz, stripe], v * 4);
 
     // Pale (mealy) areas: muzzle and around the eyes.
