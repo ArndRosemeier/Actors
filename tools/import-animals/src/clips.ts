@@ -68,6 +68,13 @@ export interface ClipOptions {
   tailMotion?: number;
   isTail?: (name: string) => boolean;
   /**
+   * Source animation whose first frame is the tail's neutral pose. The tail's motion is then
+   * measured from there instead of from the rig's rest pose. Needed when the source tail rests
+   * straight out behind but hangs in every clip while ours hangs at rest: measured from the
+   * source's rest, every clip would swing our tail forward between the hind legs.
+   */
+  tailNeutral?: string;
+  /**
    * Per clip (our name): bones that take their motion from another source animation instead
    * (looped to its length), e.g. a grazing cow keeps the standing legs and back of the idle.
    */
@@ -75,7 +82,7 @@ export interface ClipOptions {
 }
 
 export function convertClips(g: Gltf, rig: Rig, source = "Mesh2Motion fox rig (CC0)", options: ClipOptions = {}): { def: ClipDef; data: Float32Array }[] {
-  const { clips = DOG_CLIPS, rootBone = "Hips", feet = (n: string) => /Tip_[LR]$/.test(n) && /Leg/.test(n), tailMotion = TAIL_MOTION, isTail = (n: string) => n.startsWith("Tail"), borrow = {} } = options;
+  const { clips = DOG_CLIPS, rootBone = "Hips", feet = (n: string) => /Tip_[LR]$/.test(n) && /Leg/.test(n), tailMotion = TAIL_MOTION, isTail = (n: string) => n.startsWith("Tail"), borrow = {}, tailNeutral } = options;
   const nodes = rig.bones.map((b) => b.node);
   const names = rig.bones.map((b) => b.name);
   const hipsK = rig.index.get(rootBone)!;
@@ -83,6 +90,19 @@ export function convertClips(g: Gltf, rig: Rig, source = "Mesh2Motion fox rig (C
   const rest = worldPose(g, restLocals(g));
   const refDirs = nodes.flatMap((j) => normalize(rotate(rest.rot[j], [0, 1, 0])));
   const restInv = nodes.map((j) => quatConjugate(rest.rot[j]));
+  if (tailNeutral) {
+    const anim = g.animations.find((a) => a.name === tailNeutral);
+    if (!anim) throw new Error(`No animation ${tailNeutral}`);
+    const neutral = worldPose(g, animLocals(g, anim, 0));
+    // The neutral tail with the hips taken back to their rest turn.
+    const hipsBack = quatMul(rest.rot[hips], quatConjugate(neutral.rot[hips]));
+    nodes.forEach((j, k) => {
+      if (!isTail(names[k])) return;
+      const r = quatMul(hipsBack, neutral.rot[j]);
+      restInv[k] = quatConjugate(r);
+      refDirs.splice(k * 3, 3, ...normalize(rotate(r, [0, 1, 0])));
+    });
+  }
   const footY = Math.min(...rig.bones.filter((b) => feet(b.name)).map((b) => rest.pos[b.node][1]));
   const hipHeight = rest.pos[hips][1] - footY;
   const out: { def: ClipDef; data: Float32Array }[] = [];

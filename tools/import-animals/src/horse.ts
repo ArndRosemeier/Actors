@@ -308,24 +308,30 @@ export function horseBody(source: Rig): HorseBody {
   const mouthBack = headPt(0.86, -0.05), mouthFront = headPt(1.04, -0.06);
   put(box("mouth", lerp(mouthBack, mouthFront, 0.5), frameFrom(sub(mouthFront, mouthBack)), [0.07, 0.0025, len(sub(mouthFront, mouthBack)) / 2]), 0.004, ["mouth"], "jaw", BACKWARD, 0, true);
 
-  // Eyes: large, on the sides of the head behind the facial crest; sunk into almond lids.
-  const eyeR = 0.024;
+  // Eyes: large, on the sides of the head behind the facial crest. A horse's eye shows as an
+  // almond between heavy lids, not a round ball: the ball is flattened and sunk to the skin, and
+  // only a shallow, long opening is cut over it.
+  const eyeR = 0.028, eyeDepth = 0.55, sink = 0.52;
   const eyes = [1, -1].map((s) => {
     const from = headPt(0.3, 0.0, 0);
     const out = normalize([s, 0.12, 0.28]);
     let t = 0;
     while (t < 0.3 && bodyDistance(parts, add(from, scale(out, t))) < 0) t += 0.0005;
-    const center = add(from, scale(out, t - eyeR * 0.9));
+    const center = add(from, scale(out, t - eyeR * sink));
     return { center, radius: eyeR, look: normalize([0.85 * s, -0.1, 0.55]) as Vec3, out, side: s };
   });
   for (const e of eyes) {
-    put(ellipsoid("brow", add(e.center, [0.006 * e.side, 0.02, -0.006]), frameFrom([0, 0.2, 1]), [0.018, 0.012, 0.03]), 0.02, ["head"], "head", BACKWARD, 0.5);
-    // Eyelids: soft rims over the top and under the eye, so it sits in an almond opening.
-    for (const [up, r] of [[0.82, 0.0065], [-0.78, 0.0045]] as const) {
-      const rim = (fwd: number) => add(e.center, add(scale(e.out, eyeR * 0.5), [0, eyeR * up, eyeR * fwd]));
-      put(capsule("lid", rim(-0.95), rim(0.9), r, r), 0.008, ["head"], "head", BACKWARD, 0.3);
-    }
-    put(lens("socket", add(e.center, scale(e.out, eyeR * 0.55)), frameFrom(e.out, normalize([0, 0.15, -1])), eyeR * 1.35, eyeR * 0.62), 0.004, ["head"], "head", BACKWARD, 0.3, true);
+    put(ellipsoid("brow", add(e.center, [0.01 * e.side, 0.024, -0.008]), frameFrom([0, 0.2, 1]), [0.016, 0.009, 0.036]), 0.03, ["head"], "head", BACKWARD, 0.5);
+    // The opening: an almond with pinched corners; the upper lid arches higher towards the back.
+    const rim = ([fwd, up]: readonly [number, number]) => add(e.center, add(scale(e.out, eyeR * (sink + 0.04 - 0.2 * fwd * fwd)), [0, eyeR * up, eyeR * fwd]));
+    const lids: [readonly (readonly [number, number])[], number][] = [
+      [[[-1.0, 0.05], [-0.5, 0.52], [0.1, 0.6], [0.6, 0.38], [0.98, 0.0]], 0.0075],
+      [[[-0.98, 0.0], [-0.4, -0.38], [0.35, -0.42], [0.95, -0.05]], 0.0055],
+    ];
+    for (const [pts, r] of lids)
+      for (let i = 0; i + 1 < pts.length; i++) put(capsule("lid", rim(pts[i]), rim(pts[i + 1]), r, r), 0.008, ["head"], "head", BACKWARD, 0.3);
+    // Socket: a shallow, long cut through the skin over the ball.
+    put(ellipsoid("socket", add(e.center, scale(e.out, eyeR * sink)), frameFrom(e.out, [0, 1, 0]), [eyeR * 0.55, eyeR * 0.95, eyeR * 0.3]), 0.004, ["head"], "head", BACKWARD, 0.3, true);
   }
 
   // Ears: tall, pointed, cupped forward and out.
@@ -470,7 +476,7 @@ export function horseBody(source: Rig): HorseBody {
   return {
     rig,
     parts,
-    eyes: eyes.map(({ center, radius, look }) => ({ center, radius, look })),
+    eyes: eyes.map(({ center, radius, look }) => ({ center, radius, look, depth: eyeDepth })),
     unit: 2,
     band: 4,
     marks: {

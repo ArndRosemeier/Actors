@@ -68,7 +68,8 @@ export interface DogBody {
   band?: number;
   parts: BodyPart[];
   /** Eye centres and radius (eyes are separate meshes in the sockets). */
-  eyes: { center: Vec3; radius: number; look: Vec3 }[];
+  /** `depth`: the ball's depth along `look` as a share of the radius (default 1, a sphere; less gives a flatter ball). */
+  eyes: { center: Vec3; radius: number; look: Vec3; depth?: number }[];
   /** Points that place coat markings: brow spots, nose tip, mouth corner. */
   marks: { brows: Vec3[]; nose: Vec3; mouth: { y0: number; y1: number; z0: number; z1: number; halfWidth: number } };
   /** Whiskers (cats): root on the skin, direction, length, root radius, carrying bone. */
