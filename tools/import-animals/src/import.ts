@@ -67,7 +67,7 @@ function arg(name: string): string | undefined {
 }
 
 /** A UV sphere whose pole looks along `look` (u around, v from the front pole). */
-function eyeSphere(center: Vec3, radius: number, look: Vec3, rings = 14, segments = 20) {
+function eyeSphere(center: Vec3, radius: number, look: Vec3, depth = 1, rings = 14, segments = 20) {
   const w = normalize(look);
   const u = normalize(Math.abs(w[1]) < 0.9 ? [w[2], 0, -w[0]] : [1, 0, 0]);
   const v: Vec3 = [w[1] * u[2] - w[2] * u[1], w[2] * u[0] - w[0] * u[2], w[0] * u[1] - w[1] * u[0]];
@@ -76,7 +76,7 @@ function eyeSphere(center: Vec3, radius: number, look: Vec3, rings = 14, segment
     const th = (r / rings) * Math.PI;
     for (let s = 0; s <= segments; s++) {
       const ph = (s / segments) * Math.PI * 2;
-      const d = [0, 1, 2].map((k) => w[k] * Math.cos(th) + (u[k] * Math.cos(ph) + v[k] * Math.sin(ph)) * Math.sin(th));
+      const d = [0, 1, 2].map((k) => w[k] * Math.cos(th) * depth + (u[k] * Math.cos(ph) + v[k] * Math.sin(ph)) * Math.sin(th));
       positions.push(center[0] + d[0] * radius, center[1] + d[1] * radius, center[2] + d[2] * radius);
       uv.push(s / segments, r / rings);
     }
@@ -271,7 +271,7 @@ function horseSpec(cell: number, triangles: number): AnimalSpec {
     noseTip: body.marks.nose,
     stop: [0, eye[1] + 0.02, eye[2] + 0.04],
     clipSource: "Mesh2Motion horse rig (CC0)",
-    clipOptions: { clips: HORSE_CLIPS, rootBone: "hips", feet: (n) => /_leg_leaf_[lr]$/.test(n), tailMotion: 0.5, isTail: (n) => n.startsWith("tail_") },
+    clipOptions: { clips: HORSE_CLIPS, rootBone: "hips", feet: (n) => /_leg_leaf_[lr]$/.test(n), tailMotion: 0.5, isTail: (n) => n.startsWith("tail_"), tailNeutral: "Idle" },
     crowdDrops: /leaf|^ear_2|^tail_[34]/,
     lodDistances: [8, 24],
     furColor: [0.3, 0.13, 0.06],
@@ -314,7 +314,7 @@ function cowSpec(cell: number, triangles: number): AnimalSpec {
     noseTip: body.marks.nose,
     stop: [0, eye[1] + 0.03, eye[2] + 0.03],
     clipSource: "Mesh2Motion horse rig (CC0)",
-    clipOptions: { clips: COW_CLIPS, rootBone: "hips", feet: (n) => /_leg_leaf_[lr]$/.test(n), tailMotion: 0.6, isTail: (n) => n.startsWith("tail_"), borrow: { eat: COW_GRAZE } },
+    clipOptions: { clips: COW_CLIPS, rootBone: "hips", feet: (n) => /_leg_leaf_[lr]$/.test(n), tailMotion: 0.6, isTail: (n) => n.startsWith("tail_"), tailNeutral: "Idle", borrow: { eat: COW_GRAZE } },
     crowdDrops: /leaf|^ear_2|^tail_[34]/,
     lodDistances: [8, 24],
     furColor: [0.45, 0.38, 0.3],
@@ -373,7 +373,7 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
   const headBone = rig.index.get("Head") ?? rig.index.get("head");
   if (headBone === undefined) throw new Error(`${spec.id}: no head bone for the eyes`);
   const eyeMeshes = body.eyes.map((e) => {
-    const s = eyeSphere(e.center, e.radius * 0.97, e.look);
+    const s = eyeSphere(e.center, e.radius * 0.97, e.look, e.depth);
     const first = positions.length / 3;
     positions.push(...s.positions);
     for (let i = 0; i < s.positions.length / 3; i++) {
