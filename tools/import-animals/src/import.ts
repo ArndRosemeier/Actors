@@ -9,9 +9,11 @@
  *   generated the same way (deer.ts, deercoat.ts, deermorphs.ts);
  * - horse: the rig and clips of Mesh2Motion's CC0 low-poly horse, a bay body
  *   generated the same way (horse.ts, horsecoat.ts, horsemorphs.ts) and tack
- *   (saddle, bridle; tack.ts) with a `saddle` bone where a rider sits.
+ *   (saddle, bridle; tack.ts) with a `saddle` bone where a rider sits;
+ * - cow: the same horse rig and clips, a Braunvieh body (cow.ts, cowcoat.ts,
+ *   cowmorphs.ts), horns and an alpine bell (cowparts.ts).
  *
- *   npm run import:animals [-- --only dog|squirrel|cat|deer|horse] [--out <dir>] [--cell <meters>] [--triangles <n>]
+ *   npm run import:animals [-- --only dog|squirrel|cat|deer|horse|cow] [--out <dir>] [--cell <meters>] [--triangles <n>]
  *
  * Source files are downloaded once into .cache/. No mesh is taken from the
  * sources; only their skeletons and animations.
@@ -40,6 +42,10 @@ import { squirrelBody } from "./squirrel";
 import { squirrelClips } from "./squirrelclips";
 import { FOX_ANIMATIONS, HORSE_ANIMATIONS, HORSE_SOURCE_NOTE, MESH2MOTION_COMMIT, SOURCE_NOTE } from "./source";
 import { type HorseBody, clipRig, horseBody } from "./horse";
+import { type CowBody, cowBody } from "./cow";
+import { cowCoat } from "./cowcoat";
+import { cowMorphs } from "./cowmorphs";
+import { cowParts } from "./cowparts";
 import { horseCoat } from "./horsecoat";
 import { horseMorphs } from "./horsemorphs";
 import { type TackPiece, horseTack } from "./tack";
@@ -272,6 +278,36 @@ function horseSpec(cell: number, triangles: number): AnimalSpec {
   };
 }
 
+const COW_CLIPS: [string, string, boolean, string][] = HORSE_CLIPS.filter(([name]) => name !== "rear");
+
+/** Cow: a Braunvieh on Mesh2Motion's horse rig (Quaternius' cow download was over quota), with horns and a bell. */
+function cowSpec(cell: number, triangles: number): AnimalSpec {
+  const glb = parseGlb(readFileSync(fetchCached(CACHE, HORSE_ANIMATIONS)));
+  const body = cowBody(readRig(glb));
+  const eye = body.eyes[0].center;
+  return {
+    id: "cow",
+    glb,
+    source: clipRig(body.rig),
+    body,
+    coat: cowCoat,
+    morphs: (input) => cowMorphs(input, body),
+    noseTip: body.marks.nose,
+    stop: [0, eye[1] + 0.03, eye[2] + 0.03],
+    clipSource: "Mesh2Motion horse rig (CC0)",
+    clipOptions: { clips: COW_CLIPS, rootBone: "hips", feet: (n) => /_leg_leaf_[lr]$/.test(n), tailMotion: 0.6, isTail: (n) => n.startsWith("tail_") },
+    crowdDrops: /leaf|^ear_2|^tail_[34]/,
+    lodDistances: [8, 24],
+    furColor: [0.45, 0.38, 0.3],
+    eyeColor: [0.08, 0.05, 0.03],
+    manifestSource: { name: `Generated Braunvieh cow body, horns and bell; ${HORSE_SOURCE_NOTE}`, license: "CC0-1.0", url: `https://github.com/scottpetrovic/mesh2motion-app/tree/${MESH2MOTION_COMMIT}` },
+    cell,
+    triangles,
+    skeleton: "horse",
+    tack: (b, surface) => cowParts(b as CowBody, surface, cell),
+  };
+}
+
 async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
   const { body, glb } = spec;
   const { rig } = body;
@@ -286,7 +322,9 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
   const positions: number[] = Array.from(skinned.positions);
   const joints: number[] = Array.from(skinned.joints);
   const weights: number[] = Array.from(skinned.weights);
-  const headBone = rig.index.get("Head")!;
+  // The dog and deer rigs call the bone "Head", the horse rig (horse, cow) "head".
+  const headBone = rig.index.get("Head") ?? rig.index.get("head");
+  if (headBone === undefined) throw new Error(`${spec.id}: no head bone for the eyes`);
   const eyeMeshes = body.eyes.map((e) => {
     const s = eyeSphere(e.center, e.radius * 0.97, e.look);
     const first = positions.length / 3;
@@ -357,6 +395,7 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
     stop: spec.stop,
     noseTip: spec.noseTip,
     eyeCenter: body.eyes[0].center,
+    pieces: tackMeshes.map(({ piece, first, count }) => ({ name: piece.name, first, count })),
   });
 
   // --- Write the pack ---
@@ -423,7 +462,7 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
       uv: blob.add("f32", piece.uv),
       indices: blob.add("u32", piece.indices),
       material: { kind: piece.material, color: piece.color, roughness: piece.roughness },
-      optional: true,
+      optional: piece.optional ?? true,
       tags: ["animal", "tack", ...piece.tags],
       lods: [0, 1],
     });
@@ -496,7 +535,7 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
 
 async function main(): Promise<void> {
   const only = arg("only");
-  const ids = only ? only.split(",") : ["dog", "squirrel", "cat", "deer", "horse"];
+  const ids = only ? only.split(",") : ["dog", "squirrel", "cat", "deer", "horse", "cow"];
   if (arg("out") && ids.length > 1) throw new Error("--out needs --only <animal>");
   const specs: Record<string, (cell: number, triangles: number) => AnimalSpec> = {
     dog: (c, t) => quadrupedSpec("dog", c, t),
@@ -504,8 +543,9 @@ async function main(): Promise<void> {
     cat: catSpec,
     deer: deerSpec,
     horse: horseSpec,
+    cow: cowSpec,
   };
-  const defaults: Record<string, [number, number]> = { dog: [0.0035, 44000], squirrel: [0.0011, 40000], cat: [0.002, 44000], deer: [0.003, 52000], horse: [0.005, 64000] };
+  const defaults: Record<string, [number, number]> = { dog: [0.0035, 44000], squirrel: [0.0011, 40000], cat: [0.002, 44000], deer: [0.003, 52000], horse: [0.005, 64000], cow: [0.005, 64000] };
   for (const id of ids) {
     const make = specs[id];
     if (!make) throw new Error(`Unknown animal ${id}`);

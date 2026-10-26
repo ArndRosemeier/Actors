@@ -18,6 +18,8 @@ export interface MorphInput {
   stop: Vec3;
   noseTip: Vec3;
   eyeCenter: Vec3;
+  /** Extra meshes (tack, horns) by name: their first base vertex and vertex count. */
+  pieces?: { name: string; first: number; count: number }[];
 }
 
 export interface Morph {

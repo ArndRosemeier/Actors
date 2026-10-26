@@ -5,6 +5,7 @@
 // Cats: node scripts/animals.mjs "http://localhost:5173/animals.html?animal=cat" screenshots/cats
 // Deer: node scripts/animals.mjs "http://localhost:5173/animals.html?animal=deer" screenshots/deer
 // Horses: node scripts/animals.mjs "http://localhost:5173/animals.html?animal=horse" screenshots/horses
+// Cows: node scripts/animals.mjs "http://localhost:5173/animals.html?animal=cow" screenshots/cows
 import { chromium } from "playwright-core";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -38,7 +39,7 @@ const shot = async (name, wait = 500) => {
 };
 // Frames the animal by its current size (squirrels are about 0.3 of a dog, cats half, the deer about 1.35 times its height, a horse 2.6).
 const kind = await page.evaluate(() => window.__actors.kind);
-const H = kind === "squirrel" ? 0.3 : kind === "cat" ? 0.5 : kind === "deer" ? 1.35 : kind === "horse" ? 2.6 : 1;
+const H = kind === "squirrel" ? 0.3 : kind === "cat" ? 0.5 : kind === "deer" ? 1.35 : kind === "horse" ? 2.6 : kind === "cow" ? 2.4 : 1;
 const size = () => page.evaluate((h) => window.__actors.animal.shape.size * h, H);
 const side = async () => {
   const s = await size();
@@ -48,12 +49,13 @@ const head = async () => {
   const s = await size();
   if (kind === "squirrel") await view([0.9 * s, 0.7 * s, 1.7 * s], [0, 0.48 * s, 0.42 * s]);
   else if (kind === "deer") await view([0.55 * s, 0.82 * s, 0.85 * s], [0, 0.73 * s, 0.42 * s]);
+  else if (kind === "cow") await view([0.42 * s, 0.5 * s, 1.0 * s], [0, 0.44 * s, 0.56 * s]);
   else await view([0.7 * s, 0.82 * s, 1.25 * s], [0, 0.62 * s, 0.5 * s]);
 };
 const base = await page.evaluate(() => window.__actors.animal.species.base);
 // Head close-ups: every squirrel, a few dogs and deer.
-const closeUp = (id) => kind === "squirrel" || kind === "cat" || (kind === "horse" && ["bay", "grey", "arabian"].includes(id)) || (kind === "deer" ? ["sika", "red", "whitetail"] : ["wolfdog", "germanShepherd", "labrador", "beagle", "husky"]).includes(id);
-const clips = kind === "horse" ? ["walk", "trot", "gallop", "rear"] : kind === "deer" ? ["walk", "gallop", "eat", "headbutt"] : kind === "squirrel" ? ["alert", "eat", "hop", "run", "flick", "walk"] : kind === "cat" ? ["walk", "run", "sit", "meow"] : ["walk", "run", "sit", "howl"];
+const closeUp = (id) => kind === "squirrel" || kind === "cat" || kind === "cow" || (kind === "horse" && ["bay", "grey", "arabian"].includes(id)) || (kind === "deer" ? ["sika", "red", "whitetail"] : ["wolfdog", "germanShepherd", "labrador", "beagle", "husky"]).includes(id);
+const clips = kind === "cow" ? ["walk", "trot", "eat", "headbutt"] : kind === "horse" ? ["walk", "trot", "gallop", "rear"] : kind === "deer" ? ["walk", "gallop", "eat", "headbutt"] : kind === "squirrel" ? ["alert", "eat", "hop", "run", "flick", "walk"] : kind === "cat" ? ["walk", "run", "sit", "meow"] : ["walk", "run", "sit", "howl"];
 
 const t0 = Date.now();
 const ms = await page.evaluate(async () => {
@@ -78,7 +80,7 @@ for (const id of breeds) {
   }
 }
 await call("setBreed", base);
-if (kind === "horse" && want("tack")) {
+if ((kind === "horse" || kind === "cow") && want("tack")) {
   // Saddle and bridle (the rider needs the human pack: RIDER=1).
   await call("setTack", true);
   if (process.env.RIDER) await call("setRider", true);

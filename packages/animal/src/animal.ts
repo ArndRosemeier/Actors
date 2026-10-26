@@ -2,6 +2,7 @@ import { type ActorShape, ActorRuntime, type BoneScale, type Fetcher, type Messa
 import { DEFAULT_PRESET, type DogCoat, type DogShape, SHAPE_RANGES, SQUIRRELS, BREEDS, CAT_BREEDS, breedParams, sanitizeShape } from "./breeds";
 import { DEER_PRESETS, DEER_SHAPE_RANGES, type DeerCoat, type DeerShape, deerParams, deerShapeOptions, deerTargetWeights } from "./deer";
 import { HORSE_PRESETS, HORSE_SHAPE_RANGES, type HorseCoat, type HorseShape, horseParams, horseShapeOptions, horseTargetWeights } from "./horse";
+import { COW_PRESETS, COW_SHAPE_RANGES, type CowCoat, type CowShape, cowParams, cowShapeOptions, cowTargetWeights } from "./cow";
 
 /** What the animal importer writes into `manifest.extra.animal`. */
 export interface AnimalExtra {
@@ -156,12 +157,22 @@ export const HORSE: Species<HorseShape, HorseCoat> = {
   shapeOptions: horseShapeOptions,
 };
 
+export const COW: Species<CowShape, CowCoat> = {
+  kind: "cow",
+  base: DEFAULT_PRESET.cow,
+  presets: COW_PRESETS,
+  ranges: COW_SHAPE_RANGES,
+  params: cowParams,
+  targetWeights: cowTargetWeights,
+  shapeOptions: cowShapeOptions,
+};
+
 /** Species by pack kind (`manifest.extra.animal.kind`). */
-export const SPECIES: Record<string, Species<object, object>> = { dog: DOG as never, squirrel: SQUIRREL as never, cat: CAT as never, deer: DEER as never, horse: HORSE as never };
+export const SPECIES: Record<string, Species<object, object>> = { dog: DOG as never, squirrel: SQUIRREL as never, cat: CAT as never, deer: DEER as never, horse: HORSE as never, cow: COW as never };
 
 /**
  * An animal actor: shape parameters -> target weights and bone scales -> shape.
- * The species (dog, squirrel, cat, deer) comes from the pack; the type parameters only give
+ * The species (dog, squirrel, cat, deer, horse, cow) comes from the pack; the type parameters only give
  * `shape` and `coat` their types, e.g. `Animal.load<DeerShape, DeerCoat>(url)`.
  */
 export class Animal<S extends object = DogShape, C extends object = DogCoat> {

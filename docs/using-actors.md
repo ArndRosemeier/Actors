@@ -143,6 +143,19 @@ horse.play(await runtime.loadClip("trot")); // runtime: the horse pack's runtime
 mount.update();
 ```
 
+## Cows
+
+The cow pack (`animals.html?animal=cow` in the viewer) is a Braunvieh on the horse rig, so it plays the horse's clips except rearing (idle, eat, sleep, walk, trot, gallop, turns, kick, headbutt, get up, death). Its horns are always-on meshes (`horns`, `horn-tips`) sized by the shape: `horns` 0 hides them in the poll, `hornsLong` sweeps them out like a Highland's. The alpine collar and bell (`collar`, `bell`, tagged `tack` and `bell`) are optional and shown by default in the viewer:
+
+```ts
+const cow = await Animal.load<CowShape, CowCoat>("./packs/cow/manifest.json");
+cow.setPreset("highland"); // braunvieh, holstein, fleckvieh, hereford, angus, jersey, highland, charolais
+cow.shape.udder = 0.8; // -1 small .. 1 large
+actor.applyShape(await cow.evaluate());
+setFurCoat(fur, cow.coat, cow.shape.size); // pied patches, white face, mealy muzzle, switch colour
+for (const name of ["collar", "bell"]) actor.setVisible(name, true);
+```
+
 ## Licences and credits
 
 Code is MIT. Most assets are CC0, but some garments and hairstyles are **CC-BY**: if your app shows a character wearing one, credit its author. `character.catalog` carries the credit line for those choices (`credit`), and `NOTICE-ASSETS.md` (also inside each package) lists them all. The CMU motion capture data may be used freely but not resold as data.
