@@ -21,7 +21,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type ActorPackManifest, type BoneDef, type ClipDef, type LodDef, type MeshDef, type TargetRef, type Vec3, encodeTarget, normalize } from "@actors/core";
+import { type ActorPackManifest, type BoneDef, type ClipDef, type LodDef, type MeshDef, type TargetRef, type Vec3, encodeTarget, normalize, quatAxisAngle } from "@actors/core";
 import { BlobWriter } from "../../import-makehuman/src/blob";
 import { fetchCached } from "../../import-makehuman/src/fetch";
 import { parseGlb } from "../../import-makehuman/src/gltf";
@@ -280,6 +280,18 @@ function horseSpec(cell: number, triangles: number): AnimalSpec {
 
 const COW_CLIPS: [string, string, boolean, string][] = HORSE_CLIPS.filter(([name]) => name !== "rear");
 
+/**
+ * The horse's "Eating" drops its chest and splays the forelegs out wide (a giraffe's stance); on the
+ * cow that reads as broken legs. A cow grazes standing square: everything but the neck and head
+ * keeps the idle, and only the neck and head go down.
+ */
+const COW_GRAZE = {
+  animation: "Idle",
+  bones: (n: string) => !/^(spine_[456]|head|nose|head_leaf|mouth|mouth_tip|ear_)/.test(n),
+  // Without the dropped chest the neck would hang straight down between the forelegs: swing it forward.
+  turn: quatAxisAngle([1, 0, 0], (-22 * Math.PI) / 180),
+};
+
 /** Cow: a Braunvieh on Mesh2Motion's horse rig (Quaternius' cow download was over quota), with horns and a bell. */
 function cowSpec(cell: number, triangles: number): AnimalSpec {
   const glb = parseGlb(readFileSync(fetchCached(CACHE, HORSE_ANIMATIONS)));
@@ -295,7 +307,7 @@ function cowSpec(cell: number, triangles: number): AnimalSpec {
     noseTip: body.marks.nose,
     stop: [0, eye[1] + 0.03, eye[2] + 0.03],
     clipSource: "Mesh2Motion horse rig (CC0)",
-    clipOptions: { clips: COW_CLIPS, rootBone: "hips", feet: (n) => /_leg_leaf_[lr]$/.test(n), tailMotion: 0.6, isTail: (n) => n.startsWith("tail_") },
+    clipOptions: { clips: COW_CLIPS, rootBone: "hips", feet: (n) => /_leg_leaf_[lr]$/.test(n), tailMotion: 0.6, isTail: (n) => n.startsWith("tail_"), borrow: { eat: COW_GRAZE } },
     crowdDrops: /leaf|^ear_2|^tail_[34]/,
     lodDistances: [8, 24],
     furColor: [0.45, 0.38, 0.3],

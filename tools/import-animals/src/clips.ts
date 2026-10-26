@@ -67,10 +67,15 @@ export interface ClipOptions {
   /** Share of the tail's motion relative to the root that is kept. */
   tailMotion?: number;
   isTail?: (name: string) => boolean;
+  /**
+   * Per clip (our name): bones that take their motion from another source animation instead
+   * (looped to its length), e.g. a grazing cow keeps the standing legs and back of the idle.
+   */
+  borrow?: Record<string, { animation: string; bones: (name: string) => boolean; turn?: Quat }>;
 }
 
 export function convertClips(g: Gltf, rig: Rig, source = "Mesh2Motion fox rig (CC0)", options: ClipOptions = {}): { def: ClipDef; data: Float32Array }[] {
-  const { clips = DOG_CLIPS, rootBone = "Hips", feet = (n: string) => /Tip_[LR]$/.test(n) && /Leg/.test(n), tailMotion = TAIL_MOTION, isTail = (n: string) => n.startsWith("Tail") } = options;
+  const { clips = DOG_CLIPS, rootBone = "Hips", feet = (n: string) => /Tip_[LR]$/.test(n) && /Leg/.test(n), tailMotion = TAIL_MOTION, isTail = (n: string) => n.startsWith("Tail"), borrow = {} } = options;
   const nodes = rig.bones.map((b) => b.node);
   const names = rig.bones.map((b) => b.name);
   const hipsK = rig.index.get(rootBone)!;
@@ -88,11 +93,19 @@ export function convertClips(g: Gltf, rig: Rig, source = "Mesh2Motion fox rig (C
     const stride = nodes.length * 4 + 3;
     const data = new Float32Array(frameCount * stride);
     const first = worldPose(g, animLocals(g, anim, 0)).pos[hips];
+    const lend = borrow[name];
+    const lender = lend && g.animations.find((a) => a.name === lend.animation);
+    if (lend && !lender) throw new Error(`No animation ${lend.animation}`);
     for (let f = 0; f < frameCount; f++) {
-      const pose = worldPose(g, animLocals(g, anim, (f / (frameCount - 1)) * anim.duration));
+      const time = (f / (frameCount - 1)) * anim.duration;
+      const pose = worldPose(g, animLocals(g, anim, time));
+      const lent = lender && worldPose(g, animLocals(g, lender, time % lender.duration));
       const hipsDelta = quatMul(pose.rot[hips], restInv[hipsK]);
       nodes.forEach((j, k) => {
-        let q = quatMul(pose.rot[j], restInv[k]);
+        const lentBone = lent && lend.bones(names[k]);
+        let q = quatMul((lentBone ? lent : pose).rot[j], restInv[k]);
+        // The bones that keep their own motion can be turned as one (about the first one's head).
+        if (lend?.turn && !lentBone) q = quatMul(lend.turn, q);
         if (isTail(names[k])) q = quatMul(hipsDelta, quatPow(quatMul(quatConjugate(hipsDelta), q), tailMotion));
         if (f > 0) {
           const o = (f - 1) * stride + k * 4;

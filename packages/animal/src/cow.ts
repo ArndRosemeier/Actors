@@ -127,7 +127,7 @@ export const COW_SHAPE_RANGES: Record<keyof CowShape, [number, number]> = {
 const hex = (h: string): RGB => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
 
 export const COW_DEFAULT_COAT: CowCoat = {
-  base: hex("#84745f"),
+  base: hex("#635343"), // grey-brown; the lighter #84745f read near white in daylight
   second: hex("#3a2c22"),
   tan: hex("#5a3e2a"),
   white: hex("#e6ded0"),
