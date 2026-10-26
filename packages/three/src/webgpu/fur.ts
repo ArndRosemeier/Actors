@@ -2,7 +2,7 @@
  * Fur for animal packs on three's WebGPURenderer (WebGPU and its WebGL 2
  * fallback): the node-material twin of ../fur.ts, with the same coat
  * colours and markings for every animal (dogs, squirrels, cats, deer,
- * horses), the same shells and the same uniforms (`createFurUniforms`,
+ * horses, cows), the same shells and the same uniforms (`createFurUniforms`,
  * `setFurCoat`).
  *
  * As with the other node kinds, every fur body shares one node graph and
@@ -25,7 +25,7 @@ const coat = (name: string, type = "vec4") =>
 /** The coat uniforms of the drawn material (see `furInputs`). */
 interface Coat {
   base: N; second: N; tan: N; white: N; leather: N;
-  A: N; B: N; C: N; D: N; E: N; F: N; G: N; H: N; I: N; nose: N; fur: N; grain: N;
+  A: N; B: N; C: N; D: N; E: N; F: N; G: N; H: N; I: N; J: N; K: N; nose: N; fur: N; grain: N;
 }
 
 const coatInputs = once((): Coat => ({
@@ -37,6 +37,7 @@ const coatInputs = once((): Coat => ({
   A: input("fur.A", new THREE.Vector4()), B: input("fur.B", new THREE.Vector4()), C: input("fur.C", new THREE.Vector4()),
   D: input("fur.D", new THREE.Vector4()), E: input("fur.E", new THREE.Vector4()), F: input("fur.F", new THREE.Vector4()),
   G: input("fur.G", new THREE.Vector4()), H: input("fur.H", new THREE.Vector4()), I: input("fur.I", new THREE.Vector4()),
+  J: input("fur.J", new THREE.Vector4()), K: input("fur.K", new THREE.Vector4()),
   nose: input("fur.nose", new THREE.Vector4()),
   fur: input("fur.fur", new THREE.Vector4()),
   grain: input("fur.grain", 1),
@@ -49,7 +50,7 @@ function furInputs<T extends THREE.Material>(mat: T, u: FurUniforms): T {
     "fur.leather": () => u.uLeather.value,
     "fur.A": () => u.uMarkA.value, "fur.B": () => u.uMarkB.value, "fur.C": () => u.uMarkC.value, "fur.D": () => u.uMarkD.value,
     "fur.E": () => u.uMarkE.value, "fur.F": () => u.uMarkF.value, "fur.G": () => u.uMarkG.value, "fur.H": () => u.uMarkH.value,
-    "fur.I": () => u.uMarkI.value, "fur.nose": () => u.uNose.value, "fur.fur": () => u.uFur.value, "fur.grain": () => u.uGrain.value,
+    "fur.I": () => u.uMarkI.value, "fur.J": () => u.uMarkJ.value, "fur.K": () => u.uMarkK.value, "fur.nose": () => u.uNose.value, "fur.fur": () => u.uFur.value, "fur.grain": () => u.uGrain.value,
   });
 }
 
@@ -166,6 +167,19 @@ function horseCoat(col: N, n: N, k: Coat, v: Ch): N {
   return mix(col, mane, hair.mul(k.I.x));
 }
 
+/** Cow colours: a darker head, white patches (piebald), pink udder skin (all 0 for other animals). */
+function cowCoat(col: N, n: N, k: Coat, v: Ch): N {
+  col = mix(col, k.second, smoothstep(0.3, 0.8, v.A.y.add(n.mul(0.2))).mul(float(1).sub(smoothstep(0.2, 0.6, v.E.x))).mul(k.J.w).mul(0.75));
+  const q = v.pos.div(max(k.J.y, 0.3).mul(0.32));
+  const f = furFbm(q.add(vec3(3.7, 1.3, 8.1))).add(furNoise(q.mul(4.3).add(2.1)).sub(0.5).mul(0.18)).toVar();
+  const th = float(0.75).sub(k.J.x.mul(0.5));
+  const e = max(fwidth(f), 0.006);
+  col = mix(col, k.white, smoothstep(th.sub(e), th.add(e), f).mul(step(0.001, k.J.x)));
+  col = mix(col, k.white.mul(vec3(1, 0.74, 0.68)), smoothstep(0.3, 0.7, v.E.w).mul(k.J.z));
+  const ear = mixP(vec3(0.5, 0.2, 0.13), k.white, smoothstep(0.4, 0.8, furStreak(v.pos.mul(1.4).add(0.9), v.flow)).mul(0.35).add(0.15));
+  return mixP(col, ear, smoothstep(0.15, 0.6, v.E.y.add(n.mul(0.2))).mul(k.K.x));
+}
+
 /** Mackerel tabby (coatF on cat packs holds the stripe coordinates). */
 function furTabby(p: N, v: Ch): N {
   const legW = v.F.w, headW = v.A.y, tailT = v.A.w;
@@ -207,6 +221,7 @@ function furCoat(k: Coat, v: Ch): N {
   col = mix(col, k.tan, smoothstep(1, 0.7, legT.add(n.mul(0.15))).mul(k.D.z));
   col = deerCoat(col, n, k, v);
   col = horseCoat(col, n, k, v);
+  col = cowCoat(col, n, k, v);
   {
     // Cats: tortoiseshell patches, tabby stripes, light inner ears (all 0 elsewhere).
     const cat = step(1e-4, k.H.x.add(k.H.y).add(k.H.z));
@@ -222,7 +237,7 @@ function furCoat(k: Coat, v: Ch): N {
   white = max(white, float(1).sub(smoothstep(k.B.y.mul(0.92).sub(0.1), k.B.y.mul(0.92), legT.add(n.mul(0.1)))).mul(step(0.01, k.B.y)));
   white = max(white, smoothstep(0.25, 0.5, blaze.mul(1.4).mul(k.B.z).add(muzzleT.mul(k.B.z).mul(0.6).mul(step(0.5, k.B.z))).add(n.mul(0.1))).mul(step(0.01, k.B.z)));
   white = max(white, smoothstep(float(1).sub(k.B.w.mul(0.3)), float(1).sub(k.B.w.mul(0.24)), tailT).mul(step(0.01, k.B.w)));
-  white = max(white, smoothstep(float(1).sub(k.I.w), float(1.06).sub(k.I.w), v.D.w.add(n.mul(0.08))).mul(step(0.01, k.I.w)).mul(float(1).sub(smoothstep(0.3, 0.6, v.E.z))));
+  white = max(white, smoothstep(float(1).sub(k.I.w), float(1.06).sub(k.I.w), v.D.w.add(n.mul(0.08))).mul(step(0.01, k.I.w)).mul(step(0.002, v.D.w)).mul(float(1).sub(smoothstep(0.3, 0.6, v.E.z))));
   col = mix(col, k.white, white);
   {
     const fleck = furStreak(p.mul(0.9).add(2.3), v.flow).toVar();

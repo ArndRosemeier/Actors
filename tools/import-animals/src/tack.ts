@@ -26,6 +26,8 @@ export interface TackPiece {
   color: [number, number, number];
   roughness: number;
   tags: string[];
+  /** Whether the viewer may hide it (default true); horns are always shown (morphs size them). */
+  optional?: boolean;
 }
 
 interface Surface {
@@ -111,7 +113,7 @@ function sidePoint(parts: BodyPart[], y: number, z: number, side: number, offset
 }
 
 /** Meshes an implicit surface (parts in order, unions and carves) into about `triangles` triangles. */
-async function meshParts(parts: Part[], cell: number, triangles: number): Promise<{ positions: Float32Array; indices: Uint32Array }> {
+export async function meshParts(parts: Part[], cell: number, triangles: number): Promise<{ positions: Float32Array; indices: Uint32Array }> {
   const f = (p: Vec3) => bodyDistance(parts, p);
   const lo: Vec3 = [Infinity, Infinity, Infinity], hi: Vec3 = [-Infinity, -Infinity, -Infinity];
   for (const { prim, carve } of parts) {
@@ -162,7 +164,7 @@ async function meshParts(parts: Part[], cell: number, triangles: number): Promis
 }
 
 /** Skin weights for tack vertices: those of the nearest body vertex (a spatial hash over the body). */
-function nearestSkin(surface: Surface): (p: Vec3) => { joints: number[]; weights: number[] } {
+export function nearestSkin(surface: Surface): (p: Vec3) => { joints: number[]; weights: number[] } {
   const h = 0.04;
   const key = (x: number, y: number, z: number) => `${x},${y},${z}`;
   const grid = new Map<string, number[]>();

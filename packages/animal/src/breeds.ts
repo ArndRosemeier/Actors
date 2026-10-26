@@ -352,7 +352,7 @@ export const CAT_BREEDS: Record<string, BreedPreset> = {
 export const PRESETS: Record<string, Record<string, BreedPreset>> = { dog: BREEDS, squirrel: SQUIRRELS, cat: CAT_BREEDS };
 
 /** The preset an animal of this kind starts with. */
-export const DEFAULT_PRESET: Record<string, string> = { dog: "wolfdog", squirrel: "grey", cat: "mainecoon", deer: "sika", horse: "bay" };
+export const DEFAULT_PRESET: Record<string, string> = { dog: "wolfdog", squirrel: "grey", cat: "mainecoon", deer: "sika", horse: "bay", cow: "braunvieh" };
 
 const clamp = (v: number, lo: number, hi: number) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);
 
