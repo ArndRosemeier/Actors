@@ -15,3 +15,4 @@ export * from "./subdivide";
 export * from "./deform";
 export * from "./parts";
 export * from "./lod";
+export * from "./clipnames";

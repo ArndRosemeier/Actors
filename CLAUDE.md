@@ -10,3 +10,4 @@
 - Checks before pushing: `npm run typecheck && npm test`; for viewer changes also run the smoke test (`apps/viewer/scripts/smoke.mjs`) against `npm run dev` and look at the screenshots.
 - If the importer runs while `vite` is serving, restart vite (it can lose the regenerated public files).
 - Building or reshaping an animal: read docs/animal-modelling.md first (lessons and traps from the dog).
+- Library animals (WildMesh3D, 100 rigged animals): models are licensed for Arnd's projects and live only in the private repo ArndRosemeier/PrivateAssets. Actors holds the loader (`loadLibraryAnimal` in packages/three/src/library.ts) and a names-and-facts catalogue (`@actors/animal/library`, regenerate with `node scripts/library/catalogue.mjs <PrivateAssets dir>`). Never copy a .glb, texture or render of them into this repo, a release or Pages; how games use them: docs/using-actors.md, "Library animals".
