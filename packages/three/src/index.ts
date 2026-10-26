@@ -45,6 +45,7 @@ import { createPartMaterial, createPartMesh } from "./parts";
 import { addMorphAttributes, clearDeltas, morphArrays, morphsChanged, setDelta } from "./morphs";
 import { createCrowdMaterial } from "./crowd";
 import { garmentLayer } from "./layers";
+import { RootSkeleton, bindRoot } from "./rootSkeleton";
 import { ScreenTexturePool, setScreenTexturePool, setScreenColor, updateScreen } from "./screens";
 import { srgb } from "./color";
 
@@ -61,6 +62,7 @@ export * from "./fur";
 export { srgb } from "./color";
 export * from "./drone";
 export * from "./mount";
+export { RootSkeleton, bindRoot } from "./rootSkeleton";
 export { screenPixels, SCREEN_TEXTURE_SIZE, ScreenTexturePool } from "./screens";
 
 export interface MaterialFactory {
@@ -341,7 +343,7 @@ export class ThreeActor {
         this.bones.push(bone);
       }
       skel.bones.forEach((b, i) => (b.parent >= 0 ? this.bones[b.parent].add(this.bones[i]) : this.object.add(this.bones[i])));
-      this.skeleton = new THREE.Skeleton(this.bones);
+      this.skeleton = new RootSkeleton(this.bones, this.object);
       this.packBones = this.bones.length;
     }
     const genitals = (runtime.manifest.extra?.human as { anatomy?: { genitalsUV: number[] } } | undefined)?.anatomy?.genitalsUV;
@@ -498,7 +500,7 @@ export class ThreeActor {
       mesh.visible = false;
       this.object.add(mesh);
       this.meshes.set(data.def.name, mesh);
-      if (this.skeleton) mesh.bind(this.skeleton, new THREE.Matrix4());
+      if (this.skeleton) bindRoot(mesh, this.skeleton);
       const tint = this.tints.get(data.def.name);
       if (tint !== undefined) this.setGarmentColor(data.def.name, tint);
       if (this.hairColor !== undefined && data.def.role === "hair") this.setHairColor(this.hairColor);
@@ -538,13 +540,13 @@ export class ThreeActor {
         this.extraHeads.set(bone, new THREE.Vector3(...b.head));
       }
     const skeletonChanged = hadExtra || this.extraHeads.size > 0;
-    if (skeletonChanged && this.skeleton) this.skeleton = new THREE.Skeleton(this.bones);
+    if (skeletonChanged && this.skeleton) this.skeleton = new RootSkeleton(this.bones, this.object);
     for (const part of parts) {
       const material = this.kit.part(part, this);
       const mesh = createPartMesh(part, this.skin, material, this.kit.depth(material, false), !!this.kit.attributeMorphs);
       this.object.add(mesh);
       this.parts.set(part.name, mesh);
-      if (this.skeleton && !skeletonChanged) mesh.bind(this.skeleton, new THREE.Matrix4());
+      if (this.skeleton && !skeletonChanged) bindRoot(mesh, this.skeleton);
     }
     if (skeletonChanged && this.fitted) this.rebind(this.fitted);
     // Face morphs: parts that follow the skin get the current deltas and weights.
@@ -1284,7 +1286,7 @@ export class ThreeActor {
     mesh.frustumCulled = false;
     if (this.crowd) this.dropCrowd(false);
     this.object.add(mesh);
-    if (this.skeleton) mesh.bind(this.skeleton, new THREE.Matrix4());
+    if (this.skeleton) bindRoot(mesh, this.skeleton);
     this.crowd = { mesh, merged };
     this.colorCrowd();
     this.fillCrowd();
@@ -1598,6 +1600,6 @@ export class ThreeActor {
  */
 function bindSkeleton(mesh: THREE.SkinnedMesh, skeleton: THREE.Skeleton): void {
   const before = mesh.skeleton?.bones.length;
-  mesh.bind(skeleton, new THREE.Matrix4());
+  bindRoot(mesh, skeleton);
   if (before !== undefined && before !== skeleton.bones.length) mesh.dispatchEvent({ type: "dispose" } as never);
 }

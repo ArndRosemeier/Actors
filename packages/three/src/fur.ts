@@ -694,6 +694,7 @@ export function addFurShellsWith(actor: ThreeActor, material: () => THREE.Materi
     mesh.frustumCulled = false;
     mesh.castShadow = false;
     mesh.receiveShadow = true;
+    mesh.bindMode = body.bindMode; // a root skeleton (detached): the body's bind inverse is identity
     if (body.skeleton) mesh.bind(body.skeleton, body.bindMatrix);
     const state: FurShells = {
       mesh,
