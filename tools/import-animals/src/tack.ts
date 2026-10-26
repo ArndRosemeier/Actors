@@ -278,7 +278,14 @@ export async function horseTack(body: HorseBody, surface: Surface, cell: number)
 
   // --- Bridle: straps lying on the head, and the reins along the neck ---
   const strapOn = (pts: Vec3[], width = 0.012): Part => {
-    const onSkin = pts.map((p) => onSurface(skin, p));
+    // Projected every centimetre, so the strap follows the curve of the head between its points
+    // (a chord between sparse points sinks under a round cheek and the strap vanishes there).
+    const ends = pts.map((p) => onSurface(skin, p));
+    const onSkin: Vec3[] = [ends[0]];
+    for (let i = 0; i + 1 < ends.length; i++) {
+      const steps = Math.max(1, Math.ceil(Math.hypot(...sub(ends[i + 1], ends[i])) / 0.01));
+      for (let k = 1; k <= steps; k++) onSkin.push(onSurface(skin, add(ends[i], scale(sub(ends[i + 1], ends[i]), k / steps))));
+    }
     const lo: Vec3 = [Infinity, Infinity, Infinity], hi: Vec3 = [-Infinity, -Infinity, -Infinity];
     for (const p of onSkin) for (let k = 0; k < 3; k++) (lo[k] = Math.min(lo[k], p[k] - 0.05)), (hi[k] = Math.max(hi[k], p[k] + 0.05));
     return part(layer("strap", skin, 0.006, 0.0042, (p) => polylineDistance(p, onSkin) - width, lo, hi), 0.003);
