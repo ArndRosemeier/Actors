@@ -224,6 +224,39 @@ const isRetargetClip = (c: PlayableClip): c is Clip => "def" in c;
  * Flips a material's polygon offset for a reversed depth buffer (once per material: kits may share
  * materials between meshes and actors), so a negative offset still pulls toward the camera.
  */
+/** At most this much lift for a fitted garment over the ones under it (m). */
+const MAX_LIFT = 0.04;
+/** Fitted garments under another count only this far out from the body (m): a flaring hem lifts nothing. */
+const MAX_REACH = 0.05;
+
+/**
+ * Spreads a garment's lift over its body anchors: each anchor takes the most any of its vertices
+ * needs, and each vertex the weighted mean of its anchors. A garment with an inside (a lined skirt,
+ * a hem turned in) lifts its inside and outside together, so the lining never ends up outside.
+ */
+function evenLift(lift: Float32Array, refs: Uint32Array, weights: Float32Array, baseCount: number): Float32Array | null {
+  const need = new Float32Array(baseCount);
+  let any = false;
+  for (let i = 0; i < lift.length; i++) {
+    if (!lift[i]) continue;
+    any = true;
+    for (let k = 0; k < 3; k++) if (weights[i * 3 + k] > 0) need[refs[i * 3 + k]] = Math.max(need[refs[i * 3 + k]], lift[i]);
+  }
+  if (!any) return null;
+  const out = new Float32Array(lift.length);
+  for (let i = 0; i < lift.length; i++) {
+    let sum = 0, wsum = 0;
+    for (let k = 0; k < 3; k++) {
+      const w = weights[i * 3 + k];
+      if (w <= 0) continue;
+      sum += w * need[refs[i * 3 + k]];
+      wsum += w;
+    }
+    out[i] = wsum > 0 ? Math.max(lift[i], sum / wsum) : lift[i];
+  }
+  return out;
+}
+
 export function reverseOffsets(material: THREE.Material | THREE.Material[]): void {
   for (const m of Array.isArray(material) ? material : [material]) {
     if (!m.polygonOffset || m.userData.offsetReversed) continue;
@@ -337,6 +370,7 @@ export class ThreeActor {
       const data = this.data.get(name);
       if (data) this.orderLayer(mesh, data);
     }
+    this.updateLifts(); // which fitted garment sits on which
   }
 
   /** A garment's polygon offset for its layer and its place among the worn garments on that layer. */
@@ -840,46 +874,117 @@ export class ThreeActor {
   private readonly lifts = new Map<string, Float32Array | null>();
 
   /**
-   * Extra lift per proxy vertex for fitted garments (proxies): where one lies
-   * over a shown body-cut garment (a T-shirt over jeans) closer to the body
-   * than that garment's thickness, it is pushed out to sit on top of it
-   * instead of cutting into it. Parts that hang further out stay put.
+   * Extra lift per proxy vertex for fitted garments (proxies): where one lies over a shown garment
+   * closer to the body than that garment's outer surface, it is pushed out to sit on top of it
+   * instead of cutting into it. Under it are the body-cut garments (a T-shirt over jeans) and the
+   * fitted ones worn further in (a skirt over a chemise, see `innerProxies`). Parts that hang
+   * further out stay put.
    */
   private liftOf(data: MeshData, shape: ActorShape): Float32Array | null {
     const src = data.def.source;
     if (data.def.role !== "garment" || src.kind !== "proxy" || data.def.tags?.includes("tucked")) return null;
     let lift = this.lifts.get(data.def.name);
     if (lift !== undefined) return lift;
+    this.lifts.set(data.def.name, null); // no cycles (inner garments never reach back out)
     lift = null;
     const binding = this.runtime.proxies.get(src.proxy);
     const fitted = shape.proxies.get(src.proxy);
     const garmentOf = this.runtime.garmentVertexOf;
     const under = this.underThickness();
-    if (binding && fitted && garmentOf && under) {
+    const inner = this.innerHeights(data, shape);
+    if (binding && fitted && ((garmentOf && under) || inner)) {
       const n = binding.def.vertexCount;
       lift = new Float32Array(n);
       const { refs, weights } = binding;
       const P = shape.positions, N = shape.normals;
       const own = data.def.inflate ?? 0;
-      for (let i = 0; i < n; i++) {
-        // The body-cut garment's outer surface under this vertex (weighted over its body anchors).
-        let wsum = 0;
-        const top = [0, 0, 0];
-        for (let k = 0; k < 3; k++) {
-          const g = garmentOf[refs[i * 3 + k]], w = weights[i * 3 + k];
-          if (g === 0xffffffff || !under[g] || w <= 0) continue;
-          wsum += w;
-          for (let c = 0; c < 3; c++) top[c] += w * (P[g * 3 + c] + N[g * 3 + c] * under[g]);
-        }
-        if (wsum < 0.5) continue;
-        // How far that surface lies outside the garment here, along the garment's normal.
+      const top = [0, 0, 0];
+      // How far the surface at `top` (weighted over `wsum`) lies outside the garment here, along the garment's normal.
+      const gapTo = (i: number, wsum: number) => {
         let gap = 0;
         for (let c = 0; c < 3; c++) gap += (top[c] / wsum - fitted.positions[i * 3 + c]) * fitted.normals[i * 3 + c];
-        lift[i] = Math.max(0, gap + 0.003 - own);
+        return gap;
+      };
+      for (let i = 0; i < n; i++) {
+        let best = -Infinity;
+        if (garmentOf && under) {
+          // The body-cut garment's outer surface under this vertex (weighted over its body anchors).
+          let wsum = 0;
+          top[0] = top[1] = top[2] = 0;
+          for (let k = 0; k < 3; k++) {
+            const g = garmentOf[refs[i * 3 + k]], w = weights[i * 3 + k];
+            if (g === 0xffffffff || !under[g] || w <= 0) continue;
+            wsum += w;
+            for (let c = 0; c < 3; c++) top[c] += w * (P[g * 3 + c] + N[g * 3 + c] * under[g]);
+          }
+          if (wsum >= 0.5) best = gapTo(i, wsum);
+        }
+        if (inner) {
+          // The outer surface of the fitted garments worn under it, over the same body anchors.
+          let wsum = 0;
+          top[0] = top[1] = top[2] = 0;
+          for (let k = 0; k < 3; k++) {
+            const b = refs[i * 3 + k], w = weights[i * 3 + k], h = inner[b];
+            if (!h || w <= 0) continue;
+            wsum += w;
+            for (let c = 0; c < 3; c++) top[c] += w * (P[b * 3 + c] + N[b * 3 + c] * h);
+          }
+          if (wsum >= 0.5) best = Math.max(best, gapTo(i, wsum));
+        }
+        if (best > -Infinity) lift[i] = Math.min(MAX_LIFT, Math.max(0, best + 0.003 - own));
       }
+      lift = evenLift(lift, refs, weights, this.runtime.manifest.vertexCount);
     }
     this.lifts.set(data.def.name, lift);
     return lift;
+  }
+
+  /**
+   * Per base vertex: how far out the shown fitted garments worn under `data` reach there (along
+   * the body's normal, with their own lift and thickness), 0 where none; null if none is shown.
+   * "Under" is the drawing order: a lower layer, or the same layer earlier in the outfit.
+   */
+  private innerHeights(data: MeshData, shape: ActorShape): Float32Array | null {
+    const mine = this.depthOrder(data);
+    let heights: Float32Array | null = null;
+    const done = new Set<string>([(data.def.source as { proxy: string }).proxy]);
+    for (const other of this.rendered) {
+      const { def } = other;
+      if (def.role !== "garment" || def.source.kind !== "proxy" || !this.shown.has(def.name) || done.has(def.source.proxy)) continue;
+      if (this.depthOrder(other) >= mine) continue;
+      done.add(def.source.proxy);
+      const binding = this.runtime.proxies.get(def.source.proxy), fitted = shape.proxies.get(def.source.proxy);
+      if (!binding || !fitted) continue;
+      const lift = this.liftOf(other, shape), own = def.inflate ?? 0;
+      const { refs, weights } = binding;
+      const P = shape.positions, N = shape.normals, F = fitted.positions, FN = fitted.normals;
+      heights ??= new Float32Array(this.runtime.manifest.vertexCount);
+      for (let i = 0; i < binding.def.vertexCount; i++) {
+        const d = own + (lift ? lift[i] : 0);
+        for (let k = 0; k < 3; k++) {
+          // Only the anchors that carry the vertex: a far one would spread the garment's reach.
+          if (weights[i * 3 + k] < 0.25) continue;
+          const b = refs[i * 3 + k];
+          let h = 0;
+          for (let c = 0; c < 3; c++) h += (F[i * 3 + c] + FN[i * 3 + c] * d - P[b * 3 + c]) * N[b * 3 + c];
+          if (h >= 0 && h <= MAX_REACH) heights[b] = Math.max(heights[b], h, 1e-6); // 0 is none: on the skin is still a garment
+        }
+      }
+    }
+    return heights;
+  }
+
+  /** Where a garment is drawn among the worn ones, inner first: its layer, then its place in the outfit on that layer. */
+  private depthOrder(data: MeshData): number {
+    const layer = garmentLayer(data.def);
+    const name = data.def.lodOf ?? data.def.name;
+    let rank = 0;
+    for (const n of this.garmentOrder) {
+      if (n === name) break;
+      const other = this.data.get(n);
+      if (other && garmentLayer(other.def) === layer) rank++;
+    }
+    return layer + rank * 0.25;
   }
 
   private underCache?: Float32Array | null;
@@ -903,7 +1008,11 @@ export class ThreeActor {
 
   /** Re-lifts fitted garments when the shown body-cut garments change. */
   private updateLifts(): void {
-    const key = this.rendered.filter((d) => d.def.role === "garment" && d.def.source.kind === "base" && this.shown.has(d.def.name)).map((d) => d.def.name).join(",");
+    // By what is worn, not by mesh: a new detail level draws other meshes of the same garments.
+    const worn = new Set<string>();
+    for (const d of this.rendered)
+      if (d.def.role === "garment" && this.shown.has(d.def.name)) worn.add(d.def.source.kind === "proxy" ? `p:${d.def.source.proxy}` : d.def.lodOf ?? d.def.name);
+    const key = `${[...worn].sort().join(",")}|${this.garmentOrder.join(",")}`;
     if (key === this.liftKey) return;
     this.liftKey = key;
     this.lifts.clear();
@@ -1057,10 +1166,14 @@ export class ThreeActor {
       const mesh = this.meshes.get(def.name);
       if (!mesh) continue;
       const isGarment = def.role === "garment" && def.source.kind === "base";
-      if (def.role !== "body" && !isGarment) {
+      // Fitted garments under a fitted one (trousers in boots, a chemise under a gown) lose the
+      // triangles it covers, as body-cut ones do: else they poke through where the two cross.
+      const fitted = def.role === "garment" && def.source.kind === "proxy" && !!data.dominant;
+      if (def.role !== "body" && !isGarment && !fitted) {
         this.useIndices(mesh, data, level);
         continue;
       }
+      if (fitted && !this.shown.has(def.name)) continue;
       // Hidden garments keep their last index list; it is rebuilt when they are shown.
       if (isGarment && !this.shown.has(def.name)) continue;
       const layer = garmentLayer(def);
@@ -1087,7 +1200,8 @@ export class ThreeActor {
         out[n++] = indices[t + 1];
         out[n++] = indices[t + 2];
       }
-      mesh.geometry.setIndex(new THREE.BufferAttribute(out.slice(0, n), 1));
+      if (n === indices.length) this.useIndices(mesh, data, level); // nothing covered: the shared list
+      else mesh.geometry.setIndex(new THREE.BufferAttribute(out.slice(0, n), 1));
     }
     if (this.lods[level].merge) {
       // Merged into the crowd mesh: hide the parts now, rebuild the merged mesh before the next frame.

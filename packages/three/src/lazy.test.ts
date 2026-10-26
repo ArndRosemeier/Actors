@@ -6,7 +6,7 @@ import { ThreeActor } from "./index";
  * A tiny pack: a quad body on four base vertices and two optional garments (a "shirt" and a
  * "hat"), each a one-triangle proxy bound to the body.
  */
-async function tinyPack(rigged = false): Promise<ActorRuntime> {
+async function tinyPack(rigged = false, hatCovers = false): Promise<ActorRuntime> {
   const parts: ArrayBufferView[] = [];
   let offset = 0;
   const put = <T extends "f32" | "u32">(type: T, values: number[]) => {
@@ -26,8 +26,9 @@ async function tinyPack(rigged = false): Promise<ActorRuntime> {
     offsets: put("f32", [0, 0, 0.01, 0, 0, 0.01, 0, 0, 0.01]),
     scaleRefs: [[0, 1, 1], [0, 3, 1], [0, 1, 1]] as [[number, number, number], [number, number, number], [number, number, number]],
   });
-  const garment = (name: string) => ({
+  const garment = (name: string, covers = false) => ({
     name,
+    ...(covers ? { inflate: 0.01, hidesBaseVertices: put("u32", [0, 1, 2]) } : {}),
     source: { kind: "proxy" as const, proxy: name },
     role: "garment" as const,
     optional: true,
@@ -37,7 +38,7 @@ async function tinyPack(rigged = false): Promise<ActorRuntime> {
     indices: put("u32", [0, 1, 2]),
   });
   const proxies = [proxy("shirt"), proxy("hat")];
-  const meshes = [{ name: "body", source: { kind: "base" as const }, role: "body" as const, material: { kind: "skin" as const }, ...body }, garment("shirt"), garment("hat")];
+  const meshes = [{ name: "body", source: { kind: "base" as const }, role: "body" as const, material: { kind: "skin" as const }, ...body }, garment("shirt"), garment("hat", hatCovers)];
   const manifest: ActorPackManifest = {
     format: "actors-pack", version: 1, id: "tiny", species: "test", units: "meters", source: { name: "test", license: "CC0", url: "" },
     blob: "base.bin", vertexCount: 4, basePositions, meshes, proxies, targets: [],
@@ -185,5 +186,47 @@ describe("garments on one layer", () => {
     const r = await offsets(true, ["shirt", "hat"]);
     expect(r.hat).toBeGreaterThan(r.shirt); // reversed depth: the other sign
     expect(r.shirt).toBe(-a.shirt);
+  });
+});
+
+describe("fitted garments over fitted garments", () => {
+  it("lifts the outer one off the one worn under it, whichever is outer", async () => {
+    const zs = async (order: string[]) => {
+      const rt = await tinyPack();
+      const actor = new ThreeActor(rt);
+      actor.setGarmentOrder(order);
+      actor.setVisible("shirt", true);
+      actor.setVisible("hat", true);
+      actor.flushVisibility();
+      actor.applyShape(rt.evaluateLoaded(new Map(), undefined, undefined, actor.neededMeshes()));
+      actor.flushVisibility();
+      const z = (n: string) => (actor.meshes.get(n)!.geometry.getAttribute("position").array as Float32Array)[2];
+      return { shirt: z("shirt"), hat: z("hat") };
+    };
+    // Both are fitted to the same spot, on the same layer: the later one sits 3 mm on top.
+    const a = await zs(["shirt", "hat"]);
+    expect(a.hat - a.shirt).toBeCloseTo(0.003, 4);
+    const b = await zs(["hat", "shirt"]);
+    expect(b.shirt - b.hat).toBeCloseTo(0.003, 4);
+    expect(b.hat).toBeCloseTo(a.shirt, 6); // the inner one stays where it was fitted
+  });
+});
+
+describe("fitted garments under fitted garments", () => {
+  it("lose the triangles a fitted garment on a higher layer covers, and get them back", async () => {
+    const rt = await tinyPack(false, true);
+    const actor = new ThreeActor(rt);
+    actor.setVisible("shirt", true);
+    actor.flushVisibility();
+    actor.applyShape(rt.evaluateLoaded(new Map(), undefined, undefined, actor.neededMeshes()));
+    const count = () => actor.meshes.get("shirt")!.geometry.index!.count;
+    expect(count()).toBe(3);
+    actor.setVisible("hat", true);
+    actor.flushVisibility();
+    actor.applyShape(rt.evaluateLoaded(new Map(), undefined, undefined, actor.neededMeshes()));
+    expect(count()).toBe(0);
+    actor.setVisible("hat", false);
+    actor.flushVisibility();
+    expect(count()).toBe(3);
   });
 });

@@ -65,6 +65,22 @@ export const BONE_GROUPS: Record<BoneGroup, RegExp> = {
   pelvis: /^pelvis$/,
 };
 
+/**
+ * A child's proportions laid over the adult body (Arnd, 2026-10-25): no child morph targets, the
+ * youngest adult face made softer, a smaller body, a bigger head and bigger eyes, shorter limbs and
+ * narrower shoulders and hips. `youth` 1 is a child of about five, 0.5 of about ten. Children never
+ * get anatomy (Character turns it off).
+ */
+export const YOUTH = {
+  /** Overall scale at youth 1 (before the bigger head). */
+  scale: 0.56,
+  /** Head scale at youth 1 (not capped by MAX_HEAD_SCALE). */
+  head: 1.34,
+  bones: { legs: { len: 0.9 }, arms: { len: 0.92 }, hands: { len: 0.9, girth: 0.9 }, feet: { len: 0.92 }, spine: { girth: 0.9 }, neck: { len: 0.82, girth: 0.86 }, clavicles: { len: 0.86 }, pelvis: { girth: 0.86 } } as Partial<Record<BoneGroup, BoneScale>>,
+  face: { eyeSize: 1, noseSize: -0.7, noseBridge: -0.5, jaw: -0.7, chin: -0.4, browRidge: -0.7, cheekbones: -0.4, lipFullness: 0.15, foreheadSlope: -0.3 } as Partial<FaceFeatures>,
+  body: { shoulders: -0.7, chest: -0.7, waist: -0.3, hips: -0.6, neck: -0.5, hands: -0.3, feet: -0.2 } as Partial<BodyFeatures>,
+};
+
 /** Largest head scale any race (or race mix) gets: bigger heads on small bodies read as childlike. */
 export const MAX_HEAD_SCALE = 1.1;
 

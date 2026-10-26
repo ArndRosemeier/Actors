@@ -223,6 +223,11 @@ export interface CharacterConfig {
   raceMix: number;
   /** 0..1 within the race's size range (0.5 = typical; giantkin are 1.6-1.9× human size). */
   raceSize: number;
+  /**
+   * 0 = grown up .. 1 = a child of about five: child proportions on the adult body (smaller, a
+   * bigger head and eyes, the youngest face). A child never shows anatomy, whatever `anatomy` says.
+   */
+  youth: number;
   body: HumanParams;
   /** Detail slider values by id (missing = 0). */
   details: Record<string, number>;
@@ -273,7 +278,7 @@ export interface CharacterConfig {
   outfit: string[];
   /** Garment colours by garment id (sRGB hex); missing = the garment's own colours. */
   garmentColors: Record<string, string>;
-  /** Genital mesh (male) / genital detail (female). Adults only. */
+  /** Genital mesh (male) / genital detail (female). Adults only: off whenever `youth` > 0. */
   anatomy: boolean;
   /** Clip name, or null for the bind pose. */
   animation: string | null;
@@ -492,6 +497,7 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     race2: null,
     raceMix: 0,
     raceSize: 0.5,
+    youth: 0,
     body: { ...DEFAULT_PARAMS },
     details: {},
     skin: catalog.photoSkin ? "photo" : "procedural",
