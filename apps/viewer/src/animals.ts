@@ -8,8 +8,8 @@ import * as THREE from "three";
 
 const panel = document.getElementById("panel")!;
 const stage = new CharacterStage(document.getElementById("view")!);
-// ?animal=squirrel|cat|deer|horse|cow picks the pack (dog, squirrel and cat share the quadruped rig; deer has its own; horse and cow share the horse rig).
-const KINDS: Record<string, { title: string; height: number }> = { dog: { title: "Dogs", height: 1 }, squirrel: { title: "Squirrels", height: 0.3 }, cat: { title: "Cats", height: 0.5 }, deer: { title: "Deer", height: 1 }, horse: { title: "Horses", height: 1 }, cow: { title: "Cows", height: 1 } };
+// ?animal=squirrel|cat|deer|horse|cow|chicken picks the pack (dog, squirrel and cat share the quadruped rig; deer has its own; horse and cow share the horse rig; chicken is on the bird rig).
+const KINDS: Record<string, { title: string; height: number }> = { dog: { title: "Dogs", height: 1 }, squirrel: { title: "Squirrels", height: 0.3 }, cat: { title: "Cats", height: 0.5 }, deer: { title: "Deer", height: 1 }, horse: { title: "Horses", height: 1 }, cow: { title: "Cows", height: 1 }, chicken: { title: "Chickens", height: 0.45 } };
 const kind = new URLSearchParams(location.search).get("animal") ?? "dog";
 const H = (KINDS[kind] ?? KINDS.dog).height;
 stage.view([1.5 * H, 0.75 * H, 1.9 * H], [0, 0.4 * H, 0]);
@@ -31,6 +31,7 @@ type Coat = Record<string, number | RGB>;
 const animal = await Animal.load<Shape, Coat>(`./packs/${kind}/manifest.json`);
 const species = animal.species;
 if (kind === "deer") stage.view([2.4, 1.05, 2.3], [0, 0.6, 0.05]);
+if (kind === "chicken") stage.view([0.75, 0.36, 0.95], [0, 0.2, 0.02]);
 if (kind === "horse" || kind === "cow") {
   if (kind === "horse") stage.view([4.6, 2.0, 4.4], [0, 1.15, 0.15]);
   else stage.view([3.9, 1.7, 4.1], [0, 0.95, 0.2]);
@@ -86,13 +87,17 @@ async function play(name: string | null): Promise<void> {
 // --- Panel ---
 const toHex = (c: RGB) => "#" + c.map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
 const fromHex = (h: string): RGB => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255) as RGB;
+const CHICKEN_LABELS: Record<string, string> = { tan: "hackles", second: "dark", white: "light", nose: "beak", iris: "eye", hackleStripe: "hackle stripes", tailDark: "dark tail", fluffLight: "light fluff", tailWhite: "white tail tips", featherSize: "feather size" };
 const LABELS: Record<string, string> = {
   earDrop: "ear drop", earFold: "ear fold", muzzleBroad: "muzzle width", muzzleDeep: "muzzle depth", skullDome: "skull dome", chestDeep: "chest depth", bellyTuck: "tuck-up", tailCurl: "tail curl", tailPlume: "tail plume",
   neckThick: kind === "horse" ? "crest" : kind === "cow" ? "neck" : "neck girth", hornsLong: "long horns", pied: "patches", piedSize: "patch size", udderSkin: "udder skin", darkHead: "dark head", nose: "nose", muzzle: kind === "deer" ? "long face" : "muzzle", dish: "dished face", maneTail: kind === "cow" ? "switch" : "mane & tail", darkLegs: "black legs", paleMask: kind === "horse" || kind === "cow" ? "mealy" : "pale mask", spotSize: "spot size", tanLegs: "tan legs", tailFrost: "tail frost", earTufts: "ear tufts", iris: "eye",
   dappleSize: "spot spacing", rumpBorder: "rump border", headTone: "head tone", eyeRing: "eye ring", innerEar: "inner ear", bib: kind === "deer" ? "throat" : kind === "cow" ? "dewlap" : "bib", tan: kind === "deer" ? "head" : kind === "horse" ? "mane" : kind === "cow" ? "switch" : "tan", second: kind === "horse" ? "points" : kind === "cow" ? "dark" : "second", mask: kind === "horse" ? "dark muzzle" : "mask", blaze: kind === "horse" ? "face white" : kind === "cow" ? "white face" : "blaze", tailTip: kind === "cow" ? "white switch" : "tail tip",
 };
+Object.assign(LABELS, kind === "chicken" ? CHICKEN_LABELS : {});
 const COAT_AMOUNTS: string[] =
-  kind === "cow"
+  kind === "chicken"
+    ? ["shaft", "lacing", "barring", "hackleStripe", "tailDark", "mottle", "fluffLight", "tailWhite", "featherSize", "shade", "fluff"]
+    : kind === "cow"
     ? ["pied", "piedSize", "blaze", "socks", "belly", "bib", "tailTip", "paleMask", "darkHead", "maneTail", "shade", "agouti", "innerEar", "udderSkin", "fluff"]
     : kind === "horse"
     ? ["maneTail", "darkLegs", "dapples", "blaze", "socks", "mask", "paleMask", "shade", "agouti", "innerEar", "fluff"]
@@ -103,7 +108,7 @@ const COAT_AMOUNTS: string[] =
       : ["saddle", "mask", "points", "belly", "bib", "socks", "blaze", "tailTip", "spots", "spotSize", "shade", "paleMask", "agouti", "tanLegs", "frost", "tailFrost", "eyeRing", "earTufts", "fluff"];
 
 // Cats also get eye and nose leather colours.
-const COLORS = ["base", "second", "tan", "white", ...(kind === "cat" ? ["iris", "nose"] : kind === "cow" ? ["nose"] : [])];
+const COLORS = ["base", "second", "tan", "white", ...(kind === "cat" ? ["iris", "nose"] : kind === "cow" ? ["nose"] : kind === "chicken" ? ["nose", "comb", "legs", "iris"] : [])];
 
 function render(): void {
   const s = animal.shape, c = animal.coat;
@@ -116,6 +121,8 @@ function render(): void {
         ? "Generated bay horse with tack on the rig and clips of Mesh2Motion's CC0 low-poly horse."
         : kind === "cow"
           ? "Generated Braunvieh cow with horns and a bell on the rig and clips of Mesh2Motion's CC0 low-poly horse."
+        : kind === "chicken"
+          ? "Generated brown hen with its own clips on the bones of Mesh2Motion's CC0 bird rig."
         : "Generated body on the CC0 Mesh2Motion quadruped rig.";
   panel.innerHTML = `<div class="dog-panel">
     <h1>${(KINDS[kind] ?? KINDS.dog).title}</h1>
@@ -129,8 +136,8 @@ function render(): void {
     ${Object.entries(species.ranges as Record<string, [number, number]>).filter(([k]) => animal.supports(k)).map(([k, [lo, hi]]) => slider(LABELS[k] ?? k, s[k], lo, hi, 0.01, `shape="${k}"`)).join("")}
     <h2>Coat</h2>
     <div class="colors">${COLORS.map((k) => `<label>${LABELS[k] ?? k}<input type="color" value="${toHex((c[k] as RGB | undefined) ?? [0.03, 0.025, 0.025])}" data-color="${k}"></label>`).join("")}</div>
-    ${slider("fur length", (c.length as number) * 1000, 0, kind === "cow" ? 80 : 40, 0.5, `coat="length"`)}
-    ${COAT_AMOUNTS.map((k) => slider(LABELS[k] ?? k, (c[k] as number | undefined) ?? 0, 0, k === "spotSize" || k === "dappleSize" ? 2 : 1, 0.01, `coat="${k}"`)).join("")}
+    ${slider(kind === "chicken" ? "feather length" : "fur length", (c.length as number) * 1000, 0, kind === "cow" ? 80 : kind === "chicken" ? 20 : 40, 0.5, `coat="length"`)}
+    ${COAT_AMOUNTS.map((k) => slider(LABELS[k] ?? k, (c[k] as number | undefined) ?? 0, 0, k === "spotSize" || k === "dappleSize" || k === "featherSize" ? 2 : 1, 0.01, `coat="${k}"`)).join("")}
   </div>`;
   const tackBox = panel.querySelector<HTMLInputElement>("#tack");
   if (tackBox) tackBox.onchange = () => setTack(tackBox.checked);

@@ -3,6 +3,7 @@ import { DEFAULT_PRESET, type DogCoat, type DogShape, SHAPE_RANGES, SQUIRRELS, B
 import { DEER_PRESETS, DEER_SHAPE_RANGES, type DeerCoat, type DeerShape, deerParams, deerShapeOptions, deerTargetWeights } from "./deer";
 import { HORSE_PRESETS, HORSE_SHAPE_RANGES, type HorseCoat, type HorseShape, horseParams, horseShapeOptions, horseTargetWeights } from "./horse";
 import { COW_PRESETS, COW_SHAPE_RANGES, type CowCoat, type CowShape, cowParams, cowShapeOptions, cowTargetWeights } from "./cow";
+import { CHICKEN_PRESETS, CHICKEN_SHAPE_RANGES, type ChickenCoat, type ChickenShape, chickenParams, chickenShapeOptions, chickenTargetWeights } from "./chicken";
 
 /** What the animal importer writes into `manifest.extra.animal`. */
 export interface AnimalExtra {
@@ -167,12 +168,23 @@ export const COW: Species<CowShape, CowCoat> = {
   shapeOptions: cowShapeOptions,
 };
 
+export const CHICKEN: Species<ChickenShape, ChickenCoat> = {
+  kind: "chicken",
+  base: DEFAULT_PRESET.chicken,
+  presets: CHICKEN_PRESETS,
+  ranges: CHICKEN_SHAPE_RANGES,
+  morphs: { fluff: ["fluff"], comb: ["comb-large", "comb-small"], wattles: ["wattles-large", "wattles-small"] },
+  params: chickenParams,
+  targetWeights: chickenTargetWeights,
+  shapeOptions: chickenShapeOptions,
+};
+
 /** Species by pack kind (`manifest.extra.animal.kind`). */
-export const SPECIES: Record<string, Species<object, object>> = { dog: DOG as never, squirrel: SQUIRREL as never, cat: CAT as never, deer: DEER as never, horse: HORSE as never, cow: COW as never };
+export const SPECIES: Record<string, Species<object, object>> = { dog: DOG as never, squirrel: SQUIRREL as never, cat: CAT as never, deer: DEER as never, horse: HORSE as never, cow: COW as never, chicken: CHICKEN as never };
 
 /**
  * An animal actor: shape parameters -> target weights and bone scales -> shape.
- * The species (dog, squirrel, cat, deer, horse, cow) comes from the pack; the type parameters only give
+ * The species (dog, squirrel, cat, deer, horse, cow, chicken) comes from the pack; the type parameters only give
  * `shape` and `coat` their types, e.g. `Animal.load<DeerShape, DeerCoat>(url)`.
  */
 export class Animal<S extends object = DogShape, C extends object = DogCoat> {
@@ -272,6 +284,9 @@ export class Animal<S extends object = DogShape, C extends object = DogCoat> {
 
 /** A deer actor (see DEER). */
 export type Deer = Animal<DeerShape, DeerCoat>;
+
+/** A chicken actor (see CHICKEN). */
+export type Chicken = Animal<ChickenShape, ChickenCoat>;
 
 /** A horse actor (see HORSE). Its tack meshes (`saddlecloth`, `saddle`, `stirrups`, `bridle`, `bit`) are optional: show them with `ThreeActor.setVisible`. */
 export type Horse = Animal<HorseShape, HorseCoat>;
