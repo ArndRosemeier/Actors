@@ -156,6 +156,19 @@ setFurCoat(fur, cow.coat, cow.shape.size); // pied patches, white face, mealy mu
 for (const name of ["collar", "bell"]) actor.setVisible(name, true);
 ```
 
+## Chickens
+
+The chicken pack (`animals.html?animal=chicken` in the viewer) is a brown laying hen on Mesh2Motion's bird skeleton, with its own clips: idle, walk, run, peck, scratch, flap and sit. `flap` opens the wings (they are separate surfaces, so they lift off the body).
+
+```ts
+const hen = await Animal.load<ChickenShape, ChickenCoat>("./packs/chicken/manifest.json");
+hen.setPreset("wyandotte"); // brown, leghorn, australorp, barredRock, sussex, buffOrpington, wyandotte, speckledSussex
+hen.shape.comb = 1; // -1 low (rose comb) .. 1 tall (Leghorn)
+actor.applyShape(await hen.evaluate());
+setFurCoat(fur, hen.coat, hen.shape.size); // drawn feathers: lacing, barring, hackle stripes, mottling
+actor.play(await runtime.loadClip("peck")); // runtime: the chicken pack's runtime
+```
+
 ## Licences and credits
 
 Code is MIT. Most assets are CC0, but some garments and hairstyles are **CC-BY**: if your app shows a character wearing one, credit its author. `character.catalog` carries the credit line for those choices (`credit`), and `NOTICE-ASSETS.md` (also inside each package) lists them all. The CMU motion capture data may be used freely but not resold as data.

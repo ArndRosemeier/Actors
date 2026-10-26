@@ -81,6 +81,29 @@ export interface FurCoat {
   udderSkin?: number;
   /** Head darker, in the `second` colour (Jersey). */
   darkHead?: number;
+  // Chicken plumage (packs whose coatF holds hackle, wing, fluff and feather size; see tools/import-animals/src/chickencoat.ts).
+  /** Comb, wattles and bare face (sRGB); setting it draws feathers instead of hair. */
+  comb?: RGB;
+  /** Shanks and toes (sRGB). */
+  legs?: RGB;
+  /** Feather size (1: about 1.5 cm on the body). */
+  featherSize?: number;
+  /** Pale feather shafts. */
+  shaft?: number;
+  /** Feather edges in the `second` colour. */
+  lacing?: number;
+  /** Bars across the feathers in the `second` colour. */
+  barring?: number;
+  /** Dark stripes down the hackle feathers. */
+  hackleStripe?: number;
+  /** Tail in the `second` colour. */
+  tailDark?: number;
+  /** White feather tips. */
+  mottle?: number;
+  /** Fluff under the tail in the `white` colour. */
+  fluffLight?: number;
+  /** White tips on the tail feathers. */
+  tailWhite?: number;
   /** Nose leather colour without nostril detail (default near black; `noseColor` draws the detailed nose instead). */
   nose?: RGB;
   /** Strand spacing in metres (default 1.9 mm times `grain`). */
@@ -136,6 +159,16 @@ export interface FurUniforms {
   uMarkJ: THREE.IUniform<THREE.Vector4>;
   /** cow: inner ear (pink skin under pale hair), unused x3 */
   uMarkK: THREE.IUniform<THREE.Vector4>;
+  /** chicken: feathers on, feather size, shafts, lacing */
+  uMarkL: THREE.IUniform<THREE.Vector4>;
+  /** chicken: barring, hackle stripes, dark tail, mottle */
+  uMarkM: THREE.IUniform<THREE.Vector4>;
+  /** chicken: light fluff, white tail tips, unused x2 */
+  uMarkN: THREE.IUniform<THREE.Vector4>;
+  /** Comb and wattles (linear). */
+  uComb: THREE.IUniform<THREE.Color>;
+  /** Bare legs (linear). */
+  uShank: THREE.IUniform<THREE.Color>;
   /** Plain nose leather colour (linear). */
   uLeather: THREE.IUniform<THREE.Color>;
   /** length (m), fluff, strand spacing (m), actor scale */
@@ -163,6 +196,11 @@ export function createFurUniforms(): FurUniforms {
     uMarkI: { value: new THREE.Vector4() },
     uMarkJ: { value: new THREE.Vector4(0, 1, 0, 0) },
     uMarkK: { value: new THREE.Vector4() },
+    uMarkL: { value: new THREE.Vector4(0, 1, 0, 0) },
+    uMarkM: { value: new THREE.Vector4() },
+    uMarkN: { value: new THREE.Vector4() },
+    uComb: { value: new THREE.Color().setRGB(0.7, 0.15, 0.16, THREE.SRGBColorSpace) },
+    uShank: { value: new THREE.Color().setRGB(0.85, 0.77, 0.64, THREE.SRGBColorSpace) },
     uLeather: { value: new THREE.Color(0.025, 0.02, 0.02) },
     uFur: { value: new THREE.Vector4(0.012, 0.2, 0.0019, 1) },
     uIris: { value: new THREE.Color().setRGB(0.32, 0.18, 0.06, THREE.SRGBColorSpace) },
@@ -192,6 +230,13 @@ export function setFurCoat(u: FurUniforms, coat: FurCoat, scale = 1): void {
   u.uMarkF.value.set(coat.dapple ?? 0, coat.dappleSize ?? 1, coat.dorsal ?? 0, coat.rump ?? 0);
   u.uMarkG.value.set(coat.rumpBorder ?? 0, coat.headTone ?? 0, deer ? (coat.eyeRing ?? 0) : 0, deer ? (coat.innerEar ?? 0) : 0);
   u.uMarkH.value.set(coat.tabby ?? 0, coat.patches ?? 0, deer || cow ? 0 : (coat.innerEar ?? 0), coat.pupil ?? 0);
+  // Chicken packs: feathers, comb and bare legs.
+  const chicken = coat.comb !== undefined;
+  u.uMarkL.value.set(chicken ? 1 : 0, coat.featherSize ?? 1, coat.shaft ?? 0, coat.lacing ?? 0);
+  u.uMarkM.value.set(coat.barring ?? 0, coat.hackleStripe ?? 0, coat.tailDark ?? 0, coat.mottle ?? 0);
+  u.uMarkN.value.set(coat.fluffLight ?? 0, coat.tailWhite ?? 0, 0, 0);
+  if (coat.comb) u.uComb.value.setRGB(...coat.comb, THREE.SRGBColorSpace);
+  if (coat.legs) u.uShank.value.setRGB(...coat.legs, THREE.SRGBColorSpace);
   if (coat.nose) u.uLeather.value.setRGB(...coat.nose, THREE.SRGBColorSpace);
   else u.uLeather.value.setRGB(0.025, 0.02, 0.02);
   const grain = coat.grain ?? 1;
@@ -242,6 +287,7 @@ varying vec3 vCoatPos; varying vec3 vFlow; varying float vShell;
 uniform vec4 uNose;
 uniform vec3 uBase; uniform vec3 uSecond; uniform vec3 uTan; uniform vec3 uWhite;
 uniform vec4 uMarkA; uniform vec4 uMarkB; uniform vec4 uMarkC; uniform vec4 uMarkD; uniform vec4 uMarkE; uniform vec4 uMarkF; uniform vec4 uMarkG; uniform vec4 uMarkH; uniform vec4 uMarkI; uniform vec4 uMarkJ; uniform vec4 uMarkK; uniform vec4 uFur; uniform vec3 uLeather;
+uniform vec4 uMarkL; uniform vec4 uMarkM; uniform vec4 uMarkN; uniform vec3 uComb; uniform vec3 uShank;
 uniform float uGrain;
 vec3 furHash( vec3 p ) {
   p = fract( p * vec3( 0.1031, 0.1030, 0.0973 ) );
@@ -397,6 +443,61 @@ float furTabby( vec3 p ) {
   t = max( t, smoothstep( 0.93, 0.995, vCoatD.x + warp * 0.05 ) * ( trunkW + tailW ) );
   return clamp( t, 0.0, 1.0 );
 }
+/**
+ * Chicken feathers: the feather lying on top at this point, in a jittered 3D grid of feather roots
+ * (q in feather spacings, f the direction the feathers point). Feathers further up the flow overlap
+ * the ones behind them, as on a bird. Returns (along 0 root .. 1 tip, across 0 shaft .. 1 edge, random, covered).
+ */
+vec4 chickFeather( vec3 q, vec3 f ) {
+  vec3 c = floor( q );
+  float bestKey = 1e9;
+  vec4 res = vec4( 1.0, 1.0, 0.5, 0.0 );
+  for ( int x = -1; x <= 1; x++ ) for ( int y = -1; y <= 1; y++ ) for ( int z = -1; z <= 1; z++ ) {
+    vec3 cell = c + vec3( x, y, z );
+    vec3 r = furHash( cell + 3.1 );
+    vec3 root = cell + 0.15 + 0.7 * r;
+    vec3 d = q - root;
+    float a = dot( d, f );
+    float b = length( d - a * f );
+    const float L = 1.8;
+    float m = ( a / L ) * 2.0 - 1.0;
+    // Rounded outline, widest towards the tip.
+    float hw = 0.85 * sqrt( max( 0.0, 1.0 - m * m ) ) * ( 0.75 + 0.25 * m );
+    float key = dot( root, f );
+    if ( a > 0.0 && a < L && b < hw && key < bestKey ) {
+      bestKey = key;
+      res = vec4( a / L, b / max( hw, 1e-3 ), r.z, 1.0 );
+    }
+  }
+  return res;
+}
+/** Chicken plumage over the coat colour (packs with feathers: uMarkL.x = 1). */
+vec3 chickenCoat( vec3 col, float n ) {
+  float hackle = vCoatF.x, fluffW = vCoatF.z;
+  float tailW = smoothstep( 0.2, 0.6, vCoatE.z );
+  col = mix( col, uTan, smoothstep( 0.15, 0.6, hackle + n * 0.2 ) );
+  col = mix( col, uSecond, tailW * uMarkM.z );
+  col = furMixP( col, uWhite, smoothstep( 0.2, 0.7, fluffW + n * 0.3 ) * uMarkN.x );
+  float size = 0.011 * max( uMarkL.y, 0.3 ) * max( vCoatF.w, 0.2 );
+  vec3 q = vCoatPos / size;
+  vec4 fe = chickFeather( q, normalize( vFlow + vec3( 1e-5 ) ) );
+  float t = fe.x, e = fe.y;
+  // Each feather a little lighter or darker, shaded where the feather above overlaps its base.
+  vec3 feather = col * ( 0.88 + 0.24 * fe.z ) * mix( 0.78, 1.05, smoothstep( 0.0, 0.55, t ) );
+  feather = furMixP( feather, mix( feather, uWhite, 0.6 ), uMarkL.z * ( 1.0 - smoothstep( 0.05, 0.16, e ) ) * smoothstep( 0.12, 0.5, t ) );
+  feather = mix( feather, uSecond, uMarkM.y * hackle * ( 1.0 - smoothstep( 0.3, 0.55, e ) ) * smoothstep( 0.05, 0.3, t ) );
+  feather = mix( feather, uSecond, uMarkL.w * smoothstep( 0.66, 0.84, max( e, smoothstep( 0.8, 0.98, t ) ) ) );
+  feather = mix( feather, uSecond, uMarkM.x * furStripe( t * 3.2 + 0.2, 0.2 ) * 0.92 );
+  feather = mix( feather, uWhite, uMarkM.w * step( 0.45, fe.z ) * smoothstep( 0.8, 0.92, t ) * ( 1.0 - smoothstep( 0.6, 0.85, e ) ) );
+  feather = mix( feather, uWhite, uMarkN.y * tailW * smoothstep( 0.78, 1.0, vCoatA.w + fe.z * 0.2 ) );
+  // Between feathers: the darker down shows.
+  feather = mix( feather * 0.74, feather, fe.w );
+  // Too small to see: the average colour.
+  vec3 avg = mix( col, uSecond, 0.3 * uMarkL.w + 0.4 * uMarkM.x + 0.25 * uMarkM.y * hackle );
+  avg = mix( avg, uWhite, 0.1 * uMarkM.w ) * 0.95;
+  float px = length( fwidth( q ) );
+  return mix( feather, avg, smoothstep( 0.35, 1.0, px ) );
+}
 /** Coat colour from the region data and the markings. */
 vec3 furCoat() {
   float legT = vCoatA.x, headW = vCoatA.y, muzzleT = vCoatA.z, tailT = vCoatA.w;
@@ -432,6 +533,7 @@ vec3 furCoat() {
   col = deerCoat( col, n );
   col = horseCoat( col, n );
   col = cowCoat( col, n );
+  if ( uMarkL.x > 0.5 ) col = chickenCoat( col, n );
   // Cats: tortoiseshell patches (tan), then tabby stripes (darker red inside the patches), light inner ears.
   if ( uMarkH.x + uMarkH.y + uMarkH.z > 0.0 ) {
     float tortie = smoothstep( 0.6, 0.68, furFbm( p * 7.0 + 5.3 ) + n * 0.15 + 0.06 * vCoatD.x ) * uMarkH.y * ( 1.0 - headW * 0.5 ) * ( 1.0 - vCoatD.y );
@@ -492,9 +594,19 @@ vec3 furCoat() {
     bare = mix( bare, uNose.rgb * 0.22, clamp( vCoatC.y / max( bareW, 1e-3 ), 0.0, 1.0 ) );
     bare = mix( bare, leather, clamp( noseW / max( bareW, 1e-3 ), 0.0, 1.0 ) );
   }
+  if ( uMarkL.x > 0.5 ) {
+    // Chickens: horn beak, red comb and face, scaly legs.
+    vec3 beak = uLeather * mix( 1.0, 0.8, smoothstep( 0.0, 1.0, furNoise( vCoatPos * 300.0 ) ) );
+    float row = vCoatPos.y / 0.0042;
+    float around = ( vCoatPos.x + vCoatPos.z ) / 0.0052 + 0.5 * mod( floor( row ), 2.0 );
+    float scales = max( furStripe( row, 0.07 ), 0.6 * furStripe( around, 0.06 ) );
+    vec3 shank = uShank * ( 1.0 - 0.22 * scales ) * ( 0.92 + 0.12 * furNoise( vCoatPos * 700.0 ) );
+    vec3 comb = uComb * ( 0.82 + 0.3 * furNoise( vCoatPos * 900.0 ) );
+    bare = ( beak * vCoatC.x + shank * vCoatC.z + comb * vCoatC.w + bare * vCoatC.y ) / max( vCoatC.x + vCoatC.y + vCoatC.z + vCoatC.w, 1e-3 );
+  }
   col = mix( col, bare, bareW );
   // Clumps of lighter and darker hair (larger than single strands, so they read from afar).
-  return col * ( 0.86 + 0.28 * furStreak( p ) );
+  return col * ( 0.86 + 0.28 * mix( furStreak( p ), 0.5, 0.7 * uMarkL.x ) );
 }
 #ifdef FUR_SHELL
 /** Average strand coverage at shell height h (what the strands below cover when too small to resolve). */

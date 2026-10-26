@@ -72,8 +72,36 @@ export function vertexNormals(positions: ArrayLike<number>, indices: ArrayLike<n
   return n;
 }
 
-/** Surface of the body: quads from Surface Nets, made even and triangulated, then reduced to about `triangles`. */
-export async function meshBody(body: DogBody, cell: number, triangles: number): Promise<{ positions: Float32Array; indices: Uint32Array }> {
+/**
+ * Surface of the body: quads from Surface Nets, made even and triangulated, then reduced to about `triangles`.
+ * Parts on other layers (see BodyPart.layer) are meshed on their own and appended; `layer` says which
+ * layer each vertex belongs to (only for bodies that have layers).
+ */
+export async function meshBody(body: DogBody, cell: number, triangles: number): Promise<{ positions: Float32Array; indices: Uint32Array; layer?: Uint8Array }> {
+  const layers = [...new Set(body.parts.map((p) => p.layer ?? 0))].sort((a, b) => a - b);
+  if (layers.length === 1) return reduceLayer(body, rawLayer(body, cell), triangles);
+  const subs = layers.map((L) => ({ ...body, parts: body.parts.filter((p) => (p.layer ?? 0) === L) }));
+  const raws = subs.map((sub) => rawLayer(sub, cell));
+  const total = raws.reduce((a, r) => a + r.tris.length, 0);
+  const meshes: { positions: Float32Array; indices: Uint32Array }[] = [];
+  // Share the triangle budget by each layer's raw (unreduced) size.
+  for (let k = 0; k < subs.length; k++) meshes.push(await reduceLayer(subs[k], raws[k], Math.round((triangles * raws[k].tris.length) / total)));
+  const count = meshes.reduce((a, m) => a + m.positions.length / 3, 0);
+  const positions = new Float32Array(count * 3), layer = new Uint8Array(count);
+  const indices = new Uint32Array(meshes.reduce((a, m) => a + m.indices.length, 0));
+  let v = 0, i = 0;
+  meshes.forEach((m, k) => {
+    positions.set(m.positions, v * 3);
+    layer.fill(layers[k], v, v + m.positions.length / 3);
+    for (let j = 0; j < m.indices.length; j++) indices[i + j] = m.indices[j] + v;
+    v += m.positions.length / 3;
+    i += m.indices.length;
+  });
+  return { positions, indices, layer };
+}
+
+/** Surface Nets quads of the body's parts, made even and triangulated. */
+function rawLayer(body: DogBody, cell: number): { positions: Float64Array; tris: number[] } {
   const f = (p: Vec3) => bodyDistance(body.parts, p);
   const u = body.unit ?? 1;
   const lo: Vec3 = [Infinity, Infinity, Infinity], hi: Vec3 = [-Infinity, -Infinity, -Infinity];
@@ -97,6 +125,13 @@ export async function meshBody(body: DogBody, cell: number, triangles: number): 
     if (d2(a, c) <= d2(b, d)) tris.push(a, b, c, a, c, d);
     else tris.push(a, b, d, b, c, d);
   }
+  return { positions: P, tris };
+}
+
+/** Reduces a raw layer to about `triangles`, back onto the surface, Taubin-smoothed. */
+async function reduceLayer(body: DogBody, raw: { positions: Float64Array; tris: number[] }, triangles: number): Promise<{ positions: Float32Array; indices: Uint32Array }> {
+  const f = (p: Vec3) => bodyDistance(body.parts, p);
+  const { positions: P, tris } = raw;
   await MeshoptSimplifier.ready;
   const pos32 = Float32Array.from(P);
   const target = Math.min(tris.length, triangles * 3);
@@ -130,7 +165,7 @@ export async function meshBody(body: DogBody, cell: number, triangles: number): 
 function taubin(body: DogBody, P: Float64Array, nb: number[][], iterations: number): void {
   const n = P.length / 3;
   const u = body.unit ?? 1;
-  const keepShape = body.parts.filter((q) => q.carve || q.region === "ear" || q.region === "nose" || q.region === "hoof");
+  const keepShape = body.parts.filter((q) => q.carve || q.region === "ear" || q.region === "nose" || q.region === "hoof" || q.region === "comb");
   const strength = new Float64Array(n);
   for (let v = 0; v < n; v++) {
     const p: Vec3 = [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]];
@@ -172,21 +207,21 @@ function taubin(body: DogBody, P: Float64Array, nb: number[][], iterations: numb
  * How much each part makes up the surface at p: parts within a few millimetres
  * of the closest one share it (soft, so weights blend across joins).
  */
-function membership(parts: BodyPart[], p: Vec3, out: number[], mouth: DogBody["marks"]["mouth"], u: number, split = true): void {
+function membership(parts: BodyPart[], p: Vec3, out: number[], mouth: DogBody["marks"]["mouth"], u: number, split = true, layer = 0): void {
   let best = Infinity;
   // In front of the mouth corner, the slit splits the head: above it is muzzle, below it jaw.
   const inMouth = split && p[2] > mouth.z0 - 0.004 * u;
   const above = p[1] > mouthLineY(mouth, p[2]);
   for (let i = 0; i < parts.length; i++) {
     const region = parts[i].region;
-    if (parts[i].carve || (inMouth && ((above && region === "jaw") || (!above && (region === "muzzle" || region === "nose"))))) {
+    if (parts[i].carve || (parts[i].layer ?? 0) !== layer || (inMouth && ((above && region === "jaw") || (!above && (region === "muzzle" || region === "nose"))))) {
       out[i] = Infinity;
       continue;
     }
     out[i] = parts[i].prim.distance(p);
     best = Math.min(best, out[i]);
   }
-  if (best === Infinity) return membership(parts, p, out, mouth, u, false);
+  if (best === Infinity) return membership(parts, p, out, mouth, u, false, layer);
   let sum = 0;
   for (let i = 0; i < parts.length; i++) {
     const w = out[i] === Infinity ? 0 : Math.exp(-(out[i] - best) / (0.006 * u));
@@ -197,15 +232,16 @@ function membership(parts: BodyPart[], p: Vec3, out: number[], mouth: DogBody["m
 }
 
 /** Skin weights, fur flow and coat regions for every vertex. */
-export function skinBody(body: DogBody, mesh: { positions: Float32Array; indices: Uint32Array }, coat: CoatFunction = coatRegions): BodyMesh {
+export function skinBody(body: DogBody, mesh: { positions: Float32Array; indices: Uint32Array; layer?: Uint8Array }, coat: CoatFunction = coatRegions): BodyMesh {
   const { rig, parts } = body;
   const u = body.unit ?? 1;
   const n = mesh.positions.length / 3;
   const normals = vertexNormals(mesh.positions, mesh.indices, n);
   // Face winding decides the sign; make the normals point out of the body (along the distance gradient).
   let agree = 0;
+  const layerParts = (v: number) => (mesh.layer ? parts.filter((q) => (q.layer ?? 0) === mesh.layer![v]) : parts);
   for (let v = 0; v < n; v += 97) {
-    const g = gradient((p) => bodyDistance(parts, p), [mesh.positions[v * 3], mesh.positions[v * 3 + 1], mesh.positions[v * 3 + 2]]);
+    const g = gradient((p) => bodyDistance(layerParts(v), p), [mesh.positions[v * 3], mesh.positions[v * 3 + 1], mesh.positions[v * 3 + 2]]);
     agree += Math.sign(g[0] * normals[v * 3] + g[1] * normals[v * 3 + 1] + g[2] * normals[v * 3 + 2]);
   }
   if (agree < 0) {
@@ -229,7 +265,7 @@ export function skinBody(body: DogBody, mesh: { positions: Float32Array; indices
 
   for (let v = 0; v < n; v++) {
     const p: Vec3 = [mesh.positions[v * 3], mesh.positions[v * 3 + 1], mesh.positions[v * 3 + 2]];
-    membership(parts, p, member, body.marks.mouth, u);
+    membership(parts, p, member, body.marks.mouth, u, true, mesh.layer?.[v] ?? 0);
     let fx = 0, fy = 0, fz = 0;
     for (let i = 0; i < parts.length; i++) {
       const m = member[i];

@@ -11,9 +11,12 @@
  *   generated the same way (horse.ts, horsecoat.ts, horsemorphs.ts) and tack
  *   (saddle, bridle; tack.ts) with a `saddle` bone where a rider sits;
  * - cow: the same horse rig and clips, a Braunvieh body (cow.ts, cowcoat.ts,
- *   cowmorphs.ts), horns and an alpine bell (cowparts.ts).
+ *   cowmorphs.ts), horns and an alpine bell (cowparts.ts);
+ * - chicken: the bones of Mesh2Motion's CC0 bird rig, a brown hen body with
+ *   folded wings (chicken.ts, chickencoat.ts, chickenmorphs.ts) and its own
+ *   procedural clips (chickenclips.ts).
  *
- *   npm run import:animals [-- --only dog|squirrel|cat|deer|horse|cow] [--out <dir>] [--cell <meters>] [--triangles <n>]
+ *   npm run import:animals [-- --only dog|squirrel|cat|deer|horse|cow|chicken] [--out <dir>] [--cell <meters>] [--triangles <n>]
  *
  * Source files are downloaded once into .cache/. No mesh is taken from the
  * sources; only their skeletons and animations.
@@ -40,7 +43,11 @@ import { QUATERNIUS_NOTE, QUATERNIUS_PACK, deerGlb } from "./quaternius";
 import { type Rig, readRig } from "./rig";
 import { squirrelBody } from "./squirrel";
 import { squirrelClips } from "./squirrelclips";
-import { FOX_ANIMATIONS, HORSE_ANIMATIONS, HORSE_SOURCE_NOTE, MESH2MOTION_COMMIT, SOURCE_NOTE } from "./source";
+import { BIRD_ANIMATIONS, BIRD_SOURCE_NOTE, FOX_ANIMATIONS, HORSE_ANIMATIONS, HORSE_SOURCE_NOTE, MESH2MOTION_COMMIT, SOURCE_NOTE } from "./source";
+import { type ChickenBody, chickenBody } from "./chicken";
+import { chickenClips } from "./chickenclips";
+import { chickenCoat } from "./chickencoat";
+import { chickenMorphs } from "./chickenmorphs";
 import { type HorseBody, clipRig, horseBody } from "./horse";
 import { type CowBody, cowBody } from "./cow";
 import { cowCoat } from "./cowcoat";
@@ -320,6 +327,34 @@ function cowSpec(cell: number, triangles: number): AnimalSpec {
   };
 }
 
+/** Chicken: a brown hen on Mesh2Motion's bird bones (wings folded), with its own clips (the bird rig's are flight clips). */
+function chickenSpec(cell: number, triangles: number): AnimalSpec {
+  const glb = parseGlb(readFileSync(fetchCached(CACHE, BIRD_ANIMATIONS)));
+  const body = chickenBody(readRig(glb));
+  const eye = body.eyes[0].center;
+  return {
+    id: "chicken",
+    glb,
+    source: body.rig,
+    body,
+    coat: chickenCoat,
+    morphs: (input) => chickenMorphs(input, body as ChickenBody),
+    noseTip: body.marks.nose,
+    stop: [0, eye[1], eye[2] + 0.01],
+    clipSource: "Mesh2Motion bird rig (CC0)",
+    clipOptions: { clips: [], rootBone: "hips", feet: (n) => /^Toes_tip_/.test(n) },
+    ownClips: chickenClips,
+    crowdDrops: /feather|tip|Toes|mouth_lower/,
+    lodDistances: [3, 10],
+    furColor: [0.45, 0.22, 0.08],
+    eyeColor: [0.6, 0.32, 0.06],
+    manifestSource: { name: `Generated brown hen body and clips; ${BIRD_SOURCE_NOTE}`, license: "CC0-1.0", url: `https://github.com/scottpetrovic/mesh2motion-app/tree/${MESH2MOTION_COMMIT}` },
+    cell,
+    triangles,
+    skeleton: "bird",
+  };
+}
+
 async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
   const { body, glb } = spec;
   const { rig } = body;
@@ -334,7 +369,7 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
   const positions: number[] = Array.from(skinned.positions);
   const joints: number[] = Array.from(skinned.joints);
   const weights: number[] = Array.from(skinned.weights);
-  // The dog and deer rigs call the bone "Head", the horse rig (horse, cow) "head".
+  // The dog and deer rigs call the bone "Head", the horse and bird rigs (horse, cow, chicken) "head".
   const headBone = rig.index.get("Head") ?? rig.index.get("head");
   if (headBone === undefined) throw new Error(`${spec.id}: no head bone for the eyes`);
   const eyeMeshes = body.eyes.map((e) => {
@@ -547,7 +582,7 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
 
 async function main(): Promise<void> {
   const only = arg("only");
-  const ids = only ? only.split(",") : ["dog", "squirrel", "cat", "deer", "horse", "cow"];
+  const ids = only ? only.split(",") : ["dog", "squirrel", "cat", "deer", "horse", "cow", "chicken"];
   if (arg("out") && ids.length > 1) throw new Error("--out needs --only <animal>");
   const specs: Record<string, (cell: number, triangles: number) => AnimalSpec> = {
     dog: (c, t) => quadrupedSpec("dog", c, t),
@@ -556,8 +591,9 @@ async function main(): Promise<void> {
     deer: deerSpec,
     horse: horseSpec,
     cow: cowSpec,
+    chicken: chickenSpec,
   };
-  const defaults: Record<string, [number, number]> = { dog: [0.0035, 44000], squirrel: [0.0011, 40000], cat: [0.002, 44000], deer: [0.003, 52000], horse: [0.005, 64000], cow: [0.005, 64000] };
+  const defaults: Record<string, [number, number]> = { dog: [0.0035, 44000], squirrel: [0.0011, 40000], cat: [0.002, 44000], deer: [0.003, 52000], horse: [0.005, 64000], cow: [0.005, 64000], chicken: [0.0018, 48000] };
   for (const id of ids) {
     const make = specs[id];
     if (!make) throw new Error(`Unknown animal ${id}`);

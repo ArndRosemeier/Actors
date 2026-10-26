@@ -2,7 +2,7 @@
  * Fur for animal packs on three's WebGPURenderer (WebGPU and its WebGL 2
  * fallback): the node-material twin of ../fur.ts, with the same coat
  * colours and markings for every animal (dogs, squirrels, cats, deer,
- * horses, cows), the same shells and the same uniforms (`createFurUniforms`,
+ * horses, cows, chickens), the same shells and the same uniforms (`createFurUniforms`,
  * `setFurCoat`).
  *
  * As with the other node kinds, every fur body shares one node graph and
@@ -11,7 +11,7 @@
  */
 import * as THREE from "three";
 import { MeshPhysicalNodeMaterial, MeshStandardNodeMaterial } from "three/webgpu";
-import { Fn, Loop, abs, attribute, clamp, cos, dot, float, floor, fract, fwidth, length, max, min, mix, mod, normalLocal, normalize, positionLocal, pow, select, sin, smoothstep, sqrt, step, vec2, vec3, vec4 } from "./tsl";
+import { Fn, If, Loop, abs, attribute, clamp, cos, dot, float, floor, fract, fwidth, length, max, min, mix, mod, normalLocal, normalize, positionLocal, pow, select, sin, smoothstep, sqrt, step, vec2, vec3, vec4 } from "./tsl";
 import type { ActorMaterialKit, ThreeActor } from "../index";
 import { addFurShellsWith, type FurShells, type FurUniforms } from "../fur";
 import { feed, input, nodeMaterials, once } from "./materials";
@@ -25,7 +25,7 @@ const coat = (name: string, type = "vec4") =>
 /** The coat uniforms of the drawn material (see `furInputs`). */
 interface Coat {
   base: N; second: N; tan: N; white: N; leather: N;
-  A: N; B: N; C: N; D: N; E: N; F: N; G: N; H: N; I: N; J: N; K: N; nose: N; fur: N; grain: N;
+  A: N; B: N; C: N; D: N; E: N; F: N; G: N; H: N; I: N; J: N; K: N; L: N; M: N; Nn: N; comb: N; shank: N; nose: N; fur: N; grain: N;
 }
 
 const coatInputs = once((): Coat => ({
@@ -38,6 +38,8 @@ const coatInputs = once((): Coat => ({
   D: input("fur.D", new THREE.Vector4()), E: input("fur.E", new THREE.Vector4()), F: input("fur.F", new THREE.Vector4()),
   G: input("fur.G", new THREE.Vector4()), H: input("fur.H", new THREE.Vector4()), I: input("fur.I", new THREE.Vector4()),
   J: input("fur.J", new THREE.Vector4()), K: input("fur.K", new THREE.Vector4()),
+  L: input("fur.L", new THREE.Vector4()), M: input("fur.M", new THREE.Vector4()), Nn: input("fur.N", new THREE.Vector4()),
+  comb: input("fur.comb", new THREE.Color()), shank: input("fur.shank", new THREE.Color()),
   nose: input("fur.nose", new THREE.Vector4()),
   fur: input("fur.fur", new THREE.Vector4()),
   grain: input("fur.grain", 1),
@@ -50,7 +52,8 @@ function furInputs<T extends THREE.Material>(mat: T, u: FurUniforms): T {
     "fur.leather": () => u.uLeather.value,
     "fur.A": () => u.uMarkA.value, "fur.B": () => u.uMarkB.value, "fur.C": () => u.uMarkC.value, "fur.D": () => u.uMarkD.value,
     "fur.E": () => u.uMarkE.value, "fur.F": () => u.uMarkF.value, "fur.G": () => u.uMarkG.value, "fur.H": () => u.uMarkH.value,
-    "fur.I": () => u.uMarkI.value, "fur.J": () => u.uMarkJ.value, "fur.K": () => u.uMarkK.value, "fur.nose": () => u.uNose.value, "fur.fur": () => u.uFur.value, "fur.grain": () => u.uGrain.value,
+    "fur.I": () => u.uMarkI.value, "fur.J": () => u.uMarkJ.value, "fur.K": () => u.uMarkK.value,
+    "fur.L": () => u.uMarkL.value, "fur.M": () => u.uMarkM.value, "fur.N": () => u.uMarkN.value, "fur.comb": () => u.uComb.value, "fur.shank": () => u.uShank.value, "fur.nose": () => u.uNose.value, "fur.fur": () => u.uFur.value, "fur.grain": () => u.uGrain.value,
   });
 }
 
@@ -196,6 +199,52 @@ function furTabby(p: N, v: Ch): N {
   return clamp(t, 0, 1);
 }
 
+/** Chicken feathers: the feather on top at this point (along 0..1, across 0..1, random, covered); see ../fur.ts chickFeather. */
+const chickFeather = Fn(([q, f]: N[]) => {
+  const c = floor(q).toVar();
+  const bestKey = float(1e9).toVar();
+  const res = vec4(1, 1, 0.5, 0).toVar();
+  Loop({ start: -1, end: 2, name: "z" }, { start: -1, end: 2, name: "y" }, { start: -1, end: 2, name: "x" }, ({ x, y, z }: { x: N; y: N; z: N }) => {
+    const cell = c.add(vec3(float(x), float(y), float(z))).toVar();
+    const r = furHash(cell.add(3.1)).toVar();
+    const root = cell.add(0.15).add(r.mul(0.7)).toVar();
+    const d = q.sub(root).toVar();
+    const a = dot(d, f).toVar();
+    const b = length(d.sub(f.mul(a))).toVar();
+    const m = a.div(1.8).mul(2).sub(1).toVar();
+    const hw = sqrt(max(0, float(1).sub(m.mul(m)))).mul(0.85).mul(m.mul(0.25).add(0.75)).toVar();
+    const key = dot(root, f).toVar();
+    If(a.greaterThan(0).and(a.lessThan(1.8)).and(b.lessThan(hw)).and(key.lessThan(bestKey)), () => {
+      bestKey.assign(key);
+      res.assign(vec4(a.div(1.8), b.div(max(hw, 1e-3)), r.z, 1));
+    });
+  });
+  return res;
+}).setLayout({ name: "fur_chickFeather", type: "vec4", inputs: [{ name: "q", type: "vec3" }, { name: "f", type: "vec3" }] });
+
+/** Chicken plumage over the coat colour (the GLSL's chickenCoat; only drawn on packs with feathers). */
+function chickenCoat(col: N, n: N, k: Coat, v: Ch): N {
+  const hackle = v.F.x, fluffW = v.F.z;
+  const tailW = smoothstep(0.2, 0.6, v.E.z);
+  col = mix(col, k.tan, smoothstep(0.15, 0.6, hackle.add(n.mul(0.2))));
+  col = mix(col, k.second, tailW.mul(k.M.z));
+  col = mixP(col, k.white, smoothstep(0.2, 0.7, fluffW.add(n.mul(0.3))).mul(k.Nn.x)).toVar();
+  const size = max(k.L.y, 0.3).mul(0.011).mul(max(v.F.w, 0.2));
+  const q = v.pos.div(size).toVar();
+  const fe = chickFeather(q, normalize(v.flow.add(1e-5))).toVar();
+  const t = fe.x, e = fe.y;
+  let feather: N = col.mul(fe.z.mul(0.24).add(0.88)).mul(mix(0.78, 1.05, smoothstep(0, 0.55, t))).toVar();
+  feather = mixP(feather, mix(feather, k.white, 0.6), k.L.z.mul(float(1).sub(smoothstep(0.05, 0.16, e))).mul(smoothstep(0.12, 0.5, t)));
+  feather = mix(feather, k.second, k.M.y.mul(hackle).mul(float(1).sub(smoothstep(0.3, 0.55, e))).mul(smoothstep(0.05, 0.3, t)));
+  feather = mix(feather, k.second, k.L.w.mul(smoothstep(0.66, 0.84, max(e, smoothstep(0.8, 0.98, t)))));
+  feather = mix(feather, k.second, k.M.x.mul(furStripe(t.mul(3.2).add(0.2), 0.2)).mul(0.92));
+  feather = mix(feather, k.white, k.M.w.mul(step(0.45, fe.z)).mul(smoothstep(0.8, 0.92, t)).mul(float(1).sub(smoothstep(0.6, 0.85, e))));
+  feather = mix(feather, k.white, k.Nn.y.mul(tailW).mul(smoothstep(0.78, 1, v.A.w.add(fe.z.mul(0.2)))));
+  feather = mix(feather.mul(0.74), feather, fe.w);
+  const avg = mix(mix(col, k.second, k.L.w.mul(0.3).add(k.M.x.mul(0.4)).add(k.M.y.mul(0.25).mul(hackle))), k.white, k.M.w.mul(0.1)).mul(0.95);
+  return mix(feather, avg, smoothstep(0.35, 1, length(fwidth(q))));
+}
+
 /** Coat colour from the region data and the markings (the GLSL's furCoat). */
 function furCoat(k: Coat, v: Ch): N {
   const legT = v.A.x, headW = v.A.y, muzzleT = v.A.z, tailT = v.A.w;
@@ -222,6 +271,14 @@ function furCoat(k: Coat, v: Ch): N {
   col = deerCoat(col, n, k, v);
   col = horseCoat(col, n, k, v);
   col = cowCoat(col, n, k, v);
+  {
+    // Feathers only on chicken packs (the feather search is not free).
+    const c = vec3(col).toVar();
+    If(k.L.x.greaterThan(0.5), () => {
+      c.assign(chickenCoat(c, n, k, v));
+    });
+    col = c;
+  }
   {
     // Cats: tortoiseshell patches, tabby stripes, light inner ears (all 0 elsewhere).
     const cat = step(1e-4, k.H.x.add(k.H.y).add(k.H.z));
@@ -272,8 +329,19 @@ function furCoat(k: Coat, v: Ch): N {
     detailed = mix(detailed, leather, clamp(noseW.div(safe), 0, 1));
     bare = mix(bare, detailed, step(0.5, k.nose.w));
   }
+  {
+    // Chickens: horn beak, red comb and face, scaly legs.
+    const beak = k.leather.mul(mix(1, 0.8, furNoise(v.pos.mul(300))));
+    const row = v.pos.y.div(0.0042);
+    const around = v.pos.x.add(v.pos.z).div(0.0052).add(mod(floor(row), 2).mul(0.5));
+    const scales = max(furStripe(row, 0.07), furStripe(around, 0.06).mul(0.6));
+    const shank = k.shank.mul(float(1).sub(scales.mul(0.22))).mul(furNoise(v.pos.mul(700)).mul(0.12).add(0.92));
+    const comb = k.comb.mul(furNoise(v.pos.mul(900)).mul(0.3).add(0.82));
+    const chick = beak.mul(v.C.x).add(shank.mul(v.C.z)).add(comb.mul(v.C.w)).add(bare.mul(v.C.y)).div(max(v.C.x.add(v.C.y).add(v.C.z).add(v.C.w), 1e-3));
+    bare = mix(bare, chick, step(0.5, k.L.x));
+  }
   col = mix(col, bare, bareW);
-  return col.mul(furStreak(p, v.flow).mul(0.28).add(0.86));
+  return col.mul(mix(furStreak(p, v.flow), 0.5, k.L.x.mul(0.7)).mul(0.28).add(0.86));
 }
 
 /** Bare-skin weight (nose, lips, pads, eye rims): no fur, no sheen there. */

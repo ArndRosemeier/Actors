@@ -3,6 +3,7 @@
 // on any pipeline over the device limit. Saves a canvas capture.
 // Usage: node scripts/webgpu-check.mjs <url with ?webgpu> [out.png] [--human]
 // Animals: node scripts/webgpu-check.mjs "http://localhost:5173/webgpu-animals.html?animals=dog,cat,squirrel,deer"
+// With the fur materials and shells: add &fur (e.g. "...webgpu-animals.html?animals=chicken&fur").
 // --human drives the character viewer: every race, smiling, dressed, with hair
 // (face morphs, generated add-ons and garments all get drawn).
 import { chromium } from "playwright-core";

@@ -38,7 +38,7 @@ export const TAIL_DROP = [-70, -8, 6];
 /** Ears turned forward, so they stand up rather than lean back. */
 export const EAR_TILT = 18;
 
-export type Region = "torso" | "neck" | "head" | "muzzle" | "jaw" | "nose" | "ear" | "leg" | "paw" | "hoof" | "tail" | "eye" | "mane" | "udder";
+export type Region = "torso" | "neck" | "head" | "muzzle" | "jaw" | "nose" | "ear" | "leg" | "paw" | "hoof" | "tail" | "eye" | "mane" | "udder" | "comb" | "wing" | "fluff";
 
 export interface BodyPart extends Part {
   /** Bones that carry this part; each vertex is shared between them by distance to the bone. */
@@ -48,6 +48,11 @@ export interface BodyPart extends Part {
   flow: (p: Vec3) => Vec3;
   /** Fur length factor (1 = body fur). */
   fur: number;
+  /**
+   * Parts on another layer (default 0) make a surface of their own that may lie on or in the body
+   * without merging with it (a bird's folded wing, which must lift off the body when it opens).
+   */
+  layer?: number;
 }
 
 /** Height of the mouth line at depth z (the slit runs from the corner forward). */
