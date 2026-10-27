@@ -25,9 +25,10 @@ type Response = { id: number; ok: true; shape?: ActorShape; task?: unknown } | {
 /**
  * Extra work a worker can do on each new shape before handing it over (e.g.
  * building robot parts from it), so the main thread gets both at once.
- * Returns the result and the buffers to transfer with it.
+ * Returns the result and the buffers to transfer with it (or a promise of them).
  */
-export type ShapeTask = (runtime: ActorRuntime, shape: ActorShape, args: unknown) => { result: unknown; transfer?: ArrayBuffer[] };
+export type ShapeTask = (runtime: ActorRuntime, shape: ActorShape, args: unknown) => ShapeTaskResult | Promise<ShapeTaskResult>;
+export interface ShapeTaskResult { result: unknown; transfer?: ArrayBuffer[] }
 
 function shapeBuffers(shape: ActorShape): ArrayBuffer[] {
   const out: ArrayBuffer[] = [shape.positions.buffer as ArrayBuffer, shape.normals.buffer as ArrayBuffer];
@@ -57,7 +58,7 @@ export function serveRuntime(port: MessagePortLike, tasks: Record<string, ShapeT
           const shape = await runtime.evaluate(new Map(req.weights), undefined, req.options, req.fit);
           const fn = req.task ? tasks[req.task.name] : undefined;
           if (req.task && !fn) throw new Error(`Unknown shape task ${req.task.name}`);
-          const task = fn?.(runtime, shape, req.task!.args);
+          const task = fn ? await fn(runtime, shape, req.task!.args) : undefined;
           port.postMessage({ id: req.id, ok: true, shape, task: task?.result } satisfies Response, [...shapeBuffers(shape), ...(task?.transfer ?? [])]);
         }
       } catch (e) {

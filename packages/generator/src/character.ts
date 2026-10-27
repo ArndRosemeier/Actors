@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { ActorShape, Clip, Fetcher, MessagePortLike } from "@actors/core";
-import { ADULT_MIN_AGE, BEARD_STYLES, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type RaceId, raceScale, sanitizeRace } from "@actors/human";
+import { ADULT_MIN_AGE, BEARD_STYLES, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type PartsConfig, type RaceId, raceScale, sanitizeRace } from "@actors/human";
 import { type ActorMaterialKit, type ScreenTexturePool, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
 import { type ThemeFilter, filterCatalog } from "./themes";
 import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, type SkeletalLook, buildCatalog, defaultConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook, sanitizeSkeletalLook } from "./catalog";
@@ -349,6 +349,14 @@ export class Character {
     return this.catalog.garments.some((g) => g.hidesHair && this.cfg.outfit.includes(g.id));
   }
 
+  /** The generated parts this look wears (not for robots and skeletons, whose parts are their own). */
+  private partsConfig(): Omit<PartsConfig, "scale"> {
+    const c = this.cfg;
+    const hair = (c.hair === "leaves" || c.hair === "crest") && !this.hidesHair() ? c.hair : "none";
+    const rgb = new THREE.Color(c.hornColor ?? "#d9cfb4").convertLinearToSRGB();
+    return { seed: c.seed, horns: c.horns, hornSize: c.hornSize, hornColor: [rgb.r, rgb.g, rgb.b], tusks: c.tusks, tail: c.tail, tailLength: c.tailLength, beard: c.beard, hair };
+  }
+
   private applyLook(): void {
     this.actor.batch(() => this.applyLookNow());
   }
@@ -477,6 +485,9 @@ export class Character {
       h.params = skeletalConfig ? { ...c.body, weight: 0.5, muscle: 0.5, cupSize: 0, firmness: 0.5 } : c.youth > 0 ? childParams(c.body, c.youth) : { ...c.body };
       h.race = sanitizeRace({ race: c.race, race2: c.race2, mix: c.raceMix, size: c.raceSize, youth: c.youth });
       h.modifierValues = { ...c.details };
+      // The parts and face deltas asked for below, built in the worker with the shape (when there is one).
+      const units = EXPRESSIONS[c.expression] ?? {};
+      h.extras = c.robot || c.skeletal ? null : { parts: this.partsConfig(), faces: [...(Object.keys(units).length ? [{ units }] : []), { units: BLINK }] };
       this.shape = await h.evaluate(this.shape);
       const shape = this.shape;
       this.fittedNames = new Set(needed.filter((n) => {
@@ -529,13 +540,14 @@ export class Character {
     } else if (partsKey !== this.applied.parts && this.shape) {
       this.applied.parts = partsKey;
       this.actor.object.position.y = this.actor.groundOffset();
-      const hair = (c.hair === "leaves" || c.hair === "crest") && !this.hidesHair() ? c.hair : "none";
-      const rgb = new THREE.Color(c.hornColor ?? "#d9cfb4").convertLinearToSRGB();
-      this.actor.setParts(await h.parts(this.shape, { seed: c.seed, horns: c.horns, hornSize: c.hornSize, hornColor: [rgb.r, rgb.g, rgb.b], tusks: c.tusks, tail: c.tail, tailLength: c.tailLength, beard: c.beard, hair }));
+      // Its own task: the shape and look above are already a frame's worth of work.
+      await nextTask();
+      this.actor.setParts(await h.parts(this.shape, this.partsConfig()));
       this.applyLook();
     }
     const faceKey = `${shapeKey}|${c.expression}`;
     if (faceKey !== this.applied.face && this.shape) {
+      await nextTask();
       const units = EXPRESSIONS[c.expression] ?? {};
       this.actor.setMorph("expression", Object.keys(units).length ? await h.faceDelta(this.shape, units) : null);
       this.actor.setMorph("blink", await h.faceDelta(this.shape, BLINK));
@@ -551,6 +563,9 @@ export class Character {
     }
   }
 }
+
+/** Resolves in a new task, so the browser can draw a frame between two pieces of work. */
+const nextTask = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 const drawable = new WeakMap<THREE.Texture, THREE.Texture>();
 
