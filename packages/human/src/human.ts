@@ -6,7 +6,8 @@ import { muscleTargetWeights } from "./muscle";
 import { DEFAULT_PARAMS, type HumanParams, sanitizeParams } from "./params";
 import { type SkinTextureDef, skinTextureWeights } from "./skins";
 import { DEFAULT_RACE, EAR_MASKS, type RaceSettings, raceHeadScale, raceScale, raceShapeOptions, raceTargetWeights, sanitizeRace, targetResolver } from "./raceshape";
-import { type PartsConfig, buildParts, hasParts, partsBody } from "./parts";
+import { type PartsConfig, hasParts } from "./parts";
+import { EXTRAS_TASK, type Extras, type ExtrasArgs, type PartTargets, partsFor } from "./extras";
 import { ROBOT_TASK, type RobotConfig, type RobotParts, buildRobot, robotBody } from "./robot";
 import { SKELETAL_TASK, type SkeletalConfig, type SkeletalParts, buildSkeletal } from "./skeletal";
 
@@ -152,15 +153,39 @@ export class Human {
    * (see parts.ts). Skinned to the pack skeleton, in the shape's model space.
    */
   async parts(shape: ActorShape, config: Omit<PartsConfig, "scale">): Promise<PartMesh[]> {
-    const cfg = { ...config, scale: raceScale(sanitizeRace(this.race)) };
+    const cfg = this.partsConfig(config);
     if (!hasParts(cfg)) return [];
-    const names = { l: this.resolveTarget(EAR_MASKS.l), r: this.resolveTarget(EAR_MASKS.r), lip: this.resolveTarget("mouth-upperlip-volume-incr") };
-    const wanted = Object.values(names).filter((n): n is string => !!n);
-    await this.runtime.ensureTargets(wanted);
-    const mask = (n?: string) => (n ? this.runtime.targetMask(n) : null);
-    const ears = names.l && names.r ? ([mask(names.l)!, mask(names.r)!] as [Float32Array, Float32Array]) : null;
-    const body = partsBody(shape, this.runtime.meshes, ears, mask(names.lip));
-    return body ? buildParts(body, cfg) : [];
+    const made = this.made;
+    if (made?.shape === shape && made.parts && made.partsKey === JSON.stringify(cfg)) {
+      const parts = made.parts;
+      made.parts = null; // handed over once (the caller owns the buffers)
+      return parts;
+    }
+    return partsFor(this.runtime, shape, cfg, this.partTargets());
+  }
+
+  private partsConfig(config: Omit<PartsConfig, "scale">): PartsConfig {
+    return { ...config, scale: raceScale(sanitizeRace(this.race)) };
+  }
+
+  private partTargets(): PartTargets {
+    return { l: this.resolveTarget(EAR_MASKS.l), r: this.resolveTarget(EAR_MASKS.r), lip: this.resolveTarget("mouth-upperlip-volume-incr") };
+  }
+
+  /**
+   * Parts and face deltas the next shapes will be asked for (`parts`, `faceDelta` with these
+   * arguments): with a worker they are built there together with each shape from `evaluate`, so
+   * asking for them then costs the main thread nothing. Null: none ahead. Set it, like `params`,
+   * before `evaluate`.
+   */
+  extras: { parts: Omit<PartsConfig, "scale"> | null; faces: { units: UnitWeights; scale?: number }[] } | null = null;
+  /** What the worker built with the last shape (see `extras`). */
+  private made: { shape: ActorShape; partsKey: string; parts: PartMesh[] | null; faces: Map<string, SurfaceDelta> } | null = null;
+
+  /** Pack target weights of face units, for this body and race (see `faceDelta`). */
+  private faceWeights(units: UnitWeights, scale: number): Map<string, number> {
+    const available = new Set(this.runtime.manifest.targets.map((t) => t.name));
+    return expressionTargetWeights(units, this.params, scale * this.faceScale, available);
   }
 
   /**
@@ -219,10 +244,29 @@ export class Human {
       this.robotParts = null;
       return shape;
     }
+    const extras = this.remote && !robot && !skeletal ? this.extrasArgs() : null;
+    if (this.remote && extras) {
+      const { shape, task } = await this.remote.evaluateWith<Extras>(this.targetWeights(), this.shapeOptions(), { name: EXTRAS_TASK, args: extras.args }, fit);
+      this.made = { shape, partsKey: extras.partsKey, parts: task.parts, faces: new Map(task.faces) };
+      this.robotParts = null;
+      this.skeletalParts = null;
+      return shape;
+    }
     const shape = this.remote ? await this.remote.evaluate(this.targetWeights(), this.shapeOptions(), fit) : await this.runtime.evaluate(this.targetWeights(), previous, this.shapeOptions(), fit);
     this.robotParts = robot ? this.robot(shape, robot) : null;
     this.skeletalParts = skeletal ? this.skeletal(shape, skeletal) : null;
     return shape;
+  }
+
+  /** The worker task's arguments for `extras` (null: nothing asked ahead). */
+  private extrasArgs(): { args: ExtrasArgs; partsKey: string } | null {
+    const x = this.extras;
+    if (!x) return null;
+    const cfg = x.parts ? this.partsConfig(x.parts) : null;
+    const parts = cfg && hasParts(cfg) ? { cfg, names: this.partTargets() } : null;
+    const faces = x.faces.map(({ units, scale }) => [...this.faceWeights(units, scale ?? 1)]).filter((w) => w.length);
+    if (!parts && !faces.length) return null;
+    return { args: { parts, faces: faces.map((w) => [JSON.stringify(w), w]) }, partsKey: JSON.stringify(cfg) };
   }
 
   /**
@@ -230,8 +274,13 @@ export class Human {
    * blink, for GPU morph targets (see ThreeActor.setMorph).
    */
   async faceDelta(shape: ActorShape, units: UnitWeights, scale = 1): Promise<SurfaceDelta> {
-    const available = new Set(this.runtime.manifest.targets.map((t) => t.name));
-    const weights = expressionTargetWeights(units, this.params, scale * this.faceScale, available);
+    const weights = this.faceWeights(units, scale);
+    const made = this.made, key = JSON.stringify([...weights]);
+    const ahead = made?.shape === shape ? made.faces.get(key) : undefined;
+    if (ahead) {
+      made!.faces.delete(key); // handed over once (the caller owns the buffers)
+      return ahead;
+    }
     await this.runtime.ensureTargets(weights.keys());
     return this.runtime.surfaceDelta(shape, weights);
   }
