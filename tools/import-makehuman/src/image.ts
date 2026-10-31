@@ -151,6 +151,15 @@ export function writeRgbaDownsampled(srcPath: string, dstPath: string, maxSize: 
   const png = new PNG({ width: img.width, height: img.height });
   png.data = Buffer.from(img.data);
   writeFileSync(dstPath, PNG.sync.write(png));
+  return meanRgba(img, sampleUVs);
+}
+
+/** Mean colour of a PNG's opaque texels, as `writeRgbaDownsampled` returns it (optionally only at `sampleUVs`). */
+export function meanPngColor(path: string, sampleUVs?: ArrayLike<number>): [number, number, number] {
+  return meanRgba(PNG.sync.read(readFileSync(path)), sampleUVs);
+}
+
+function meanRgba(img: { width: number; height: number; data: Uint8Array }, sampleUVs?: ArrayLike<number>): [number, number, number] {
   let n = 0;
   const mean = [0, 0, 0];
   const add = (i: number) => {
@@ -202,6 +211,49 @@ export function tintPng(path: string, rgb: [number, number, number]): void {
   for (let i = 0; i < img.data.length; i += 4) {
     const f = Math.min(2.5, lum(i) / mean);
     for (let c = 0; c < 3; c++) img.data[i + c] = Math.min(255, Math.round(rgb[c] * 255 * f));
+  }
+  writeFileSync(path, PNG.sync.write(img));
+}
+
+/**
+ * Turns a hair-card texture into hair masses (in place): we draw hair as solid,
+ * cohesive locks, never as single hairs. The alpha is blurred and re-thresholded,
+ * so gaps between strands close up and lone strands that stick out of a lock
+ * fade away, leaving soft, lock-shaped edges. Fine strand-to-strand contrast is
+ * softened toward the local mean colour (broad streaks stay), and texels that
+ * were gaps take the surrounding colour, a little darker (depth between strands).
+ * `radius` is the blur radius as a fraction of the texture width.
+ */
+export function massHairPng(path: string, radius = 0.004): void {
+  const img = PNG.sync.read(readFileSync(path));
+  const { width: w, height: h } = img;
+  const n = w * h;
+  const r = Math.max(1, Math.round(w * radius));
+  const alpha: Gray = { width: w, height: h, data: new Float32Array(n) };
+  for (let i = 0; i < n; i++) alpha.data[i] = img.data[i * 4 + 3] / 255;
+  const ab = blurGray(alpha, r).data;
+  // Alpha-weighted (premultiplied) colour blur: the mean colour of the hair around each texel.
+  const mean = [0, 1, 2].map((c) => {
+    const g: Gray = { width: w, height: h, data: new Float32Array(n) };
+    for (let i = 0; i < n; i++) g.data[i] = (img.data[i * 4 + c] / 255) * alpha.data[i];
+    return blurGray(g, r).data;
+  });
+  const smooth = (a: number, b: number, x: number) => {
+    const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
+  for (let i = 0; i < n; i++) {
+    const a0 = alpha.data[i], m = ab[i];
+    const a = smooth(0.3, 0.55, m);
+    for (let c = 0; c < 3; c++) {
+      const local = m > 1e-4 ? mean[c][i] / m : img.data[i * 4 + c] / 255;
+      const own = img.data[i * 4 + c] / 255;
+      // Strand detail at half contrast where there was hair, the darker local colour in the gaps.
+      const solid = own + (local - own) * 0.5;
+      const v = solid * a0 + local * 0.82 * (1 - a0);
+      img.data[i * 4 + c] = Math.round(Math.min(1, Math.max(0, v)) * 255);
+    }
+    img.data[i * 4 + 3] = Math.round(a * 255);
   }
   writeFileSync(path, PNG.sync.write(img));
 }

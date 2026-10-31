@@ -256,7 +256,7 @@ export interface CharacterConfig {
   seed: number;
   /** Hair mesh id, a generated style from PROCEDURAL_HAIR ("leaves", "crest"), or null for none. */
   hair: string | null;
-  /** Generated beard (strand cards; "none" for none). */
+  /** Generated beard (a hair mass with locks, or painted for short styles; "none" for none). */
   beard: BeardStyle;
   /** 0..1 painted stubble on the beard area (under a beard, or on its own). */
   stubble: number;

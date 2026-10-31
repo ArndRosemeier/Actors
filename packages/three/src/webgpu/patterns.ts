@@ -138,7 +138,7 @@ export const beardCoverage = Fn(([style, f]: N[]) => {
     select(
       style.lessThan(1.5),
       max(chin, mustache).mul(side),
-      select(style.lessThan(2.5), mustache, select(style.lessThan(3.5), front.mul(ss(0.5, 0.75, ax)).mul(lipZone), front.mul(ss(-1.75, -1.6, f.y.negate().sub(ax.mul(0.18)))).mul(lipZone))),
+      select(style.lessThan(2.5), mustache, select(style.lessThan(3.5), front.mul(ss(0.5, 0.75, ax)).mul(lipZone), front.mul(float(1).sub(ss(ss(0.5, 1.35, ax).sub(1.63), ss(0.5, 1.35, ax).sub(1.47), f.y))).mul(lipZone))),
     ),
   );
 }).setLayout({ name: "h_beardCoverage", type: "float", inputs: [{ name: "style", type: "float" }, { name: "f", type: "vec3" }] });
@@ -148,12 +148,26 @@ export function stubble(c: N, lips: N, bind: N, face: N, amount: N, color: N): N
   const out = vec3(c).toVar();
   If(amount.x.greaterThan(0).and(face.w.greaterThan(0)), () => {
     const f = bind.sub(face.xyz).div(face.w).mul(vec3(1, 1, -1)).toVar(); // vBind has +Z back; face coordinates have +Z forward
-    const cov = beardCoverage(amount.y, f).mul(float(1).sub(lips)).toVar();
+    const cov = beardCoverage(amount.y, f).toVar();
+    // w > 0 (under a beard): the outline blurred over w face units, so the beard fades out softly.
+    If(amount.w.greaterThan(0), () => {
+      let acc: N = cov;
+      for (let i = 0; i < 8; i++) {
+        const a = i * 0.7853982;
+        acc = acc.add(beardCoverage(amount.y, f.add(vec3(Math.cos(a), Math.sin(a), 0).mul(amount.w))));
+      }
+      cov.assign(acc.div(9));
+    });
+    cov.mulAssign(float(1).sub(lips));
     If(cov.greaterThan(0), () => {
       const dots = ss(0.42, 0.68, noise3(f.mul(160).add(amount.z.mul(17)))).mul(0.7).add(ss(0.6, 0.8, noise3(f.mul(310).add(3.1))).mul(0.3));
-      const shade = cov.mul(amount.x).toVar();
+      const shade = cov.mul(min(amount.x, 1)).toVar();
       out.assign(mix(out, out.mul(mix(vec3(1), color.mul(3).add(0.25), 0.6)), shade.mul(0.65)));
       out.assign(mix(out, color, min(1, shade.mul(dots).mul(1.1))));
+      // x above 1: a painted short beard, the skin filled with the hair colour in soft streaks.
+      const fill = cov.mul(clamp(amount.x.sub(1), 0, 1));
+      const streaks = noise3(f.mul(vec3(30, 7, 30)).add(amount.z)).mul(0.35).add(0.75).add(noise3(f.mul(vec3(90, 20, 90))).mul(0.2));
+      out.assign(mix(out, color.mul(2).mul(streaks), fill.mul(dots.mul(0.15).add(0.85))));
     });
   });
   return out;

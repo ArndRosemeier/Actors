@@ -3,6 +3,7 @@ import { applyTarget, decodeTarget, encodeTarget } from "./target";
 import { boneRotationFromRoll } from "./skeleton";
 import { mat3Apply, normalize } from "./math";
 import { fitProxy } from "./proxy";
+import { hairShellNormals } from "./normals";
 import { RemoteRuntime } from "./worker";
 
 describe("morph targets", () => {
@@ -181,5 +182,20 @@ describe("worker", () => {
     expect(a).toBe(b);
     expect(posted.filter((m) => m.type === "load")).toHaveLength(1);
     expect(listeners).toHaveLength(1);
+  });
+});
+
+describe("hair shell normals", () => {
+  it("turns every card normal to face away from the head and blends it outward", () => {
+    // Two cards at the side of a head centred at the origin: one facing out, one facing in.
+    const pos = new Float32Array([0.1, 0, 0, 0.1, 0.05, 0, 0, -0.3, -0.1]);
+    const nrm = new Float32Array([0, 0, 1, 0, 0, -1, 0, 0, -1]);
+    hairShellNormals(pos, nrm, 3, [0, 0, 0], 0.65);
+    for (let i = 0; i < 3; i++) expect(Math.hypot(nrm[i * 3], nrm[i * 3 + 1], nrm[i * 3 + 2])).toBeCloseTo(1, 5);
+    // The side cards now lean out along +X, whichever way they faced.
+    expect(nrm[0]).toBeGreaterThan(0.7);
+    expect(nrm[3]).toBeGreaterThan(0.7);
+    // Hanging hair below the head points out sideways (backwards here), not down.
+    expect(nrm[8]).toBeLessThan(-0.9);
   });
 });

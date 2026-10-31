@@ -28,7 +28,7 @@ import { fetchCached, fetchText, fetchZipEntry, fetchZipText } from "./fetch";
 import { GARMENTS, garmentCut, insideFaces, selectGarmentFaces } from "./garments";
 import { orbitalHalo } from "./future-accessories";
 import { shapedGarment } from "./shaped-garment";
-import { type Gray, blankGray, blurGray, loadGray, maxGray, meanColor, rasterizeUV, resizeGray, writeJpeg, writeRgbaDownsampled, writeRgbaPng, tintPng } from "./image";
+import { type Gray, blankGray, blurGray, loadGray, massHairPng, maxGray, meanColor, meanPngColor, rasterizeUV, resizeGray, writeJpeg, writeRgbaDownsampled, writeRgbaPng, tintPng } from "./image";
 import { type Mhclo, parseMhclo } from "./mhclo";
 import { type ObjData, type ObjFace, buildRenderMesh, parseObj } from "./obj";
 import { CLIP_SPECS, UAL_ARCHIVES, type UalArchive, importClip } from "./clips";
@@ -685,7 +685,12 @@ async function main() {
     const diffuse = mhmat.match(/^diffuseTexture\s+(\S+)/m)?.[1];
     if (!diffuse) throw new Error(`${dir}/${id}: no diffuse texture`);
     const file = `textures/${slot}_${id}.png`;
-    const mean = writeRgbaDownsampled(fetchZipEntry(CACHE, SYSTEM_ASSETS, `${dir}/${id}/${diffuse}`), join(out, file), texSize);
+    // Hair is drawn as solid locks, never single strands (brows keep their fine hairs).
+    if (slot === "hair") {
+      writeRgbaDownsampled(fetchZipEntry(CACHE, SYSTEM_ASSETS, `${dir}/${id}/${diffuse}`), join(out, file), texSize);
+      massHairPng(join(out, file));
+    }
+    const mean = slot === "hair" ? meanPngColor(join(out, file)) : writeRgbaDownsampled(fetchZipEntry(CACHE, SYSTEM_ASSETS, `${dir}/${id}/${diffuse}`), join(out, file), texSize);
     const name = `${slot}-${id}`;
     const m = addProxy(name, clo, cloObj);
     meshes.push({
@@ -732,7 +737,10 @@ async function main() {
     const file = `hair/${style.name}.bin`;
     const m = addProxy(style.name, clo, cloObj, cloObj.faces, undefined, { writer, file });
     const tex = `textures/${style.name}.png`;
-    let mean = writeRgbaDownsampled(fetchZipEntry(CACHE, pack, `${dir}/${diffuse}`), join(out, tex), 1024, m.uv);
+    writeRgbaDownsampled(fetchZipEntry(CACHE, pack, `${dir}/${diffuse}`), join(out, tex), 1024, m.uv);
+    // Solid locks, never single strands (see massHairPng).
+    massHairPng(join(out, tex));
+    let mean = meanPngColor(join(out, tex), m.uv);
     if (style.tint) {
       mean = [1, 3, 5].map((k) => parseInt(style.tint!.slice(k, k + 2), 16) / 255) as [number, number, number];
       tintPng(join(out, tex), mean);
