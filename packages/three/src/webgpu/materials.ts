@@ -31,6 +31,7 @@ import {
   max,
   mix,
   normalView,
+  normalViewGeometry,
   normalize,
   positionGeometry,
   positionLocal,
@@ -56,7 +57,7 @@ import { garmentLayer } from "../layers";
 import { createSkinUniforms, type SkinUniforms } from "../materials";
 import { METAL_FABRICS, fabricNormalMap, lashAlphaMap, poreNormalMap } from "../procedural";
 import { type ScreenTexturePool, useScreenMaterial } from "../screens";
-import { leafTexture, robotMaterialParams, strandTexture } from "../parts";
+import { beardTexture, leafTexture, robotMaterialParams } from "../parts";
 import { useNodeDqs } from "./dqs";
 import { bumpNormal } from "./noise";
 import { eyeColor, skinPattern, ss, stubble } from "./patterns";
@@ -442,12 +443,14 @@ export function createNodeHairMaterial(map: THREE.Texture | null, blended = fals
     map,
     ...(blended ? { transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 } : { alphaTest: 0.35, alphaToCoverage: true }),
     side: THREE.DoubleSide,
-    roughness: 0.55,
-    sheen: 0.6,
-    sheenRoughness: 0.35,
+    roughness: 0.6,
+    sheen: blended ? 0.6 : 0.2,
+    sheenRoughness: blended ? 0.35 : 0.8,
     sheenColor: new THREE.Color(0.35, 0.3, 0.25),
-    specularIntensity: 0.35,
+    specularIntensity: 0.3,
   });
+  // Scalp hair: both sides of a card use its (outward-bent) normal, see createHairMaterial.
+  if (!blended) mat.normalNode = normalViewGeometry;
   const hair = { uHairTint: { value: new THREE.Color(1, 1, 1) }, uHairMix: { value: 0 }, uHairMeanLum: { value: 0.2 } };
   mat.userData.hair = hair;
   mat.userData.alphaShadow = !blended;
@@ -481,9 +484,10 @@ export function createNodePartMaterial(part: PartMesh, actor: ThreeActor): THREE
       const m = useNodeDqs(
         new MeshPhysicalNodeMaterial({
           color,
-          map: part.kind === "leaf" ? leafTexture() : strandTexture(),
+          map: part.kind === "leaf" ? leafTexture() : beardTexture(),
           vertexColors: true,
-          alphaTest: 0.35,
+          // Beards: a low cut-off, so the mass's edge and the lock tips fade out (alpha to coverage) instead of ending in a hard line.
+          alphaTest: part.kind === "leaf" ? 0.35 : 0.1,
           alphaToCoverage: true,
           side: THREE.DoubleSide,
           roughness: part.kind === "leaf" ? 0.6 : 0.55,

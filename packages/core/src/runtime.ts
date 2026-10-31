@@ -1,6 +1,6 @@
 import { type ActorPackManifest, type ClipDef, type ClipLibrary, type MeshDef, type ProxyDef, readBuffer } from "./format";
 import type { Clip } from "./retarget";
-import { computeNormals } from "./normals";
+import { computeNormals, hairShellNormals } from "./normals";
 import { subdivideQuadMesh } from "./subdivide";
 import { type ProxyBinding, fitProxy, proxySkin } from "./proxy";
 import { type FittedSkeleton, fitSkeleton } from "./skeleton";
@@ -382,13 +382,19 @@ export class ActorRuntime {
     const normals = computeNormals(positions, this.manifest.vertexCount, baseLists, previous?.normals);
     const wanted = fit ? new Set(fit) : null;
     const used = wanted ? new Set(this.meshes.filter((m) => wanted.has(m.def.name) && m.def.source.kind === "proxy").map((m) => (m.def.source as { proxy: string }).proxy)) : null;
+    const skeleton = this.manifest.skeleton ? fitSkeleton(this.manifest.skeleton, positions) : undefined;
+    // Scalp hair lights as one mass: its card normals are bent outward from the middle of the head.
+    const head = skeleton ? skeleton.names.indexOf("head") : -1;
+    const headCentre = skeleton && head >= 0 ? ([0, 1, 2].map((k) => skeleton.heads[head][k] + 0.45 * (skeleton.tails[head][k] - skeleton.heads[head][k])) as [number, number, number]) : null;
     const proxies = new Map<string, { positions: Float32Array; normals: Float32Array }>();
     for (const [name, binding] of this.proxies) {
       if (used && !used.has(name)) continue;
       const prev = previous?.proxies.get(name);
       const p = fitProxy(binding, positions, prev?.positions);
       const lists = this.meshes.filter((m) => m.def.source.kind === "proxy" && m.def.source.proxy === name);
-      proxies.set(name, { positions: p, normals: computeNormals(p, binding.def.vertexCount, lists, prev?.normals) });
+      const n = computeNormals(p, binding.def.vertexCount, lists, prev?.normals);
+      if (headCentre && lists.some((m) => m.def.role === "hair" && m.def.tags?.includes("scalp"))) hairShellNormals(p, n, binding.def.vertexCount, headCentre);
+      proxies.set(name, { positions: p, normals: n });
     }
     const meshes = new Map<string, { positions: Float32Array; normals: Float32Array }>();
     for (const m of this.meshes) {
@@ -397,7 +403,6 @@ export class ActorRuntime {
       const p = applyStencil(m.stencil, positions, prev?.positions);
       meshes.set(m.def.name, { positions: p, normals: computeNormals(p, m.stencil.rows, [m], prev?.normals) });
     }
-    const skeleton = this.manifest.skeleton ? fitSkeleton(this.manifest.skeleton, positions) : undefined;
     return { positions, normals, proxies, meshes, skeleton };
   }
 

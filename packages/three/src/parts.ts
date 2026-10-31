@@ -17,43 +17,71 @@ function rng(seed: number) {
   };
 }
 
-let strands: THREE.DataTexture | undefined;
-/** Hair-card texture: light grey strands across u, thinning out toward the tip (v = 1). */
-export function strandTexture(): THREE.DataTexture {
-  if (strands) return strands;
-  const W = 256, H = 128;
+let beard: THREE.DataTexture | undefined;
+/**
+ * Beard texture (see buildBeard in @actors/human): hair masses, not single hairs.
+ * u 0..0.5 is one lock (v from root to tip): solid, with broad soft streaks and darker
+ * edges, splitting into three points at the tip. u 0.5..1 is the solid beard mass, its
+ * alpha fading out raggedly toward v = 0 (the edge of the beard).
+ */
+export function beardTexture(): THREE.DataTexture {
+  if (beard) return beard;
+  const W = 256, H = 256, half = W / 2;
   const data = new Uint8Array(W * H * 4);
   const r = rng(7);
-  const list = Array.from({ length: 70 }, () => ({ x: r() * W, w: 0.8 + r() * 1.6, len: 0.65 + r() * 0.35, b: 0.75 + r() * 0.25, wave: r() * 6 }));
+  const ph = Array.from({ length: 6 }, () => r() * Math.PI * 2);
+  const smooth = (a: number, b: number, x: number) => {
+    const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
+  // Broad streaks along the hair: a few low-contrast waves, never a hair-wide line.
+  const streak = (s: number, v: number, k: number) =>
+    0.07 * Math.sin(s * k * 1.0 + ph[0] + v * 1.5) + 0.05 * Math.sin(s * k * 2.3 + ph[1] - v * 2) + 0.03 * Math.sin(s * k * 5.1 + ph[2] + v * 3);
+  const prongs = [
+    { c: -0.27, len: 0.84, w: 0.2 },
+    { c: 0.02, len: 1.0, w: 0.24 },
+    { c: 0.29, len: 0.9, w: 0.19 },
+  ];
   for (let y = 0; y < H; y++) {
-    const v = y / (H - 1);
+    const v = (y + 0.5) / H;
     for (let x = 0; x < W; x++) {
-      let a = 0, c = 0;
-      for (const s of list) {
-        if (v > s.len) continue;
-        let d = Math.abs(x - s.x - Math.sin(v * 4 + s.wave) * 2);
-        d = Math.min(d, W - d);
-        const w = s.w * (1 - 0.6 * (v / s.len));
-        const k = Math.max(0, 1 - d / w);
-        if (k > a) {
-          a = k;
-          c = s.b;
-        }
-      }
       const o = (y * W + x) * 4;
-      const g = Math.round(c * 235);
-      data[o] = data[o + 1] = data[o + 2] = g;
-      data[o + 3] = Math.round(Math.min(1, a * 1.6) * 255);
+      let a: number, g: number;
+      if (x < half) {
+        const c = (x + 0.5) / half - 0.5;
+        // Body of the lock: full width at the root, tapering away from v = 0.35.
+        const bodyHw = 0.47 * (1 - smooth(0.35, 0.82, v));
+        let m = (bodyHw - Math.abs(c)) / 0.035;
+        // Three points at the tip.
+        for (const p of prongs) {
+          if (v > p.len) continue;
+          const hw = p.w * Math.pow(Math.max(0, 1 - Math.max(0, v - 0.4) / (p.len - 0.4)), 0.8);
+          m = Math.max(m, (hw - Math.abs(c - p.c - 0.03 * smooth(0.35, 0.6, v) * Math.sin(v * 5 + p.c * 9))) / 0.03);
+        }
+        // Soft root, so a lock blends into the mass it grows from.
+        a = Math.min(1, Math.max(0, m)) * smooth(0, 0.14, v);
+        // Darker toward the lock's edges and root (self-shadowing), a touch lighter at the tips.
+        const edgeShade = 1 - 0.28 * (1 - smooth(0, 5, m));
+        g = 1.0 * (1 + 1.3 * streak(c, v, 18)) * edgeShade * (0.82 + 0.18 * smooth(0, 0.35, v)) * (1 + 0.06 * v);
+      } else {
+        const s = (x - half + 0.5) / half;
+        // A ragged, lock-shaped edge: coverage minus a wave across u.
+        const edge = 0.5 + 0.3 * Math.sin(s * Math.PI * 2 * 23 + 2 * Math.sin(s * Math.PI * 2 * 5 + ph[3])) + 0.2 * Math.sin(s * Math.PI * 2 * 61 + ph[4]);
+        a = smooth(0.3, 0.75, v - 0.35 * (edge - 0.5)) * smooth(0, 0.03, s) * smooth(1, 0.97, s);
+        g = 1.0 * (1 + 1.4 * streak(s, v * 0.3, 45)) * (0.85 + 0.15 * smooth(0.3, 0.9, v));
+      }
+      const gg = Math.round(Math.min(1, g) * 255);
+      data[o] = data[o + 1] = data[o + 2] = gg;
+      data[o + 3] = Math.round(a * 255);
     }
   }
-  strands = new THREE.DataTexture(data, W, H, THREE.RGBAFormat);
-  strands.colorSpace = THREE.SRGBColorSpace;
-  strands.wrapS = THREE.RepeatWrapping;
-  strands.magFilter = THREE.LinearFilter;
-  strands.minFilter = THREE.LinearMipmapLinearFilter;
-  strands.generateMipmaps = true;
-  strands.needsUpdate = true;
-  return strands;
+  beard = new THREE.DataTexture(data, W, H, THREE.RGBAFormat);
+  beard.colorSpace = THREE.SRGBColorSpace;
+  beard.magFilter = THREE.LinearFilter;
+  beard.minFilter = THREE.LinearMipmapLinearFilter;
+  beard.generateMipmaps = true;
+  beard.needsUpdate = true;
+  return beard;
 }
 
 let leaf: THREE.DataTexture | undefined;
@@ -149,9 +177,10 @@ export function createPartMaterial(part: PartMesh, skin: SkinUniforms): THREE.Ma
       const mat = useDualQuaternionSkinning(
         new THREE.MeshPhysicalMaterial({
           color,
-          map: part.kind === "leaf" ? leafTexture() : strandTexture(),
+          map: part.kind === "leaf" ? leafTexture() : beardTexture(),
           vertexColors: true,
-          alphaTest: 0.35,
+          // Beards: a low cut-off, so the mass's edge and the lock tips fade out (alpha to coverage) instead of ending in a hard line.
+          alphaTest: part.kind === "leaf" ? 0.35 : 0.1,
           alphaToCoverage: true,
           side: THREE.DoubleSide,
           roughness: part.kind === "leaf" ? 0.6 : 0.55,

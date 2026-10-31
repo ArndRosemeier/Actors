@@ -222,18 +222,33 @@ float h_beardCoverage( float style, vec3 f ) {
   if ( style < 1.5 ) return max( chin, mustache ) * side;
   if ( style < 2.5 ) return mustache;
   if ( style < 3.5 ) return front * smoothstep( 0.5, 0.75, ax ) * lipZone;
-  return front * smoothstep( -1.75, -1.6, -f.y - 0.18 * ax ) * lipZone;
+  float jaw = -1.95 + smoothstep( 0.5, 1.35, ax );
+  return front * ( 1.0 - smoothstep( jaw + 0.32, jaw + 0.48, f.y ) ) * lipZone;
 }
 vec3 stubble( vec3 c, float lips ) {
   if ( uStubble.x <= 0.0 || uFace.w <= 0.0 ) return c;
   vec3 f = ( vBind - uFace.xyz ) / uFace.w;
   f.z = -f.z; // vBind has +Z back; face coordinates have +Z forward
-  float cov = h_beardCoverage( uStubble.y, f ) * ( 1.0 - lips );
+  float cov = h_beardCoverage( uStubble.y, f );
+  // w > 0 (under a beard): the outline blurred over w face units, so the beard fades out softly.
+  if ( uStubble.w > 0.0 ) {
+    float acc = cov;
+    for ( int i = 0; i < 8; i++ ) {
+      float a = float( i ) * 0.7853982;
+      acc += h_beardCoverage( uStubble.y, f + vec3( cos( a ), sin( a ), 0.0 ) * uStubble.w );
+    }
+    cov = acc / 9.0;
+  }
+  cov *= 1.0 - lips;
   if ( cov <= 0.0 ) return c;
   // Short hairs: fine dots (cut hair ends) over a soft shadow of the hair under the skin.
   float dots = smoothstep( 0.42, 0.68, h_noise3( f * 160.0 + uStubble.z * 17.0 ) ) * 0.7 + smoothstep( 0.6, 0.8, h_noise3( f * 310.0 + 3.1 ) ) * 0.3;
-  float shade = cov * uStubble.x;
+  float shade = cov * min( uStubble.x, 1.0 );
   c = mix( c, c * mix( vec3( 1.0 ), uStubbleColor * 3.0 + 0.25, 0.6 ), shade * 0.65 );
-  return mix( c, uStubbleColor, min( 1.0, shade * dots * 1.1 ) );
+  c = mix( c, uStubbleColor, min( 1.0, shade * dots * 1.1 ) );
+  // x above 1: a painted short beard, the skin filled with the hair colour in soft streaks.
+  float fill = cov * clamp( uStubble.x - 1.0, 0.0, 1.0 );
+  float streaks = 0.75 + 0.35 * h_noise3( f * vec3( 30.0, 7.0, 30.0 ) + uStubble.z ) + 0.2 * h_noise3( f * vec3( 90.0, 20.0, 90.0 ) );
+  return mix( c, uStubbleColor * 2.0 * streaks, fill * ( 0.85 + 0.15 * dots ) );
 }
 `;

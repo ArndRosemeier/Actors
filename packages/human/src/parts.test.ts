@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type PartsBody, type PartsConfig, buildParts, hasParts } from "./parts";
+import { type PartsBody, type PartsConfig, beardCoverage, beardPaint, buildParts, hasParts } from "./parts";
 
 /** A synthetic body: a head sphere on a cylinder trunk, skinned to head / pelvis. */
 function body(): PartsBody {
@@ -104,6 +104,30 @@ describe("race parts", () => {
     }
     const b = buildParts(body(), { ...NONE, beard: "full" })[0];
     expect(b.positions).toEqual(a.positions);
+  });
+
+  it("draws beards as hair masses: a shell over the skin and a few hundred wide locks, no single hairs", () => {
+    const [beard] = buildParts(body(), { ...NONE, beard: "full" });
+    const verts = beard.positions.length / 3;
+    // The mass uses the right half of the beard texture, the locks the left half.
+    let shell = 0;
+    for (let v = 0; v < verts; v++) if (beard.uvs[v * 2] > 0.5) shell++;
+    expect(shell).toBeGreaterThan(50);
+    // Locks are 2 vertices per row; far fewer cards than the old 2,400 strands.
+    expect((verts - shell) / 10).toBeLessThan(800);
+    expect(beardPaint("full")).toEqual({ amount: 2, blur: expect.any(Number) });
+  });
+
+  it("paints short beards on the skin instead of building geometry", () => {
+    expect(buildParts(body(), { ...NONE, beard: "short" })).toEqual([]);
+    expect(beardPaint("short")?.amount).toBe(2);
+    expect(beardPaint("none")).toBeNull();
+  });
+
+  it("keeps the chinstrap to a band along the jaw", () => {
+    expect(beardCoverage(4, 0, -2.0, 1)).toBeGreaterThan(0.9);
+    expect(beardCoverage(4, 0.6, -1.0, 1)).toBe(0);
+    expect(beardCoverage(0, 0.6, -1.0, 1)).toBeGreaterThan(0.5);
   });
 
   it("puts tusks at the mouth pointing up and forward", () => {

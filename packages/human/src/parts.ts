@@ -5,8 +5,9 @@
  * actor's left).
  *
  * Every part is skinned to existing bones (head, pelvis...), so animation,
- * retargeting and glTF export need nothing extra. Beards and leaves are
- * strand cards grown from roots sampled on the morphed skin; horns, tusks and
+ * retargeting and glTF export need nothing extra. Beards are a shell over the
+ * skin with wide locks on it, leaves are cards grown from roots sampled on the
+ * morphed skin; horns, tusks and
  * tails are tubes along curves. Renderer-free and deterministic from `seed`.
  */
 import type { ActorShape, FittedSkeleton, MeshData, PartBone, PartKind, PartMesh } from "@actors/core";
@@ -432,7 +433,8 @@ function buildCrest(ctx: Ctx, b: Builder) {
 
 // ------------------------------------------------------------------ beards
 
-const BEARD_REGION: Record<BeardStyle, number> = { none: -1, short: 0, full: 0, long: 0, braided: 0, forked: 0, chinstrap: 4, goatee: 1, mustache: 2, mutton: 3 };
+/** Painted-stubble region under each beard style (see `beardCoverage`; -1 none). */
+export const BEARD_REGION: Record<BeardStyle, number> = { none: -1, short: 0, full: 0, long: 0, braided: 0, forked: 0, chinstrap: 4, goatee: 1, mustache: 2, mutton: 3 };
 
 /** Beard coverage in face coordinates for a region style (0 full, 1 goatee, 2 mustache, 3 mutton chops, 4 chinstrap). */
 export function beardCoverage(style: number, x: number, y: number, z: number): number {
@@ -457,59 +459,156 @@ export function beardCoverage(style: number, x: number, y: number, z: number): n
       return mustache;
     case 3:
       return front * smoothstep(0.5, 0.75, ax) * lipZone;
-    case 4:
-      return front * smoothstep(-1.75, -1.6, -y - 0.18 * ax) * lipZone;
+    case 4: {
+      // A band along the jawline, rising toward the ears.
+      const jaw = -1.95 + 1.0 * smoothstep(0.5, 1.35, ax);
+      return front * (1 - smoothstep(jaw + 0.32, jaw + 0.48, y)) * lipZone;
+    }
   }
   return 0;
 }
 
+/**
+ * Beard texture layout (see `beardTexture` in @actors/three): locks use u 0..0.5 (one tapered lock
+ * splitting into a few points at the tip), the solid mass uses u 0.5..1 with v as its coverage
+ * (alpha fades out raggedly toward v = 0).
+ */
+const LOCK_U: [number, number] = [0, 0.5];
+
+interface BeardLook {
+  /** Thickness of the solid mass over the skin (m); 0: none, the skin under it is painted instead (see `beardPaint`). */
+  mass: number;
+  /** Lock length range (m); 0 = mass only. */
+  len: [number, number];
+  /** Lock width range (m). */
+  width: [number, number];
+  /** Locks per beard. */
+  locks: number;
+}
+
+const BEARD_LOOK: Record<Exclude<BeardStyle, "none">, BeardLook> = {
+  short: { mass: 0, len: [0, 0], width: [0, 0], locks: 0 },
+  chinstrap: { mass: 0, len: [0, 0], width: [0, 0], locks: 0 },
+  full: { mass: 0.011, len: [0.035, 0.06], width: [0.016, 0.026], locks: 540 },
+  long: { mass: 0.013, len: [0.1, 0.17], width: [0.02, 0.034], locks: 620 },
+  braided: { mass: 0.012, len: [0.08, 0.13], width: [0.02, 0.032], locks: 540 },
+  forked: { mass: 0.013, len: [0.09, 0.15], width: [0.02, 0.032], locks: 580 },
+  goatee: { mass: 0.008, len: [0.035, 0.065], width: [0.014, 0.022], locks: 200 },
+  mustache: { mass: 0.005, len: [0.022, 0.04], width: [0.013, 0.02], locks: 156 },
+  mutton: { mass: 0.008, len: [0.022, 0.036], width: [0.013, 0.02], locks: 240 },
+};
+
+/**
+ * How the skin under a beard is painted (the stubble shader's x and w, see GLSL_STUBBLE):
+ * dense stubble fading out over a blurred outline, and for beards without a mass (short,
+ * chinstrap) the skin filled with the hair colour. Null without a beard.
+ */
+export function beardPaint(style: BeardStyle): { amount: number; blur: number } | null {
+  if (style === "none" || !BEARD_LOOK[style]) return null;
+  return { amount: 2, blur: BEARD_LOOK[style].mass > 0 ? 0.12 : 0.09 };
+}
+
+/**
+ * Beards are drawn as hair masses, not single hairs: a solid shell over the beard area (the skin
+ * pushed out along its normal, fading out raggedly at the edge) with wide, layered locks growing
+ * out of it. Every shell vertex follows its skin vertex in face morphs.
+ */
 function buildBeard(ctx: Ctx, style: BeardStyle, scale: number, b: Builder) {
   const region = BEARD_REGION[style] ?? -1;
-  if (region < 0) return;
-  const lenMap: Record<string, [number, number]> = {
-    short: [0.012, 0.022], full: [0.03, 0.05], long: [0.09, 0.16], braided: [0.08, 0.13], forked: [0.08, 0.14],
-    goatee: [0.03, 0.06], mustache: [0.02, 0.035], mutton: [0.02, 0.035], chinstrap: [0.01, 0.018],
-  };
-  const L = lenMap[style] ?? [0.03, 0.05];
-  const short = style === "short" || style === "chinstrap";
-  const count = short ? 3000 : 2400;
-  const roots = sampleSurface(ctx, count, (x, y, z) => beardCoverage(region, x, y, z));
-  const { rng } = ctx;
-  const chin = ctx.body.mouth;
+  if (region < 0 || style === "none") return;
+  const look = BEARD_LOOK[style];
+  const { rng, body, face } = ctx;
+  const chin = body.mouth;
   const scaleK = scale > 1.3 ? 1.25 : scale < 0.9 ? 0.8 : 1;
   const forkSide = (p: V3) => (p[0] - chin[0] >= 0 ? 1 : -1);
+  const isMust = (f: V3) => f[1] > -1.12 && Math.abs(f[0]) < 0.62 && f[1] < -0.75;
+
+  // --- The mass: a shell over every skin triangle the beard touches.
+  const pos = body.positions, nrm = body.normals, tris = body.triangles;
+  const n = pos.length / 3;
+  const cov = new Float32Array(n).fill(-1);
+  const coverage = (v: number) => {
+    if (cov[v] < 0) cov[v] = body.isBody[v] ? beardCoverage(region, face[v * 3], face[v * 3 + 1], face[v * 3 + 2]) : 0;
+    return cov[v];
+  };
+  // The mass ends inside the painted beard (see beardPaint): coverage eroded over the skin, so the
+  // ragged edge of the mass lies on hair-coloured skin and the outline is the soft painted one.
+  const inner = new Float32Array(n);
+  for (let t = 0; t < tris.length; t++) inner[tris[t]] = coverage(tris[t]);
+  const sum = new Float32Array(n), cnt = new Float32Array(n);
+  for (let pass = 0; pass < 3 && look.mass > 0; pass++) {
+    sum.fill(0);
+    cnt.fill(0);
+    for (let t = 0; t < tris.length; t += 3) {
+      const m = (inner[tris[t]] + inner[tris[t + 1]] + inner[tris[t + 2]]) / 3;
+      for (let k = 0; k < 3; k++) {
+        sum[tris[t + k]] += m;
+        cnt[tris[t + k]]++;
+      }
+    }
+    for (let v = 0; v < n; v++) if (cnt[v]) inner[v] = Math.min(inner[v], sum[v] / cnt[v]);
+  }
+  const shellOf = new Map<number, number>();
+  const thickness = (v: number) => {
+    const f: V3 = [face[v * 3], face[v * 3 + 1], face[v * 3 + 2]];
+    // Fuller on the chin and jaw than high on the cheeks.
+    const fullness = 0.7 + 0.3 * smoothstep(-0.6, -1.6, f[1]) + 0.15 * (1 - smoothstep(0.3, 1.0, Math.abs(f[0]))) * smoothstep(-1.3, -1.9, f[1]);
+    return 0.0008 + look.mass * scaleK * fullness * smoothstep(0.35, 1.0, inner[v]) * (isMust(f) && style !== "mustache" ? 0.7 : 1);
+  };
+  const shellVert = (v: number) => {
+    let i = shellOf.get(v);
+    if (i !== undefined) return i;
+    i = b.count;
+    const nv: V3 = [nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]];
+    const p: V3 = [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]];
+    b.follow = v;
+    const u = 0.5 + 0.5 * Math.min(0.97, Math.max(0.03, face[v * 3] / 6 + 0.5));
+    b.vert(add(p, mul(nv, thickness(v))), nv, u, inner[v], 1.1, vertexWeights(ctx, v));
+    shellOf.set(v, i);
+    return i;
+  };
+  for (let t = 0; t < tris.length && look.mass > 0; t += 3) {
+    const a = tris[t], c = tris[t + 1], d = tris[t + 2];
+    if (Math.max(coverage(a), coverage(c), coverage(d)) < 0.02) continue;
+    b.idx.push(shellVert(a), shellVert(c), shellVert(d));
+  }
+
+  // --- Locks: wide tapered cards rooted in the mass, combed down (the mustache out to the sides).
+  const roots = sampleSurface(ctx, look.locks, (x, y, z) => smoothstep(0.35, 0.8, beardCoverage(region, x, y, z)));
   for (const r of roots) {
-    const isMust = r.f[1] > -1.12 && Math.abs(r.f[0]) < 0.62 && r.f[1] < -0.75;
-    let Ls = rng.range(L[0], L[1]) * scaleK;
+    const must = isMust(r.f);
+    let L = rng.range(look.len[0], look.len[1]) * scaleK;
     // Long beards: shorter on the cheeks, longest at the chin.
     const chinW = 1 - smoothstep(0.3, 1.1, Math.abs(r.f[0]));
-    if (Ls > 0.06) Ls *= 0.35 + 0.65 * chinW;
-    if (isMust) Ls = rng.range(0.02, style === "mustache" ? 0.045 : 0.03) * scaleK;
-    const pts = growStrand(ctx, r.p, r.n, {
-      segs: Ls > 0.06 ? 8 : 4, length: Ls, gravity: isMust ? 0.5 : 1, stiff: 0.25, volume: 0, curl: 0.15, curlFreq: 1.5, noise: 0.05,
+    if (L > 0.06) L *= 0.35 + 0.65 * chinW;
+    if (must) L = rng.range(0.02, style === "mustache" ? 0.045 : 0.03) * scaleK;
+    const root = add(r.p, mul(r.n, thickness(r.v) * rng.range(0.2, 0.7)));
+    const pts = growStrand(ctx, root, r.n, {
+      segs: L > 0.06 ? 7 : 4, length: L, gravity: must ? 0.5 : 1, stiff: 0.05, volume: 0, curl: 0.08, curlFreq: 1, noise: 0.03,
       comb: (p, t) => {
-        if (isMust) return norm([Math.sign(p[0] - chin[0]) * 0.8, -0.6, 0.2]);
+        if (must) return norm([Math.sign(p[0] - chin[0]) * 0.8, -0.6, 0.2]);
         if (style === "forked" && t > 0.4) return norm([forkSide(p) * 0.35, -1, 0.1]);
         return norm([0, -1, 0.15]);
       },
-      combK: 0.4, collideHead: false,
+      combK: 0.6, collideHead: false,
     });
     const wgt = vertexWeights(ctx, r.v);
     b.follow = r.v;
-    const w = (short ? 0.005 : 0.0065) * rng.range(0.8, 1.3) * scaleK * (isMust ? 0.8 : 1);
-    const u = rng.range(0, 0.75);
-    card(b, pts, (t) => w * (1 - t * 0.5), u, u + 0.25, rng.range(0.8, 1.2), () => wgt, () => r.n);
+    const w = rng.range(look.width[0], look.width[1]) * scaleK * (must ? 0.85 : 1);
+    const flip = rng.float() < 0.5;
+    card(b, pts, (t) => w * (1 - t * 0.2), flip ? LOCK_U[1] : LOCK_U[0], flip ? LOCK_U[0] : LOCK_U[1], rng.range(0.8, 1.2), () => wgt, () => r.n);
   }
   if (style === "braided") {
-    // A braid hanging from the chin.
-    const start = add(chin, [0, -0.07 * scaleK, 0.01]);
-    const spine = growStrand(ctx, start, DOWN, { segs: 10, length: 0.14 * scaleK, gravity: 1, stiff: 0.05, volume: 0, curl: 0, curlFreq: 1, noise: 0, comb: () => DOWN, combK: 0.5, collideHead: false });
+    // A braid hanging from the chin: three twisted locks around one spine.
+    const start = add(chin, [0, -0.07 * scaleK, 0.012]);
+    const spine = growStrand(ctx, start, DOWN, { segs: 12, length: 0.15 * scaleK, gravity: 1, stiff: 0.05, volume: 0, curl: 0, curlFreq: 1, noise: 0, comb: () => DOWN, combK: 0.5, collideHead: false });
     const anchor = nearestVertex(ctx, add(chin, [0, -0.04, 0]));
     const wgt = vertexWeights(ctx, anchor);
     b.follow = anchor;
     for (let s = 0; s < 3; s++) {
       const pts = spine.map((p, i) => add(p, [Math.sin(i * 1.6 + s * 2.1) * 0.006, 0, Math.cos(i * 1.6 + s * 2.1) * 0.004]));
-      card(b, pts, (t) => 0.022 * scaleK * (1 - t * 0.3), 0.1 + s * 0.3, 0.35 + s * 0.3, 0.9, () => wgt, () => FWD, s);
+      card(b, pts, (t) => 0.024 * scaleK * (1 - t * 0.3), LOCK_U[0], LOCK_U[1], 0.95, () => wgt, () => FWD, s);
+      card(b, pts, (t) => 0.024 * scaleK * (1 - t * 0.3), LOCK_U[0], LOCK_U[1], 0.9, () => wgt, () => [1, 0, 0], s);
     }
   }
 }

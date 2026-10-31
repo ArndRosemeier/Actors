@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { ActorShape, Clip, Fetcher, MessagePortLike } from "@actors/core";
-import { ADULT_MIN_AGE, BEARD_STYLES, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type PartsConfig, type RaceId, raceScale, sanitizeRace } from "@actors/human";
+import { ADULT_MIN_AGE, BEARD_REGION, BEARD_STYLES, beardPaint, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type PartsConfig, type RaceId, raceScale, sanitizeRace } from "@actors/human";
 import { type ActorMaterialKit, type ScreenTexturePool, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
 import { type ThemeFilter, filterCatalog } from "./themes";
 import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, type SkeletalLook, buildCatalog, defaultConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook, sanitizeSkeletalLook } from "./catalog";
@@ -396,7 +396,10 @@ export class Character {
     const natural = (hairMat?.userData.meanColor as THREE.Color | undefined)?.getHexString();
     const beardColor = c.hairColor ?? (natural ? `#${natural}` : "#3b2a1e");
     a.setPartColor(["hair", "leaf", "fur"], beardColor);
-    a.skin.uStubble.value.set(c.stubble, 0, c.seed * 31, 0);
+    // Under a beard the skin is painted with dense stubble in the beard's region, so its ragged edge never shows bare skin.
+    const paint = c.robot || c.skeletal ? null : beardPaint(c.beard);
+    if (paint) a.skin.uStubble.value.set(Math.max(paint.amount, c.stubble), BEARD_REGION[c.beard], c.seed * 31, paint.blur);
+    else a.skin.uStubble.value.set(c.stubble, 0, c.seed * 31, 0);
     a.skin.uStubbleColor.value.set(beardColor).multiplyScalar(0.55);
     a.setPartColor(["horn"], c.hornColor ?? "#d9cfb4");
     if (c.eyeColor) a.setIris(irisFromColor(c.eyeColor));

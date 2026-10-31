@@ -380,17 +380,22 @@ export function createHairMaterial(map: THREE.Texture | null, blended = false): 
     map,
     ...(blended ? { transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 } : { alphaTest: 0.35, alphaToCoverage: true }),
     side: THREE.DoubleSide,
-    roughness: 0.55,
-    sheen: 0.6,
-    sheenRoughness: 0.35,
+    roughness: 0.6,
+    // A broad, faint sheen: a strong, tight one lights up every card edge seen side-on as a bright strand.
+    sheen: blended ? 0.6 : 0.2,
+    sheenRoughness: blended ? 0.35 : 0.8,
+    // Linear: a tint on the sheen, not a picked colour.
     sheenColor: new THREE.Color(0.35, 0.3, 0.25),
-    specularIntensity: 0.35,
+    specularIntensity: 0.3,
   });
   const uniforms = { uHairTint: { value: new THREE.Color(1, 1, 1) }, uHairMix: { value: 0 }, uHairMeanLum: { value: 0.2 } };
   mat.userData.hair = uniforms;
   mat.userData.alphaShadow = !blended;
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
+    // Scalp hair: both sides of a card use its normal, which the runtime bends outward from the head
+    // (hairShellNormals in @actors/core), so the hair lights as one mass.
+    if (!blended) shader.fragmentShader = shader.fragmentShader.replace("float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;", "float faceDirection = 1.0;");
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", "#include <common>\nuniform vec3 uHairTint;\nuniform float uHairMix;\nuniform float uHairMeanLum;\n// A pixel's brightness over the texture's mean, with a soft knee above 1: bright patches of a dark,\n// high-contrast texture stay lighter than the tint instead of turning white (gain below 1.5).\nfloat tintGain( float g ) { return g > 1.0 ? 1.0 + 0.5 * ( g - 1.0 ) / ( g - 0.5 ) : g; }")
       .replace(
@@ -400,7 +405,7 @@ float hairLum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
 diffuseColor.rgb = mix( diffuseColor.rgb, uHairTint * tintGain( hairLum / uHairMeanLum ), uHairMix );`,
       );
   };
-  mat.customProgramCacheKey = () => "actors-hair";
+  mat.customProgramCacheKey = () => (blended ? "actors-hair-blended" : "actors-hair");
   return useDualQuaternionSkinning(mat);
 }
 

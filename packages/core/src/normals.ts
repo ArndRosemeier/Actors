@@ -33,3 +33,31 @@ export function computeNormals(
   }
   return normals;
 }
+
+/**
+ * Hair-card normals bent toward the hair's outer surface, in place: each normal is turned to face
+ * away from the head (a sphere around `centre`, a vertical cylinder below it for hanging hair) and
+ * blended with that outward direction by `k`. Cards then light as one cohesive mass instead of as
+ * separate strands, each lit by its own angle. Renderers should not flip these normals on back
+ * faces (see the hair materials in @actors/three).
+ */
+export function hairShellNormals(positions: Float32Array, normals: Float32Array, vertexCount: number, centre: readonly [number, number, number], k = 0.65): void {
+  for (let i = 0; i < vertexCount; i++) {
+    const o = i * 3;
+    let rx = positions[o] - centre[0], ry = positions[o + 1] - centre[1], rz = positions[o + 2] - centre[2];
+    if (ry < 0) ry *= 0.15;
+    const rl = Math.hypot(rx, ry, rz) || 1;
+    rx /= rl;
+    ry /= rl;
+    rz /= rl;
+    let nx = normals[o], ny = normals[o + 1], nz = normals[o + 2];
+    if (nx * rx + ny * ry + nz * rz < 0) (nx = -nx), (ny = -ny), (nz = -nz);
+    nx = nx * (1 - k) + rx * k;
+    ny = ny * (1 - k) + ry * k;
+    nz = nz * (1 - k) + rz * k;
+    const l = Math.hypot(nx, ny, nz) || 1;
+    normals[o] = nx / l;
+    normals[o + 1] = ny / l;
+    normals[o + 2] = nz / l;
+  }
+}
