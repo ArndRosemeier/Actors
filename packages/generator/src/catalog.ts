@@ -1,3 +1,4 @@
+import type { DeformSpec } from "@actors/core";
 import { raceParts, randomRaceLook } from "./racelook";
 import { FUTURE_OUTFITS } from "./future-outfits";
 import { MEDIEVAL_OUTFITS } from "./medieval-outfits";
@@ -223,6 +224,11 @@ export interface CharacterConfig {
   raceMix: number;
   /** 0..1 within the race's size range (0.5 = typical; giantkin are 1.6-1.9× human size). */
   raceSize: number;
+  /**
+   * A deformed body: a recipe (`giant`), a seed and a strength 0..1, laid over the race (see `deform` in @actors/core).
+   * Optional; null or strength 0 changes nothing.
+   */
+  deform?: DeformSpec | null;
   /**
    * 0 = grown up .. 1 = a child of about five: child proportions on the adult body (smaller, a
    * bigger head and eyes, the youngest face). A child never shows anatomy, whatever `anatomy` says.
@@ -497,6 +503,7 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     race2: null,
     raceMix: 0,
     raceSize: 0.5,
+    deform: null,
     youth: 0,
     body: { ...DEFAULT_PARAMS },
     details: {},

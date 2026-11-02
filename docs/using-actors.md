@@ -169,6 +169,24 @@ setFurCoat(fur, hen.coat, hen.shape.size); // drawn feathers: lacing, barring, h
 actor.play(await runtime.loadClip("peck")); // runtime: the chicken pack's runtime
 ```
 
+## Deform: giants (0.21.0)
+
+`deform({ recipe, seed, strength })` (from `@actors/core`) turns a recipe, a seed and a strength 0..1 into a **plan** of plain numbers: how much to grow the whole body (`scale`), each body part's length and girth (`parts`), the skin's colour change (`skin`) and how the clips play (`gait`). The same seed and strength always give the same body, and strength 0 changes nothing. The only recipe so far is `giant`: square-cube proportions (thicker legs and neck for the weight, a heavy jaw, a head that lags behind the body), the look of age (duller, a greyed muzzle, scars) and slower, heavier steps (`rate` = 1/sqrt(scale)).
+
+```ts
+import { deform } from "@actors/core";
+const plan = deform({ recipe: "giant", seed: 7, strength: 0.8 });   // plan.scale about 2.3
+```
+
+The plan is applied where the body lives:
+
+- **People:** `Character.set({ deform: { recipe: "giant", seed: 7, strength: 0.8 } })`, laid over the race (a giantkin can be deformed too). It is built with the shape (in the worker), like the race.
+- **Generated animals:** `deformShape(animal.shape, plan, deformRanges(animal.kind))` and `deformCoat(animal.coat, plan)` from `@actors/animal`; assign them back to `animal.params`. Grow the animal's group by `plan.scale` yourself (the shape's `size` is capped by each species).
+- **Library animals:** `libraryAnimal.setDeform(plan)` puts the part scales on the bones after every animation step (so every clip plays on the new proportions), keeps the feet on the ground, tints the materials with a clone shared by every animal of the same tint (no new shader), and slows `play` by `plan.gait.rate`. Scale `libraryAnimal.object` by `plan.scale`. `setDeform(null)` puts it back. Library rigs name their bones differently; `partOfBone` / `classifyBones` find a bone's part by its name (and a bone with no telling name follows its parent).
+- **Any skeleton:** `deformBones(plan, boneNames, parents)` and `mergeDeform(shapeOptions, plan, names, parents)` give `ShapeOptions` for `ActorRuntime.evaluate`.
+
+What may look wrong: long legs slide their feet (no foot planting), held weapons keep their size, and a giant needs room.
+
 ## Library animals (WildMesh3D, private)
 
 Besides the generated animals, Actors can load 100 ready-made, rigged and animated animals (64 realistic, 36 stylized: wolf, fox, bears, big cats, deer, horse, cow, elephant, birds, fish, ...; 3,744 clips). They are licensed for Arnd's projects only, so the models are **not** in Actors, its releases or its Pages site: they live in the private repository [ArndRosemeier/PrivateAssets](https://github.com/ArndRosemeier/PrivateAssets) (`wildmesh3d/<id>/<id>.glb`). Actors has the loader and a catalogue of names and facts; the [library page](https://arndrosemeier.github.io/Actors/library.html) lists every animal with its clips.

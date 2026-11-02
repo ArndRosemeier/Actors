@@ -7,8 +7,8 @@
     "import": "tsx src/import.ts"
   },
   "dependencies": {
-    "@actors/core": "0.20.0",
-    "@actors/human": "0.20.0"
+    "@actors/core": "0.21.0",
+    "@actors/human": "0.21.0"
   },
   "devDependencies": {
     "@types/pngjs": "^6.0.5",

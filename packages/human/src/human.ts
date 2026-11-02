@@ -1,4 +1,4 @@
-import { type ActorShape, ActorRuntime, type Fetcher, type MeshData, type MessagePortLike, type PartMesh, RemoteRuntime, type ShapeOptions, type SurfaceDelta } from "@actors/core";
+import { type ActorShape, ActorRuntime, type DeformPlan, mergeDeform, type Fetcher, type MeshData, type MessagePortLike, type PartMesh, RemoteRuntime, type ShapeOptions, type SurfaceDelta } from "@actors/core";
 import { type UnitWeights, expressionTargetWeights } from "./expressions";
 import { type MacroTargetDef, macroTargetWeights } from "./macro";
 import { type ModifierDef, modifierTargetWeights } from "./modifiers";
@@ -110,13 +110,18 @@ export class Human {
 
   /** Proportion passes for the race (bone scales, head scale, ear tips, overall scale). */
   shapeOptions(): ShapeOptions {
-    return raceShapeOptions(sanitizeRace(this.race), this.runtime.manifest.skeleton?.bones.map((b) => b.name) ?? [], this.resolveTarget);
+    const bones = this.runtime.manifest.skeleton?.bones ?? [];
+    const names = bones.map((b) => b.name);
+    return mergeDeform(raceShapeOptions(sanitizeRace(this.race), names, this.resolveTarget), this.deform, names, bones.map((b) => b.parent));
   }
+
+  /** A deform plan (`deform` in @actors/core) laid over the race's proportions: giants, and later the plague. Null: none. */
+  deform: DeformPlan | null = null;
 
   /** How much bigger the face is than on a plain human body (overall scale × head scale), for expression deltas. */
   get faceScale(): number {
     const r = sanitizeRace(this.race);
-    return raceScale(r) * raceHeadScale(r);
+    return raceScale(r) * raceHeadScale(r) * (this.deform?.scale ?? 1);
   }
 
   private remote?: RemoteRuntime;

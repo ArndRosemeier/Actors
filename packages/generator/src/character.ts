@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
-import type { ActorShape, Clip, Fetcher, MessagePortLike } from "@actors/core";
+import { type ActorShape, type Clip, type Fetcher, type MessagePortLike, deform } from "@actors/core";
 import { ADULT_MIN_AGE, BEARD_REGION, BEARD_STYLES, beardPaint, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type PartsConfig, type RaceId, raceScale, sanitizeRace } from "@actors/human";
 import { type ActorMaterialKit, type ScreenTexturePool, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
 import { type ThemeFilter, filterCatalog } from "./themes";
@@ -475,7 +475,7 @@ export class Character {
     const robotConfig = c.robot ? { head: r.head, ears: r.ears, plating: r.plating, thickness: r.thickness, core: r.core } : null;
     const k = c.skeletalLook;
     const skeletalConfig = c.skeletal && !c.robot ? { robust: k.robust, wear: k.wear, missing: k.missing, jaw: k.jaw, eyes: k.eyes, heart: k.heart, seed: c.seed } : null;
-    const shapeKey = JSON.stringify([c.body, c.details, c.race, c.race2, c.raceMix, c.raceSize, c.youth, robotConfig, skeletalConfig]);
+    const shapeKey = JSON.stringify([c.body, c.details, c.race, c.race2, c.raceMix, c.raceSize, c.youth, c.deform ?? null, robotConfig, skeletalConfig]);
     // Only what is worn is fitted; wearing something the last shape left out needs a new one.
     const needed = this.actor.neededMeshes();
     const unfitted = !!this.shape && needed.some((n) => !this.fittedNames.has(n));
@@ -488,6 +488,7 @@ export class Character {
       h.params = skeletalConfig ? { ...c.body, weight: 0.5, muscle: 0.5, cupSize: 0, firmness: 0.5 } : c.youth > 0 ? childParams(c.body, c.youth) : { ...c.body };
       h.race = sanitizeRace({ race: c.race, race2: c.race2, mix: c.raceMix, size: c.raceSize, youth: c.youth });
       h.modifierValues = { ...c.details };
+      h.deform = c.deform ? deform(c.deform) : null;
       // The parts and face deltas asked for below, built in the worker with the shape (when there is one).
       const units = EXPRESSIONS[c.expression] ?? {};
       h.extras = c.robot || c.skeletal ? null : { parts: this.partsConfig(), faces: [...(Object.keys(units).length ? [{ units }] : []), { units: BLINK }] };
@@ -506,7 +507,7 @@ export class Character {
       const sk = this.shape.skeleton;
       const head = sk ? sk.heads[sk.names.indexOf("head")] : undefined;
       const ground = this.actor.groundOffset();
-      this.actor.skin.uBind.value.set(ground, raceScale(h.race), head ? head[1] + ground : 1.55, head ? -head[2] : 0);
+      this.actor.skin.uBind.value.set(ground, raceScale(h.race) * (h.deform?.scale ?? 1), head ? head[1] + ground : 1.55, head ? -head[2] : 0);
       // Face frame for painted stubble (same space as the patterns).
       const eyes = eyeCentres(this.shape, h.runtime.meshes);
       if (eyes) {
