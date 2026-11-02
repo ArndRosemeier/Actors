@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { pickLibraryClip, type LibraryMotion } from "@actors/core";
+import { changesBody, deformBones, pickLibraryClip, type DeformPlan, type LibraryMotion } from "@actors/core";
 
 /**
  * What happens to a clip's ground travel: the root motion baked into it, or, for clips made to play on the
@@ -307,6 +307,10 @@ export class LibraryAnimal {
   private pending = 0;
   private readonly step = new THREE.Vector3();
   private readonly castShadow: boolean;
+  private deformed?: Deformed;
+  private deformPlan: DeformPlan | null = null;
+  /** The speed `play` was last asked for (before the plan's gait). */
+  private speed?: number;
 
   constructor(
     readonly id: string,
@@ -391,14 +395,15 @@ export class LibraryAnimal {
     const clip = this.clips.get(name);
     if (!clip) throw new Error(`${this.id} has no clip "${name}" (it has ${this.clipNames.slice(0, 12).join(", ")}${this.clipNames.length > 12 ? ", ..." : ""})`);
     const action = this.mixer.clipAction(clip);
+    this.speed = options.speed ?? 1;
     if (action === prev && action.isRunning()) {
-      action.timeScale = options.speed ?? 1;
+      action.timeScale = this.speed * this.gaitRate;
       return action;
     }
     action.reset();
     action.setLoop(options.loop === false ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
     action.clampWhenFinished = options.loop === false;
-    action.timeScale = options.speed ?? 1;
+    action.timeScale = this.speed * this.gaitRate;
     action.setEffectiveWeight(1);
     action.play();
     const fade = prev ? (options.fade ?? 0) : 0;
@@ -430,6 +435,8 @@ export class LibraryAnimal {
     // Times before the update, and how far each action's clock will run (to count loop wraps).
     const before = actions.map((a) => ({ a, time: a.time, run: a.isRunning() ? delta * a.getEffectiveTimeScale() : 0 }));
     this.mixer.update(delta);
+    // Clips that carry scale keys (or a pose the mixer has just set) would undo the body's proportions.
+    this.deformed?.apply();
     const d = new THREE.Vector2();
     let x = 0, z = 0;
     for (const { a, time, run } of before) {
@@ -457,6 +464,36 @@ export class LibraryAnimal {
       this.travelled.add(this.step);
     }
     return this.step;
+  }
+
+  /** The plan this animal is deformed by now (null: none). */
+  get deform(): DeformPlan | null {
+    return this.deformPlan;
+  }
+
+  /**
+   * Gives the animal a deformed body (`deform` in `@actors/core`; null puts it back):
+   * - **bones**: each body part's length and girth (by bone name; a bone with no telling name follows its parent) are put on the
+   *   bones' scale after every animation step, so all clips play on the new proportions. Legs that shorten lift the
+   *   feet, so the model is lowered to keep them on the ground. The body's overall growth (`plan.scale`) is left to the caller
+   *   (scale `object`); the bones are relative to it.
+   * - **skin**: the plan's tint multiplies each material's colour (a clone shared by every animal with the same tint, so
+   *   there is no new shader).
+   * - **movement**: `gaitRate` is the playback speed the plan asks for; `play` multiplies its speed by it.
+   * The meshes stop being culled by their bind-pose bounds (their bones move).
+   */
+  setDeform(plan: DeformPlan | null): void {
+    this.deformed?.restore();
+    this.deformed = undefined;
+    this.deformPlan = changesBody(plan) ? plan : null;
+    if (this.deformPlan) this.deformed = new Deformed(this.model, this.deformPlan);
+    this.deformed?.apply();
+    if (this.action) this.action.timeScale = (this.speed ?? 1) * this.gaitRate;
+  }
+
+  /** The playback speed the deform plan asks for (1: none). */
+  get gaitRate(): number {
+    return this.deformPlan?.gait.rate ?? 1;
   }
 
   /** The current detail level (index into `lods`). */
@@ -494,4 +531,105 @@ export class LibraryAnimal {
     this.mixer.uncacheRoot(this.model);
     this.object.removeFromParent();
   }
+}
+
+/** The bones of the first skinned mesh, with what a deform needs of them. */
+class Deformed {
+  private readonly bones: THREE.Bone[] = [];
+  private readonly local: THREE.Vector3[] = [];
+  private readonly meshes: { mesh: THREE.Mesh; material: THREE.Material | THREE.Material[]; culled: boolean }[] = [];
+  private readonly baseY: number;
+  private readonly lowered: THREE.Object3D;
+
+  constructor(model: THREE.Object3D, plan: DeformPlan) {
+    this.lowered = model;
+    this.baseY = model.position.y;
+    let skeleton: THREE.Skeleton | undefined;
+    model.traverse((o) => {
+      const mesh = o as THREE.SkinnedMesh;
+      if (!mesh.isSkinnedMesh) return;
+      skeleton ??= mesh.skeleton;
+      this.meshes.push({ mesh, material: mesh.material, culled: mesh.frustumCulled });
+      mesh.frustumCulled = false;
+      mesh.material = tinted(mesh.material, plan);
+    });
+    if (!skeleton) return;
+    this.bones = skeleton.bones;
+    const names = this.bones.map((b) => b.name);
+    const parents = this.bones.map((b) => this.bones.indexOf(b.parent as THREE.Bone));
+    // The scale each bone wants in the model's own frame: its part's length along the bone, girth across it.
+    const wants = deformBones(plan, names, parents);
+    const want: THREE.Vector3[] = this.bones.map((b, i) => {
+      const s = wants[names[i]];
+      const v = new THREE.Vector3(1, 1, 1);
+      if (!s) return v;
+      const child = this.bones.find((c, j) => parents[j] === i && c.position.lengthSq() > 1e-10);
+      const d = child ? child.position : new THREE.Vector3(0, 1, 0);
+      const axis = Math.abs(d.x) > Math.abs(d.y) && Math.abs(d.x) > Math.abs(d.z) ? "x" : Math.abs(d.z) > Math.abs(d.y) ? "z" : "y";
+      v.setScalar(s.girth ?? 1);
+      v[axis] = s.len ?? 1;
+      return v;
+    });
+    // Every bone's scale is relative to its parent's, which its children inherit: take that out.
+    this.local = want.map((w, i) => {
+      const p = parents[i] >= 0 ? want[parents[i]] : null;
+      return p ? new THREE.Vector3(w.x / p.x, w.y / p.y, w.z / p.z) : w.clone();
+    });
+    // Shorter legs lift the feet: put the model down by as much as the lowest foot rose. The bones are walked in
+    // their bind pose (from the skeleton's inverses) with the scales on, the way three will pose them.
+    const bind = skeleton.boneInverses.map((m) => new THREE.Matrix4().copy(m).invert());
+    const leaves = this.bones.map((_, i) => i).filter((i) => !parents.includes(i) && !/tail|ik|target|ref|helper|ear|tongue|jaw|trunk|eye|wing/i.test(names[i]));
+    if (!leaves.length) return;
+    const posed: THREE.Matrix4[] = [];
+    const pose = (i: number): THREE.Matrix4 => {
+      if (posed[i]) return posed[i];
+      const p = parents[i];
+      const local = p >= 0 ? new THREE.Matrix4().copy(bind[p]).invert().multiply(bind[i]) : bind[i].clone();
+      local.multiply(new THREE.Matrix4().makeScale(this.local[i].x, this.local[i].y, this.local[i].z));
+      return (posed[i] = p >= 0 ? new THREE.Matrix4().multiplyMatrices(pose(p), local) : local);
+    };
+    let before = Infinity, after = Infinity;
+    for (const i of leaves) {
+      before = Math.min(before, new THREE.Vector3().setFromMatrixPosition(bind[i]).y);
+      after = Math.min(after, new THREE.Vector3().setFromMatrixPosition(pose(i)).y);
+    }
+    const shift = after - before;
+    if (Number.isFinite(shift)) model.position.y = this.baseY - shift;
+  }
+
+  apply(): void {
+    for (let i = 0; i < this.bones.length; i++) this.bones[i].scale.copy(this.local[i]);
+  }
+
+  restore(): void {
+    for (const b of this.bones) b.scale.set(1, 1, 1);
+    this.lowered.position.y = this.baseY;
+    for (const m of this.meshes) {
+      m.mesh.material = m.material;
+      m.mesh.frustumCulled = m.culled;
+    }
+  }
+}
+
+/** Materials by (source material, tint): the animals of one tint share a clone, so their shaders are one. */
+const tints = new WeakMap<THREE.Material, Map<string, THREE.Material>>();
+
+function tinted(material: THREE.Material | THREE.Material[], plan: DeformPlan): THREE.Material | THREE.Material[] {
+  const [r, g, b] = plan.skin.tint.map((v) => Math.round(v * 100) / 100);
+  if (r === 1 && g === 1 && b === 1) return material;
+  const one = (m: THREE.Material): THREE.Material => {
+    const color = (m as THREE.MeshStandardMaterial).color;
+    if (!color) return m;
+    let byTint = tints.get(m);
+    if (!byTint) tints.set(m, (byTint = new Map()));
+    const key = `${r},${g},${b}`;
+    let t = byTint.get(key);
+    if (!t) {
+      t = m.clone();
+      (t as THREE.MeshStandardMaterial).color.setRGB(color.r * r, color.g * g, color.b * b);
+      byTint.set(key, t);
+    }
+    return t;
+  };
+  return Array.isArray(material) ? material.map(one) : one(material);
 }

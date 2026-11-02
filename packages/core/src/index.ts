@@ -13,6 +13,7 @@ export * from "./locomotion";
 export * from "./worker";
 export * from "./subdivide";
 export * from "./deform";
+export * from "./deformRecipe";
 export * from "./parts";
 export * from "./lod";
 export * from "./clipnames";

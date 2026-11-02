@@ -4,3 +4,4 @@ export * from "./horse";
 export * from "./cow";
 export * from "./chicken";
 export * from "./animal";
+export * from "./deformAnimal";
