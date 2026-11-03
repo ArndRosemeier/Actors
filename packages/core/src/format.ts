@@ -70,7 +70,7 @@ export interface MeshDef {
   /** Mutually exclusive alternatives share a slot (e.g. "body" for low/high detail). */
   slot?: string;
   /** Textures shipped with the pack, relative to the manifest. */
-  textures?: Partial<Record<"color" | "normal" | "maskA" | "maskB", string>>;
+  textures?: Partial<Record<"color" | "normal" | "maskA" | "maskB" | "maskC", string>>;
   /** Free-form hints for adapters (e.g. which gender a body part belongs to). */
   tags?: string[];
   /**

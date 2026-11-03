@@ -127,7 +127,7 @@ function skinLayers(actor: ThreeActor): SkinLayers {
 }
 
 /** The skin's uniforms that are values (not textures), by name. */
-const SKIN_VALUES = Object.keys(createSkinUniforms()).filter((k) => k !== "uMaskA" && k !== "uMaskB" && k !== "uAlbedo") as (keyof SkinUniforms)[];
+const SKIN_VALUES = Object.keys(createSkinUniforms()).filter((k) => k !== "uMaskA" && k !== "uMaskB" && k !== "uMaskC" && k !== "uAlbedo") as (keyof SkinUniforms)[];
 
 /** An actor's skin inputs for a skin material (see `skinGraph`). */
 function skinInputs(actor: ThreeActor): Inputs {
@@ -135,6 +135,7 @@ function skinInputs(actor: ThreeActor): Inputs {
   const inputs: Inputs = {
     "skin.maskA": () => s.uMaskA.value ?? black,
     "skin.maskB": () => s.uMaskB.value ?? black,
+    "skin.maskC": () => s.uMaskC.value ?? black,
     "skin.weights": () => l.weights,
   };
   for (const k of SKIN_VALUES) inputs[`skin.${k}`] = () => s[k].value;
@@ -214,6 +215,7 @@ const skinGraph = once(() => {
   const bind = bindVarying(u);
   const maskA = () => inputTexture("skin.maskA", black, uvS);
   const maskB = () => inputTexture("skin.maskB", black, uvS);
+  const maskC = () => inputTexture("skin.maskC", black, uvS);
   const weights = input("skin.weights", new THREE.Vector4(1, 0, 0, 0));
   const color = Fn(() => {
     const mA = maskA().toVar();
@@ -240,7 +242,8 @@ const skinGraph = once(() => {
     // Vulva: deeper, redder inner tissue in the cleft.
     const gl = genitalLocal(u.uGenitalBox, uvS).toVar();
     const inner = exp(pow(gl.x.div(0.11), 2).negate()).mul(ss(0.95, 0.5, gl.y.add(0.08).abs())).mul(mB.r).mul(u.uFemale);
-    return vec4(mix(pattern.color, pattern.color.mul(vec3(0.62, 0.36, 0.36)), inner), 1);
+    // Inside the mouth little light gets in.
+    return vec4(mix(pattern.color, pattern.color.mul(vec3(0.62, 0.36, 0.36)), inner).mul(mix(1, 0.2, maskC().r)), 1);
   })();
   // Pores (fewer on lips, nails and brows), vulva relief, pattern bumps.
   const normal = Fn(() => {
@@ -458,8 +461,9 @@ export function createNodeHairMaterial(map: THREE.Texture | null, blended = fals
   return useNodeDqs(feed(mat, { "hair.color": () => hair.uHairTint.value, "hair.mix": () => hair.uHairMix.value, "hair.meanLum": () => hair.uHairMeanLum.value }));
 }
 
-export function createNodeWetMaterial(color: THREE.Color, roughness: number): MeshPhysicalNodeMaterial {
-  return useNodeDqs(new MeshPhysicalNodeMaterial({ color, roughness, clearcoat: 0.6, clearcoatRoughness: 0.2 }));
+/** Wet surfaces in the mouth (see createWetMaterial). */
+export function createNodeWetMaterial(color: THREE.Color, roughness: number, map: THREE.Texture | null = null, shaded = false): MeshPhysicalNodeMaterial {
+  return useNodeDqs(new MeshPhysicalNodeMaterial({ color: map ? new THREE.Color(1, 1, 1) : color, map, vertexColors: shaded, roughness, clearcoat: 0.6, clearcoatRoughness: 0.2 }));
 }
 
 /** Material for a generated add-on (see createPartMaterial). */
@@ -536,7 +540,7 @@ export function createNodeCrowdMaterial(actor: ThreeActor): MeshStandardNodeMate
 export function nodeMeshMaterial(data: MeshData, actor: ThreeActor): THREE.Material {
   const { def } = data;
   const color = new THREE.Color(...(def.material.color ?? [0.8, 0.8, 0.8]));
-  const tex = (key: "color" | "normal" | "maskA" | "maskB", srgb = false) => {
+  const tex = (key: "color" | "normal" | "maskA" | "maskB" | "maskC", srgb = false) => {
     const file = def.textures?.[key];
     return file ? actor.texture(file, srgb) : null;
   };
@@ -544,14 +548,15 @@ export function nodeMeshMaterial(data: MeshData, actor: ThreeActor): THREE.Mater
     case "skin": {
       actor.skin.uMaskA.value ??= tex("maskA");
       actor.skin.uMaskB.value ??= tex("maskB");
+      actor.skin.uMaskC.value ??= tex("maskC");
       return createNodeSkinMaterial(actor);
     }
     case "eye":
       return createNodeEyeMaterial(tex("color", true), actor);
     case "teeth":
-      return createNodeWetMaterial(srgb(0.92, 0.89, 0.8), 0.25);
+      return createNodeWetMaterial(srgb(0.92, 0.89, 0.8), def.material.roughness ?? 0.25, tex("color", true), !!data.attributes?.color);
     case "mouth":
-      return createNodeWetMaterial(srgb(0.75, 0.38, 0.38), 0.4);
+      return createNodeWetMaterial(srgb(0.75, 0.38, 0.38), def.material.roughness ?? 0.4, tex("color", true), !!data.attributes?.color);
     case "hair":
       if (def.textures?.color) {
         const mat = createNodeHairMaterial(tex("color", true), def.tags?.includes("brows"));

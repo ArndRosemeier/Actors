@@ -1,4 +1,4 @@
-import { type ActorShape, ActorRuntime, type DeformPlan, mergeDeform, type Fetcher, type MeshData, type MessagePortLike, type PartMesh, RemoteRuntime, type ShapeOptions, type SurfaceDelta, type FaceRig } from "@actors/core";
+import { type ActorShape, ActorRuntime, type DeformPlan, mergeDeform, type Fetcher, type MeshData, type MessagePortLike, type PartMesh, RemoteRuntime, type ShapeOptions, type SurfaceDelta, type FaceRig, BASE_SPACE, faceSpace, followsFace } from "@actors/core";
 import { type UnitWeights, expressionTargetWeights } from "./expressions";
 import { type MacroTargetDef, macroTargetWeights } from "./macro";
 import { type ModifierDef, modifierTargetWeights } from "./modifiers";
@@ -197,10 +197,10 @@ export class Human {
     return [...units].sort();
   }
 
-  /** The face rig's worker arguments: every unit at full strength, on the base mesh and the stencil meshes that follow it. */
+  /** The face rig's worker arguments: every unit at full strength, on the base mesh and every mesh space that follows the face. */
   private rigArgs(): NonNullable<ExtrasArgs["rig"]> {
     const units = this.faceUnits().map((u) => [u, [...this.faceWeights({ [u]: 1 }, 1)]] as [string, [string, number][]]);
-    const spaces = this.runtime.meshes.filter((m) => m.stencil && m.def.source.kind === "base" && m.def.role !== "garment").map((m) => m.def.name);
+    const spaces = [...new Set(this.runtime.meshes.filter((m) => followsFace(m.def) && faceSpace(m) !== BASE_SPACE).map(faceSpace))];
     return { units, spaces };
   }
 
