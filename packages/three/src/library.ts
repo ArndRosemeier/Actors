@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { FootGrounding, type FootingOptions, type GroundHeight } from "./footing";
 import { changesBody, deformBones, pickLibraryClip, type DeformPlan, type LibraryMotion } from "@actors/core";
 
 /**
@@ -309,6 +310,9 @@ export class LibraryAnimal {
   private readonly castShadow: boolean;
   private deformed?: Deformed;
   private deformPlan: DeformPlan | null = null;
+  private ground: GroundHeight | null = null;
+  private groundOptions: FootingOptions = {};
+  private footing?: FootGrounding;
   /** The speed `play` was last asked for (before the plan's gait). */
   private speed?: number;
 
@@ -433,10 +437,12 @@ export class LibraryAnimal {
     this.pending = 0;
     const actions = [this.action, ...this.fading].filter((a): a is THREE.AnimationAction => !!a);
     // Times before the update, and how far each action's clock will run (to count loop wraps).
+    this.footing?.beforeAnimate();
     const before = actions.map((a) => ({ a, time: a.time, run: a.isRunning() ? delta * a.getEffectiveTimeScale() : 0 }));
     this.mixer.update(delta);
     // Clips that carry scale keys (or a pose the mixer has just set) would undo the body's proportions.
     this.deformed?.apply();
+    if (this.ground) this.footing?.apply(delta, this.ground);
     const d = new THREE.Vector2();
     let x = 0, z = 0;
     for (const { a, time, run } of before) {
@@ -458,7 +464,7 @@ export class LibraryAnimal {
     }
     this.fading = this.fading.filter((a) => a.getEffectiveWeight() > 0 && a.isRunning());
     if (x !== 0 || z !== 0) {
-      this.step.set(x, 0, z).multiply(this.model.scale).applyQuaternion(this.model.quaternion);
+      this.step.set(x, 0, z).multiply(this.model.scale).applyQuaternion(this.footing?.orientation ?? this.model.quaternion);
       this.step.multiply(this.object.scale).applyQuaternion(this.object.quaternion);
       if (this.rootMotion === "move") this.object.position.add(this.step);
       this.travelled.add(this.step);
@@ -483,12 +489,40 @@ export class LibraryAnimal {
    * The meshes stop being culled by their bind-pose bounds (their bones move).
    */
   setDeform(plan: DeformPlan | null): void {
+    this.footing?.restore();
+    this.footing = undefined;
     this.deformed?.restore();
     this.deformed = undefined;
     this.deformPlan = changesBody(plan) ? plan : null;
     if (this.deformPlan) this.deformed = new Deformed(this.model, this.deformPlan);
     this.deformed?.apply();
+    this.makeFooting();
     if (this.action) this.action.timeScale = (this.speed ?? 1) * this.gaitRate;
+  }
+
+  /**
+   * Puts the animal's feet on the ground, whatever its size, deform or clip (a pass after the pose of every `update`; see `FootGrounding`):
+   * the body leans to the plane through the planted feet, is lifted so no sole is in the ground, and each leg's bones reach so the sole meets
+   * the ground height `ground(x, z)` (world) gives, within `FootingOptions`. The soles are found in the skin, so it works for any rig the
+   * loader reads, deformed or not. Null takes it off again (call it for the dead, flying and swimming: they have no feet to plant).
+   * With a ground set, place `object` anywhere near the ground (its height is not what the feet stand on).
+   */
+  setGround(ground: GroundHeight | null, options: FootingOptions = {}): void {
+    this.footing?.restore();
+    this.footing = undefined;
+    this.ground = ground;
+    this.groundOptions = options;
+    this.makeFooting();
+  }
+
+  /** How the feet stood in the last pass (undefined: no ground set, or no feet found). */
+  get feet(): FootGrounding | undefined {
+    return this.footing?.active ? this.footing : undefined;
+  }
+
+  private makeFooting(): void {
+    if (!this.ground) return;
+    this.footing = new FootGrounding(this.model, () => this.deformed?.apply(), this.groundOptions);
   }
 
   /** The playback speed the deform plan asks for (1: none). */
@@ -575,11 +609,10 @@ class Deformed {
       const p = parents[i] >= 0 ? want[parents[i]] : null;
       return p ? new THREE.Vector3(w.x / p.x, w.y / p.y, w.z / p.z) : w.clone();
     });
-    // Shorter legs lift the feet: put the model down by as much as the lowest foot rose. The bones are walked in
-    // their bind pose (from the skeleton's inverses) with the scales on, the way three will pose them.
+    // The feet: thicker, longer or shorter legs move the soles, and the soles are skin, not joints (a flat foot's sole lies well below its
+    // ankle bone, and grows with the foot's girth). Put the model down by as much as the lowest point of the skin rose. The bones are
+    // walked in their bind pose (from the skeleton's inverses) with the scales on, the way three will pose them.
     const bind = skeleton.boneInverses.map((m) => new THREE.Matrix4().copy(m).invert());
-    const leaves = this.bones.map((_, i) => i).filter((i) => !parents.includes(i) && !/tail|ik|target|ref|helper|ear|tongue|jaw|trunk|eye|wing/i.test(names[i]));
-    if (!leaves.length) return;
     const posed: THREE.Matrix4[] = [];
     const pose = (i: number): THREE.Matrix4 => {
       if (posed[i]) return posed[i];
@@ -588,13 +621,52 @@ class Deformed {
       local.multiply(new THREE.Matrix4().makeScale(this.local[i].x, this.local[i].y, this.local[i].z));
       return (posed[i] = p >= 0 ? new THREE.Matrix4().multiplyMatrices(pose(p), local) : local);
     };
-    let before = Infinity, after = Infinity;
-    for (const i of leaves) {
-      before = Math.min(before, new THREE.Vector3().setFromMatrixPosition(bind[i]).y);
-      after = Math.min(after, new THREE.Vector3().setFromMatrixPosition(pose(i)).y);
+    const skins = this.bones.map((_, i) => new THREE.Matrix4().multiplyMatrices(pose(i), skeleton!.boneInverses[i]));
+    const lowest = this.lowestSkin(skins);
+    let shift = NaN;
+    if (lowest) shift = lowest.after - lowest.before;
+    else {
+      // No skin to measure: the lowest joint of the bones that stand (not the tail, the horns, the ears) stands for the soles.
+      const leaves = this.bones.map((_, i) => i).filter((i) => !parents.includes(i) && !/tail|ik|target|ref|helper|ear|tongue|jaw|trunk|eye|wing/i.test(names[i]));
+      let before = Infinity, after = Infinity;
+      for (const i of leaves) {
+        before = Math.min(before, new THREE.Vector3().setFromMatrixPosition(bind[i]).y);
+        after = Math.min(after, new THREE.Vector3().setFromMatrixPosition(pose(i)).y);
+      }
+      shift = after - before;
     }
-    const shift = after - before;
     if (Number.isFinite(shift)) model.position.y = this.baseY - shift;
+  }
+
+  /**
+   * The lowest point of the skin (the model's own frame, bind pose) as it is drawn and as it will be with the bone scales on (`skins`: each
+   * bone's matrix from its bind pose to its scaled pose); null if no mesh has skin weights to go by.
+   */
+  private lowestSkin(skins: readonly THREE.Matrix4[]): { before: number; after: number } | null {
+    let before = Infinity, after = Infinity;
+    const v = new THREE.Vector3(), t = new THREE.Vector3(), out = new THREE.Vector3();
+    for (const { mesh } of this.meshes) {
+      const sk = mesh as THREE.SkinnedMesh, g = sk.geometry, pos = g.getAttribute("position"), idx = g.getAttribute("skinIndex"), w = g.getAttribute("skinWeight");
+      if (!pos || !idx || !w) continue;
+      for (let n = 0; n < pos.count; n++) {
+        v.fromBufferAttribute(pos, n).applyMatrix4(sk.bindMatrix);
+        out.set(0, 0, 0);
+        let sum = 0;
+        for (let k = 0; k < 4; k++) {
+          const weight = w.getComponent(n, k);
+          if (!(weight > 0)) continue;
+          t.copy(v).applyMatrix4(skins[idx.getComponent(n, k)]);
+          out.addScaledVector(t, weight);
+          sum += weight;
+        }
+        if (sum <= 0) continue;
+        out.multiplyScalar(1 / sum).applyMatrix4(sk.bindMatrixInverse);
+        v.fromBufferAttribute(pos, n);
+        before = Math.min(before, v.y);
+        after = Math.min(after, out.y);
+      }
+    }
+    return Number.isFinite(before) && Number.isFinite(after) ? { before, after } : null;
   }
 
   apply(): void {

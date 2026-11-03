@@ -24,11 +24,12 @@ function quadruped() {
     const calf = bone(`Calf_${end}${side}`, thigh, 0, -0.45, 0);
     bone(`Foot_${end}${side}`, calf, 0, -0.4, 0);
   }
-  // One triangle on each bone, so the mesh has a skeleton to bind.
+  // One triangle on each bone but the root (it stands at the ground, under the feet), so the mesh has a skeleton to bind.
   const geometry = new THREE.BufferGeometry();
   const pos: number[] = [], idx: number[] = [], w: number[] = [];
   model.updateMatrixWorld(true);
   bones.forEach((b, i) => {
+    if (b.name === "Root") return;
     const p = new THREE.Vector3().setFromMatrixPosition(b.matrixWorld);
     pos.push(p.x, p.y, p.z, p.x + 0.05, p.y, p.z, p.x, p.y, p.z + 0.05);
     for (let k = 0; k < 3; k++) { idx.push(i, 0, 0, 0); w.push(1, 0, 0, 0); }
