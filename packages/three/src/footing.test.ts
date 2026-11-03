@@ -7,6 +7,11 @@ const quad = (leg = 0.5) => walker([[0.25, 0.5], [-0.25, 0.5], [0.25, -0.5], [-0
 const biped = (leg = 0.5) => walker([[0.12, 0], [-0.12, 0]], leg);
 
 const flat = () => 0;
+/** Puts the animal's object where the ground is under it (the pass refuses a ground far from where the animal is placed), then sets the ground. */
+const stand = (lib: { object: THREE.Object3D; setGround(g: (x: number, z: number) => number): void }, g: (x: number, z: number) => number) => {
+  lib.object.position.y = g(lib.object.position.x, lib.object.position.z);
+  lib.setGround(g);
+};
 const slope = (gx: number, gz = 0) => (x: number, z: number) => 3 + gx * x + gz * z;
 
 describe("feet on the ground", () => {
@@ -43,7 +48,7 @@ describe("feet on the ground", () => {
   it("stands on a slope: leans with it, and every sole meets the ground", () => {
     for (const g of [slope(0.3), slope(0, 0.3), slope(-0.2, 0.25)]) {
       const { lib, mesh } = quad();
-      lib.setGround(g);
+      stand(lib, g);
       for (let i = 0; i < 30; i++) lib.update(1 / 30);
       for (const c of clearances(lib, mesh, g)) {
         expect(c).toBeGreaterThan(-0.01);
@@ -60,7 +65,7 @@ describe("feet on the ground", () => {
     lib.object.scale.setScalar(12);
     lib.setDeform(deform({ recipe: "giant", seed: 3, strength: 1, size: 12 }));
     const g = (x: number, z: number) => 5 + 0.25 * x - 0.1 * z;
-    lib.setGround(g);
+    stand(lib, g);
     for (let i = 0; i < 30; i++) lib.update(1 / 30);
     for (const c of clearances(lib, mesh, g)) {
       expect(c).toBeGreaterThan(-0.2);
@@ -80,7 +85,7 @@ describe("feet on the ground", () => {
   it("works for two legs", () => {
     const { lib, mesh } = biped();
     const g = slope(0, 0.2);
-    lib.setGround(g);
+    stand(lib, g);
     for (let i = 0; i < 30; i++) lib.update(1 / 30);
     for (const c of clearances(lib, mesh, g)) {
       expect(c).toBeGreaterThan(-0.01);
@@ -114,7 +119,7 @@ describe("feet on the ground", () => {
       lib.object.scale.setScalar(size);
       if (size > 1) lib.setDeform(deform({ recipe: "giant", seed: 4, strength: 1, size }));
       const g = (x: number, z: number) => 0.2 * x + 0.15 * z;
-      lib.setGround(g);
+      stand(lib, g);
       lib.play("Walk");
       let worst = Infinity, jump = 0, last = NaN;
       for (let i = 0; i < 60; i++) {
@@ -130,11 +135,39 @@ describe("feet on the ground", () => {
     }
   });
 
+  it("leans and stands a body that a clip lifts as a whole, as it does one that stays at its rest height", () => {
+    // The spine is keyed 0.4 m above its rest place for the whole clip, every foot with it.
+    const up = new THREE.VectorKeyframeTrack("Spine.position", [0, 1], [0, 1.15 + 0.4, 0, 0, 1.15 + 0.4, 0]);
+    const { lib, mesh, model } = walker([[0.25, 0.5], [-0.25, 0.5], [0.25, -0.5], [-0.25, -0.5]], 0.5, [new THREE.AnimationClip("Idle", 1, [up])]);
+    const g = slope(0.3);
+    lib.object.position.y = g(0, 0);
+    lib.setGround(g);
+    lib.play("Idle");
+    for (let i = 0; i < 30; i++) lib.update(1 / 30);
+    for (const c of clearances(lib, mesh, g)) {
+      expect(c).toBeGreaterThan(-0.01);
+      expect(c).toBeLessThan(0.05);
+    }
+    expect(new THREE.Vector3(0, 1, 0).applyQuaternion(model.quaternion).angleTo(new THREE.Vector3(0, 1, 0))).toBeGreaterThan(0.1);
+  });
+
+  it("leaves an animal alone when the ground is nowhere near it (a wrong frame, a teleport)", () => {
+    const { lib, model, mesh } = quad();
+    lib.setGround(() => 500);
+    for (let i = 0; i < 5; i++) lib.update(1 / 30);
+    expect(model.position.toArray()).toEqual([0, 0, 0]);
+    expect(model.quaternion.toArray()).toEqual([0, 0, 0, 1]);
+    expect(Math.min(...clearances(lib, mesh, flat))).toBeCloseTo(0, 3);
+    lib.setGround(() => -3500);
+    lib.update(1 / 30);
+    expect(model.position.toArray()).toEqual([0, 0, 0]);
+  });
+
   it("puts back the bones the animation left, and the body, when the ground is taken away", () => {
     const { lib, model, bones } = quad();
     const before = bones.map((b) => b.quaternion.toArray());
     const at = model.position.toArray();
-    lib.setGround(slope(0.4, 0.1));
+    stand(lib, slope(0.4, 0.1));
     for (let i = 0; i < 10; i++) lib.update(1 / 30);
     expect(model.position.toArray()).not.toEqual(at);
     lib.setGround(null);
@@ -146,7 +179,7 @@ describe("feet on the ground", () => {
 
   it("does not add up from frame to frame: the same ground gives the same bones", () => {
     const { lib, bones } = quad();
-    lib.setGround(slope(0.3));
+    stand(lib, slope(0.3));
     for (let i = 0; i < 20; i++) lib.update(1 / 30);
     const a = bones.map((b) => b.quaternion.toArray());
     for (let i = 0; i < 20; i++) lib.update(1 / 30);
