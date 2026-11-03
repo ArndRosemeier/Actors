@@ -312,9 +312,16 @@ export class FootGrounding {
     this.update();
     // 3. Each leg reaches what is left: its points are drawn down to the ground by the planted share, and up out of it all the way.
     // A few rounds, since turning a foot to bring one edge of its sole down can sink another.
+    let last = Infinity;
     for (let round = 0; ; round++) {
       seen = this.read(ground);
-      if (round === (this.standing ? 10 : 3)) break;
+      if (round === (this.standing ? 6 : 3)) break;
+      // A standing animal's rounds (three at least, since a round can overshoot) stop when they stop gaining on the best so far (a leg at its limit would go on for ever).
+      if (this.standing) {
+        const worst = Math.max(...seen.map((r) => (r.planted > 0.5 ? Math.abs(r.need) : Math.max(0, r.need))));
+        if (round >= 3 && worst > 0.9 * last) break;
+        last = Math.min(last, worst);
+      }
       let again = false;
       for (let f = 0; f < this.feet.length; f++) {
         const s = seen[f];
@@ -410,6 +417,8 @@ export class FootGrounding {
     const dq = new THREE.Quaternion();
     const identity = new THREE.Matrix4();
     const tolerance = 1e-3 * this.size.y;
+    // A standing animal's leg may turn farther from the clip's pose (a stubby leg of a tortoise held up by its idle): twice the bend.
+    const bend = this.standing ? 2 * this.options.bend : this.options.bend;
     for (let pass = 0; pass < 8; pass++) {
       for (let j = 0; j < chain.length; j++) {
         const bone = chain[j];
@@ -437,7 +446,7 @@ export class FootGrounding {
         if (!this.turned.has(bone)) this.turned.set(bone, bone.quaternion.clone());
         const from = this.turned.get(bone)!;
         const angle = from.angleTo(q);
-        if (angle > this.options.bend) q.copy(from).slerp(q, this.options.bend / angle);
+        if (angle > bend) q.copy(from).slerp(q, bend / angle);
         bone.quaternion.copy(q);
         for (let k = j; k >= 0; k--) chain[k].updateMatrixWorld(false);
       }
