@@ -191,8 +191,8 @@ export class FootGrounding {
     });
     this.feet.push(...feet.values());
     for (const f of this.feet) {
-      // At most 16 points, spread over the sole; the leg turns about the bone nearest the root among those that carry them.
-      const stride = Math.max(1, Math.ceil(f.probes.length / 16));
+      // At most 8 points, spread over the sole; the leg turns about the bone nearest the root among those that carry them.
+      const stride = Math.max(1, Math.ceil(f.probes.length / 8));
       f.probes = f.probes.filter((_, i) => i % stride === 0);
       const depth = (i: number) => { let d = 0; for (let b: THREE.Object3D | null = this.bones[i]; b && (b as THREE.Bone).isBone; b = b.parent) d++; return d; };
       f.bone = f.probes.reduce((best, p) => (p.bone >= 0 && (best < 0 || depth(p.bone) < depth(best)) ? p.bone : best), -1);
@@ -288,8 +288,9 @@ export class FootGrounding {
     this.update();
     // 3. Each leg reaches what is left: its points are drawn down to the ground by the planted share, and up out of it all the way.
     // A few rounds, since turning a foot to bring one edge of its sole down can sink another.
-    for (let round = 0; round < 3; round++) {
+    for (let round = 0; ; round++) {
       seen = this.read(ground);
+      if (round === 3) break;
       let again = false;
       for (let f = 0; f < this.feet.length; f++) {
         const s = seen[f];
@@ -303,8 +304,8 @@ export class FootGrounding {
       if (!again) break;
       m.updateMatrixWorld(true);
     }
-    m.updateMatrixWorld(true);
-    this.report(ground);
+    this.readings.length = 0;
+    for (const s of seen) this.readings.push({ x: s.x, y: s.y, z: s.z, ground: s.ground, planted: s.planted });
   }
 
   /** Brings the model's matrices up to date (its parents' too: the host moves the animal before this). */
@@ -412,13 +413,6 @@ export class FootGrounding {
         for (let k = j; k >= 0; k--) chain[k].updateMatrixWorld(false);
       }
     }
-  }
-
-  /** Fills `readings` from the final pose. */
-  private report(ground: GroundHeight): void {
-    this.readings.length = 0;
-    const seen = this.read(ground);
-    for (const s of seen) this.readings.push({ x: s.x, y: s.y, z: s.z, ground: s.ground, planted: s.planted });
   }
 }
 
