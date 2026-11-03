@@ -291,6 +291,12 @@ export interface CharacterConfig {
   expression: string;
   expressionIntensity: number;
   blink: boolean;
+  /**
+   * Face rig: every face unit as its own GPU morph, so expressions blend smoothly into each other
+   * and faces can be animated unit by unit (`Character.setFaceUnits`). Costs a few MB of GPU
+   * memory per character and a rig build in the worker per shape change; off by default.
+   */
+  faceRig: boolean;
   /** "high" = subdivided body, "low" = base mesh. */
   detail: "high" | "low";
   /**
@@ -536,6 +542,7 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     expression: "neutral",
     expressionIntensity: 0.8,
     blink: true,
+    faceRig: false,
     detail: "high",
     robot: false,
     robotLook: { ...DEFAULT_ROBOT_LOOK },

@@ -11,9 +11,10 @@
  * skinned with linear blending; the difference at the joints is far below a
  * shadow map's resolution.
  */
-import { Fn, If, OnObjectUpdate, attribute, cross, dot, float, morphReference, normalLocal, normalize, positionLocal, property, reference, referenceBuffer, select, skinning, sqrt, subBuild, uniform, vec4 } from "./tsl";
+import { Fn, If, Loop, OnObjectUpdate, attribute, int, ivec2, textureLoad, uniformArray, vec3, cross, dot, float, morphReference, normalLocal, normalize, positionLocal, property, reference, referenceBuffer, select, skinning, sqrt, subBuild, uniform, vec4 } from "./tsl";
 import type { Material, Object3D, Skeleton, SkinnedMesh } from "three";
 import { morphAttribute } from "../morphs";
+import { FACE_SLOT, type FaceRigUniforms } from "../faceRig";
 import type { N } from "./types";
 
 /** Unit quaternion of a rotation matrix's upper 3x3 (columns c0, c1, c2). */
@@ -126,6 +127,42 @@ function attributeMorphs(builder: N): void {
   }
 }
 
+/** Nodes of an actor's face rig, shared by all of its materials. */
+const rigNodes = new WeakMap<FaceRigUniforms, { info: N; weights: N }>();
+
+/**
+ * The face rig (see ../faceRig.ts): every unit's deltas from the actor's rig texture, times its
+ * weight, before skinning. Only for geometries with face slots and materials given a rig.
+ */
+function faceRig(builder: N, rig: FaceRigUniforms | undefined): void {
+  if (!rig || !builder.hasGeometryAttribute(FACE_SLOT)) return;
+  let n = rigNodes.get(rig);
+  if (!n) {
+    n = {
+      info: uniform(rig.uFaceInfo.value),
+      weights: uniformArray(rig.uFaceW.value, "float"),
+    };
+    rigNodes.set(rig, n);
+  }
+  const { info, weights } = n;
+  const slot = int(attribute(FACE_SLOT, "float").add(0.5)).sub(1).toVar();
+  const dp = vec3(0).toVar(), dn = vec3(0).toVar();
+  If(slot.greaterThanEqual(0).and(info.z.greaterThan(0.5)), () => {
+    const units = int(info.x).toVar(), width = int(info.y).toVar();
+    Loop({ start: 0, end: units, type: "int", condition: "<" }, ({ i }: { i: N }) => {
+      const w = weights.element(i).toVar();
+      If(w.notEqual(0), () => {
+        const t = slot.mul(units).add(i).mul(2).toVar();
+        dp.addAssign(textureLoad(rig.uFaceRig.value, ivec2(t.mod(width), t.div(width))).xyz.mul(w));
+        const t1 = t.add(1);
+        dn.addAssign(textureLoad(rig.uFaceRig.value, ivec2(t1.mod(width), t1.div(width))).xyz.mul(w));
+      });
+    });
+  });
+  positionLocal.addAssign(dp);
+  normalLocal.addAssign(dn);
+}
+
 /** Makes a node material skin with dual quaternions (see the file comment). Returns the material. */
 export function useNodeDqs<T extends Material>(material: T): T {
   const m = material as unknown as { setupPosition(builder: N): N; positionNode: N; displacementMap?: unknown };
@@ -133,6 +170,7 @@ export function useNodeDqs<T extends Material>(material: T): T {
     const { object, geometry } = builder;
     if (geometry.morphAttributes.position || geometry.morphAttributes.normal || geometry.morphAttributes.color) morphReference(object);
     attributeMorphs(builder);
+    faceRig(builder, (this as unknown as Material).userData.faceRig as FaceRigUniforms | undefined);
     if (object.isSkinnedMesh === true) dqSkinning(object);
     if (this.positionNode !== null) positionLocal.assign(subBuild(this.positionNode, "POSITION", "vec3"));
     return positionLocal;

@@ -17,3 +17,4 @@ export * from "./deformRecipe";
 export * from "./parts";
 export * from "./lod";
 export * from "./clipnames";
+export * from "./faceRig";

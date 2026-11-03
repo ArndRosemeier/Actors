@@ -581,6 +581,10 @@ export function nodeMeshMaterial(data: MeshData, actor: ThreeActor): THREE.Mater
  */
 export const nodeMaterials: ActorMaterialKit = {
   attributeMorphs: true,
+  faceRig(material, uniforms) {
+    material.userData.faceRig = uniforms;
+    material.needsUpdate = true;
+  },
   mesh: nodeMeshMaterial,
   part: createNodePartMaterial,
   depth: () => null,

@@ -412,8 +412,9 @@ export class ActorRuntime {
    * mesh. Meant for GPU morph targets (facial expressions, blinking) that are
    * blended every frame without re-evaluating the whole shape. Proxies and the
    * skeleton are not affected. All weighted targets must already be loaded.
+   * `only`: the stencil meshes to include (default: all of the shape's).
    */
-  surfaceDelta(shape: ActorShape, weights: Map<string, number>): SurfaceDelta {
+  surfaceDelta(shape: ActorShape, weights: Map<string, number>, only?: Set<string>): SurfaceDelta {
     const positions = Float32Array.from(shape.positions);
     for (const [name, w] of weights) {
       if (Math.abs(w) < 1e-5) continue;
@@ -430,7 +431,7 @@ export class ActorRuntime {
     const meshes = new Map<string, { positions: Float32Array; normals: Float32Array }>();
     for (const m of this.meshes) {
       const cur = m.stencil && shape.meshes.get(m.def.name);
-      if (!m.stencil || !cur) continue;
+      if (!m.stencil || !cur || (only && !only.has(m.def.name))) continue;
       const p = applyStencil(m.stencil, positions);
       const n = computeNormals(p, m.stencil.rows, [m]);
       meshes.set(m.def.name, { positions: sub(p, cur.positions), normals: sub(n, cur.normals) });

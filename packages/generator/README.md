@@ -63,6 +63,20 @@ await character.randomize({ robot: true });  // a random robot body and look
 
 `robotLook` takes `head` (visor, optics, mono, android), `ears` (none, pods, antennae, fins), `plating` (sleek, segmented, armored), `thickness` (0..1), `core` (chest light), the colours `paint`, `trim`, `frame`, `metal` and `glow` (sRGB hex), `glowStrength` (0..1) and `finish` (gloss, satin, metallic, matte). Shape options rebuild the robot (in the worker, when there is one); colours, finish and light strength are instant.
 
+### Face rig
+
+By default a character holds one expression at a time in a GPU morph (switching rebuilds it). Turn on the face rig to get every one of MakeHuman's face units (brows, lids, cheeks, nose, mouth, jaw, tongue) as its own GPU morph: expressions then blend smoothly into each other, and you can drive single units every frame, for lip-sync, gaze or your own face animation.
+
+```ts
+await character.set({ faceRig: true });
+character.expressionFade = 0.35;               // seconds one expression takes to blend into the next
+await character.set({ expression: "smile" });  // fades from the current face
+character.faceUnits();                          // the unit names, e.g. "mouth-open", "eyebrows-left-up"
+character.setFaceUnits({ "mouth-open": 0.4 }); // added on top of expression and blink every frame; null clears
+```
+
+The rig is built in the worker with each shape (all units at once) and kept sparse: only vertices a unit moves are stored, as half floats in one texture per character. A frame only uploads the unit weights; the vertex shader does the rest, on both renderers. It is off by default because it costs GPU memory (about 7 MB for MakeHuman's 34 units: 12,800 moved vertices) and time per shape change (about 0.1 s extra in the worker); robots and skeletons don't use it.
+
 `character.catalog` lists every choice the pack offers (ids and labels): `animations`, `garments` (with category, body layers, slots and whether they cover the anatomy), `garmentColors` (a suggested palette; any hex colour works), `outfits` (presets), `hair`, `hairColors`, `brows`, `eyes`, `expressions` and the detail sliders. Build your own UI from it, or use `CharacterEditor`.
 
 Large clip libraries in the pack (the 2,548 CMU motions) are listed in `catalog.animations` too, with `library: "cmu"`, a `category` (the capture session) and a `description`; only their index is loaded up front, each clip on first play. Pass `clipLibraries: false` to `Character.load` to skip them.

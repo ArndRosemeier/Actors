@@ -4,6 +4,7 @@ import {
   type ActorShape,
   type AxisClip,
   type Clip,
+  type FaceRig,
   type FingerCurl,
   type FittedSkeleton,
   type Pose,
@@ -43,6 +44,7 @@ import { SkinComposer } from "./skincompose";
 import { type ColliderUniforms, MAX_COLLIDERS, createColliderUniforms, useColliders } from "./colliders";
 import { createPartMaterial, createPartMesh } from "./parts";
 import { addMorphAttributes, clearDeltas, morphArrays, morphsChanged, setDelta } from "./morphs";
+import { BASE_SPACE, type FaceRigUniforms, createFaceRigUniforms, faceSlotsFor, setFaceRigTexture, setFaceSlots, useFaceRig } from "./faceRig";
 import { createCrowdMaterial } from "./crowd";
 import { garmentLayer } from "./layers";
 import { RootSkeleton, bindRoot } from "./rootSkeleton";
@@ -57,6 +59,7 @@ export * from "./colliders";
 export * from "./racepatterns";
 export * from "./parts";
 export * from "./morphs";
+export * from "./faceRig";
 export * from "./crowd";
 export * from "./fur";
 export { srgb } from "./color";
@@ -147,6 +150,8 @@ export interface ActorMaterialKit {
   crowd?(actor: ThreeActor): THREE.Material;
   /** Face morphs as plain attributes its materials blend themselves (see morphs.ts), not three's morph targets. */
   attributeMorphs?: boolean;
+  /** Makes a material blend the actor's face rig (see faceRig.ts) before skinning. Default: the WebGL patch. */
+  faceRig?(material: THREE.Material, uniforms: FaceRigUniforms): void;
   /** Frees what the kit holds for an actor that is going away (e.g. its share of a composed skin). */
   release?(actor: ThreeActor): void;
 }
@@ -165,6 +170,7 @@ function releaseSkin(key: string | undefined): void {
 /** The WebGL kit: three's built-in materials with GLSL patches (see materials.ts). */
 export const webglMaterials: ActorMaterialKit = {
   mesh: defaultMaterials,
+  faceRig: (material, uniforms) => void useFaceRig(material, uniforms),
   part: (part, actor) => createPartMaterial(part, actor.skin),
   depth(material, clip) {
     const hairMap = material.userData.alphaShadow ? (material as THREE.MeshPhysicalMaterial).map : null;
@@ -289,6 +295,9 @@ export class ThreeActor {
   readonly colliders: ColliderUniforms = createColliderUniforms();
   private legRadii = new Map<string, number>();
   readonly eye: EyeUniforms = { uIrisHue: { value: -1 }, uIrisSat: { value: 1 }, uIrisLight: { value: 1 }, uPupil: { value: new THREE.Vector4(0, 0.5, 0, 0) } };
+  /** The face rig's texture, unit weights and switch, shared by the actor's materials (see `setFaceRig`). */
+  readonly face: FaceRigUniforms = createFaceRigUniforms();
+  private rig: FaceRig | null = null;
   /** Morph channels for face animation (GPU-blended every frame). */
   static readonly MORPHS = ["expression", "blink"] as const;
   /** Play mocap in place (no root translation) by default, for previews. */
@@ -509,6 +518,7 @@ export class ThreeActor {
       if (this.hairColor !== undefined && data.def.role === "hair") this.setHairColor(this.hairColor);
       if (this.lastShape && this.includes(this.lastShape, data)) this.writePositions(data, this.lastShape);
       if (morphable) for (const [channel, delta] of this.lastDeltas) this.fillMorph(mesh, data, ThreeActor.MORPHS.indexOf(channel as (typeof ThreeActor.MORPHS)[number]), delta);
+      if (morphable && this.rig) this.applyFaceRig(mesh, this.rig.slots.size ? faceSlotsFor(this.rig, data.stencil ? data.def.name : BASE_SPACE, data.map) : null);
       return mesh;
     }
   }
@@ -556,6 +566,7 @@ export class ThreeActor {
     for (const [channel, delta] of this.lastDeltas) this.setPartMorph(channel as (typeof ThreeActor.MORPHS)[number], delta);
     const body = [...this.meshes.values()].find((m) => m.morphTargetInfluences);
     for (const mesh of this.parts.values()) if (mesh.morphTargetInfluences && body) mesh.morphTargetInfluences.splice(0, 2, ...body.morphTargetInfluences!);
+    if (this.rig) this.applyPartsRig(this.rig);
   }
 
   private setPartMorph(channel: (typeof ThreeActor.MORPHS)[number], delta: SurfaceDelta | null): void {
@@ -1147,6 +1158,68 @@ export class ThreeActor {
     // Keep the weights of the other channels (a new mesh starts at 0).
     const body = [...this.meshes.values()].find((m) => m !== mesh && m.morphTargetInfluences);
     if (mesh.morphTargetInfluences && body?.morphTargetInfluences) mesh.morphTargetInfluences.splice(0, body.morphTargetInfluences.length, ...body.morphTargetInfluences);
+  }
+
+  /**
+   * Loads a face rig (from `Human.faceRig`, built on the current shape): every face unit as its
+   * own GPU morph, blended with `setFaceUnits`. Null switches it off and frees its texture.
+   * Rebuild it after the shape changes. Independent of the morph channels (`setMorph`).
+   */
+  setFaceRig(rig: FaceRig | null): void {
+    setFaceRigTexture(this.face, rig);
+    const had = !!this.rig;
+    this.rig = rig;
+    if (!rig && !had) return;
+    for (const data of this.rendered) {
+      const mesh = this.meshes.get(data.def.name);
+      if (mesh && this.morphable(data)) this.applyFaceRig(mesh, rig ? faceSlotsFor(rig, data.stencil ? data.def.name : BASE_SPACE, data.map) : null);
+    }
+    this.applyPartsRig(rig);
+  }
+
+  /** Face slots for the parts that follow the skin (beards, tusks), from their base-vertex anchors. */
+  private applyPartsRig(rig: FaceRig | null): void {
+    for (const mesh of this.parts.values()) {
+      const anchors = mesh.userData.anchors as Uint32Array | undefined;
+      if (anchors) this.applyFaceRig(mesh, rig ? faceSlotsFor(rig, BASE_SPACE, anchors) : null);
+    }
+  }
+
+  /** The loaded face rig's unit names, in weight order (empty without one). */
+  faceUnits(): string[] {
+    return this.rig?.units ?? [];
+  }
+
+  /**
+   * Weights of the face rig's units, in `faceUnits` order, or by unit name (units left out are 0).
+   * Cheap: it only sets uniforms, the GPU does the rest.
+   */
+  setFaceUnits(weights: ArrayLike<number> | Record<string, number>): void {
+    const w = this.face.uFaceW.value;
+    w.fill(0);
+    const units = this.rig?.units ?? [];
+    if (typeof (weights as ArrayLike<number>).length === "number") {
+      const a = weights as ArrayLike<number>;
+      for (let i = 0; i < Math.min(a.length, w.length); i++) w[i] = a[i];
+    } else {
+      const r = weights as Record<string, number>;
+      for (let i = 0; i < Math.min(units.length, w.length); i++) w[i] = r[units[i]] ?? 0;
+    }
+  }
+
+  private morphable(data: MeshData): boolean {
+    return data.def.source.kind === "base" && data.def.role !== "garment" && !this.runtime.manifest.extra?.animal;
+  }
+
+  /** Gives one mesh its face slots (null: none) and its material the rig shader. */
+  private applyFaceRig(mesh: THREE.SkinnedMesh, slots: Float32Array | null): void {
+    const changed = setFaceSlots(mesh.geometry, slots);
+    const material = mesh.material as THREE.Material;
+    if (slots && !material.userData.faceRig) (this.kit.faceRig ?? webglMaterials.faceRig)!(material, this.face);
+    if (changed) {
+      mesh.geometry.dispose(); // new vertex layout: rebuild the draw state
+      material.needsUpdate = true;
+    }
   }
 
   setMorphWeight(channel: (typeof ThreeActor.MORPHS)[number], weight: number): void {
