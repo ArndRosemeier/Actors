@@ -4,7 +4,7 @@
  * asks for them ahead (`Human.extras`), so dressing a character does not build them on the main
  * thread; a beard alone took tens of milliseconds there.
  */
-import type { ActorRuntime, ActorShape, PartMesh, ShapeTask, SurfaceDelta } from "@actors/core";
+import { type ActorRuntime, type ActorShape, type FaceRig, type PartMesh, type ShapeTask, type SurfaceDelta, buildFaceRig, faceRigBuffers } from "@actors/core";
 import { type PartsConfig, buildParts, hasParts, partsBody } from "./parts";
 
 /** The ear and lip targets parts are fitted to (resolved on the main thread, by pack target name). */
@@ -32,11 +32,21 @@ export interface ExtrasArgs {
   parts: { cfg: PartsConfig; names: PartTargets } | null;
   /** Face deltas by key, each as pack target weights. */
   faces: [string, [string, number][]][];
+  /** A face rig: each unit's pack target weights, and the stencil meshes it covers besides the base mesh. */
+  rig?: { units: [string, [string, number][]][]; spaces: string[] } | null;
 }
 
 export interface Extras {
   parts: PartMesh[] | null;
   faces: [string, SurfaceDelta][];
+  rig: FaceRig | null;
+}
+
+/** A face rig on `runtime`'s thread (see `ExtrasArgs.rig`). */
+export async function faceRigFor(runtime: ActorRuntime, shape: ActorShape, rig: NonNullable<ExtrasArgs["rig"]>): Promise<FaceRig> {
+  const units = rig.units.map(([u, w]) => [u, new Map(w)] as [string, Map<string, number>]);
+  await runtime.ensureTargets(units.flatMap(([, w]) => [...w.keys()]));
+  return buildFaceRig(runtime, shape, units, rig.spaces);
 }
 
 /** Worker shape task: the parts and face deltas in `ExtrasArgs`, their buffers transferred. */
@@ -49,11 +59,12 @@ export const extrasTask: ShapeTask = async (runtime, shape, args) => {
     await runtime.ensureTargets(w.keys());
     faces.push([key, runtime.surfaceDelta(shape, w)]);
   }
-  const transfer: ArrayBuffer[] = [];
+  const rig = a.rig ? await faceRigFor(runtime, shape, a.rig) : null;
+  const transfer: ArrayBuffer[] = rig ? faceRigBuffers(rig) : [];
   for (const p of parts ?? []) for (const x of [p.positions, p.normals, p.uvs, p.shade, p.joints, p.weights, p.indices, p.anchors]) if (x) transfer.push(x.buffer as ArrayBuffer);
   for (const [, d] of faces) {
     transfer.push(d.positions.buffer as ArrayBuffer, d.normals.buffer as ArrayBuffer);
     for (const m of d.meshes.values()) transfer.push(m.positions.buffer as ArrayBuffer, m.normals.buffer as ArrayBuffer);
   }
-  return { result: { parts, faces } satisfies Extras, transfer: [...new Set(transfer)] };
+  return { result: { parts, faces, rig } satisfies Extras, transfer: [...new Set(transfer)] };
 };

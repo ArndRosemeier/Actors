@@ -492,6 +492,7 @@ export class CharacterEditor {
     this.select(motion, "Face", cat.expressions.map((e) => [e.id, e.label]), (c) => c.expression, (v) => set({ expression: v }), "expression");
     detailed(this.slider(motion, "Intensity", 0, 1, 0.01, pct, (c) => c.expressionIntensity, (v) => set({ expressionIntensity: v }), "expressionIntensity"));
     detailed(this.check(motion, "Blink", (c) => c.blink, (v) => set({ blink: v }), "blink"));
+    detailed(this.check(motion, "Face rig", (c) => c.faceRig, (v) => set({ faceRig: v }), "faceRig"));
 
     // Detail sliders
     if (options.details !== false && cat.details.length) {

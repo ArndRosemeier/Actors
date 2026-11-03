@@ -1,4 +1,4 @@
-import { type ActorShape, ActorRuntime, type DeformPlan, mergeDeform, type Fetcher, type MeshData, type MessagePortLike, type PartMesh, RemoteRuntime, type ShapeOptions, type SurfaceDelta } from "@actors/core";
+import { type ActorShape, ActorRuntime, type DeformPlan, mergeDeform, type Fetcher, type MeshData, type MessagePortLike, type PartMesh, RemoteRuntime, type ShapeOptions, type SurfaceDelta, type FaceRig } from "@actors/core";
 import { type UnitWeights, expressionTargetWeights } from "./expressions";
 import { type MacroTargetDef, macroTargetWeights } from "./macro";
 import { type ModifierDef, modifierTargetWeights } from "./modifiers";
@@ -7,7 +7,7 @@ import { DEFAULT_PARAMS, type HumanParams, sanitizeParams } from "./params";
 import { type SkinTextureDef, skinTextureWeights } from "./skins";
 import { DEFAULT_RACE, EAR_MASKS, type RaceSettings, raceHeadScale, raceScale, raceShapeOptions, raceTargetWeights, sanitizeRace, targetResolver } from "./raceshape";
 import { type PartsConfig, hasParts } from "./parts";
-import { EXTRAS_TASK, type Extras, type ExtrasArgs, type PartTargets, partsFor } from "./extras";
+import { EXTRAS_TASK, type Extras, type ExtrasArgs, type PartTargets, faceRigFor, partsFor } from "./extras";
 import { ROBOT_TASK, type RobotConfig, type RobotParts, buildRobot, robotBody } from "./robot";
 import { SKELETAL_TASK, type SkeletalConfig, type SkeletalParts, buildSkeletal } from "./skeletal";
 
@@ -183,9 +183,40 @@ export class Human {
    * asking for them then costs the main thread nothing. Null: none ahead. Set it, like `params`,
    * before `evaluate`.
    */
-  extras: { parts: Omit<PartsConfig, "scale"> | null; faces: { units: UnitWeights; scale?: number }[] } | null = null;
+  extras: { parts: Omit<PartsConfig, "scale"> | null; faces: { units: UnitWeights; scale?: number }[]; rig?: boolean } | null = null;
   /** What the worker built with the last shape (see `extras`). */
-  private made: { shape: ActorShape; partsKey: string; parts: PartMesh[] | null; faces: Map<string, SurfaceDelta> } | null = null;
+  private made: { shape: ActorShape; partsKey: string; parts: PartMesh[] | null; faces: Map<string, SurfaceDelta>; rig: FaceRig | null } | null = null;
+
+  /** The face units this pack has (MakeHuman's expression units, e.g. "mouth-corner-puller"). */
+  faceUnits(): string[] {
+    const units = new Set<string>();
+    for (const t of this.runtime.manifest.targets) {
+      const m = /^expression\/[^/]+\/(.+)$/.exec(t.name);
+      if (m) units.add(m[1]);
+    }
+    return [...units].sort();
+  }
+
+  /** The face rig's worker arguments: every unit at full strength, on the base mesh and the stencil meshes that follow it. */
+  private rigArgs(): NonNullable<ExtrasArgs["rig"]> {
+    const units = this.faceUnits().map((u) => [u, [...this.faceWeights({ [u]: 1 }, 1)]] as [string, [string, number][]]);
+    const spaces = this.runtime.meshes.filter((m) => m.stencil && m.def.source.kind === "base" && m.def.role !== "garment").map((m) => m.def.name);
+    return { units, spaces };
+  }
+
+  /**
+   * A face rig for a shape from `evaluate`: every face unit as its own GPU morph (see
+   * ThreeActor.setFaceRig). Built in the worker with the shape when `extras.rig` was set.
+   */
+  async faceRig(shape: ActorShape): Promise<FaceRig> {
+    const made = this.made;
+    if (made?.shape === shape && made.rig) {
+      const rig = made.rig;
+      made.rig = null; // handed over once (the caller owns the buffers)
+      return rig;
+    }
+    return faceRigFor(this.runtime, shape, this.rigArgs());
+  }
 
   /** Pack target weights of face units, for this body and race (see `faceDelta`). */
   private faceWeights(units: UnitWeights, scale: number): Map<string, number> {
@@ -252,7 +283,7 @@ export class Human {
     const extras = this.remote && !robot && !skeletal ? this.extrasArgs() : null;
     if (this.remote && extras) {
       const { shape, task } = await this.remote.evaluateWith<Extras>(this.targetWeights(), this.shapeOptions(), { name: EXTRAS_TASK, args: extras.args }, fit);
-      this.made = { shape, partsKey: extras.partsKey, parts: task.parts, faces: new Map(task.faces) };
+      this.made = { shape, partsKey: extras.partsKey, parts: task.parts, faces: new Map(task.faces), rig: task.rig };
       this.robotParts = null;
       this.skeletalParts = null;
       return shape;
@@ -270,8 +301,9 @@ export class Human {
     const cfg = x.parts ? this.partsConfig(x.parts) : null;
     const parts = cfg && hasParts(cfg) ? { cfg, names: this.partTargets() } : null;
     const faces = x.faces.map(({ units, scale }) => [...this.faceWeights(units, scale ?? 1)]).filter((w) => w.length);
-    if (!parts && !faces.length) return null;
-    return { args: { parts, faces: faces.map((w) => [JSON.stringify(w), w]) }, partsKey: JSON.stringify(cfg) };
+    const rig = x.rig ? this.rigArgs() : null;
+    if (!parts && !faces.length && !rig) return null;
+    return { args: { parts, faces: faces.map((w) => [JSON.stringify(w), w]), rig }, partsKey: JSON.stringify(cfg) };
   }
 
   /**

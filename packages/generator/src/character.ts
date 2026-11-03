@@ -89,6 +89,10 @@ export class Character {
   /** How far the robot's soles reach below the body (it stands on them). */
   private lift = 0;
   private nextBlink = 2;
+  /** Face rig state (see `CharacterConfig.faceRig`): unit order, the expression fading in and the one fading out. */
+  private face: { units: string[]; index: Map<string, number>; from: Float32Array; to: Float32Array; t: number; blink: Float32Array; extra: Float32Array | null; out: Float32Array } | null = null;
+  /** Seconds an expression takes to blend into the next one with the face rig. */
+  expressionFade = 0.35;
   /** Freezes the animation (see `seek`). */
   paused = false;
   /** Milliseconds the last shape update took. */
@@ -255,8 +259,55 @@ export class Character {
     // Blink: ~150 ms close/open every 2-6 s.
     const t = this.time;
     if (t > this.nextBlink + 0.15) this.nextBlink = t + 2 + Math.random() * 4;
-    const b = this.cfg.blink && t > this.nextBlink ? Math.sin(((t - this.nextBlink) / 0.15) * Math.PI) : 0;
-    this.actor.setMorphWeight("blink", Math.max(0, b));
+    const b = Math.max(0, this.cfg.blink && t > this.nextBlink ? Math.sin(((t - this.nextBlink) / 0.15) * Math.PI) : 0);
+    const f = this.face;
+    if (!f) {
+      this.actor.setMorphWeight("blink", b);
+      return;
+    }
+    f.t = Math.min(1, f.t + (this.expressionFade > 0 ? dt / this.expressionFade : 1));
+    const e = f.t * f.t * (3 - 2 * f.t); // smoothstep
+    const k = this.cfg.expressionIntensity;
+    for (let i = 0; i < f.out.length; i++) {
+      const w = (f.from[i] + (f.to[i] - f.from[i]) * e) * k + f.blink[i] * b + (f.extra?.[i] ?? 0);
+      f.out[i] = w;
+    }
+    this.actor.setFaceUnits(f.out);
+  }
+
+  /** The face rig's unit names (empty while `faceRig` is off or not built yet). */
+  faceUnits(): string[] {
+    return this.face?.units ?? [];
+  }
+
+  /**
+   * Extra face-unit weights added on top of the expression and blink every frame, by unit name
+   * (see `faceUnits`); null clears them. Only with `faceRig` on. For lip-sync, gaze or your own
+   * face animation.
+   */
+  setFaceUnits(units: Record<string, number> | null): void {
+    const f = this.face;
+    if (!f) return;
+    if (!units) {
+      f.extra = null;
+      return;
+    }
+    f.extra ??= new Float32Array(f.units.length);
+    f.extra.fill(0);
+    for (const [u, w] of Object.entries(units)) {
+      const i = f.index.get(u);
+      if (i !== undefined) f.extra[i] = w;
+    }
+  }
+
+  /** Unit weights of an expression preset in the face rig's order. */
+  private unitArray(units: Record<string, number>, order: Map<string, number>): Float32Array {
+    const a = new Float32Array(order.size);
+    for (const [u, w] of Object.entries(units)) {
+      const i = order.get(u);
+      if (i !== undefined) a[i] = w;
+    }
+    return a;
   }
 
   /** Jumps the animation to a time in seconds and pauses it; null resumes. */
@@ -491,7 +542,8 @@ export class Character {
       h.deform = c.deform ? deform(c.deform) : null;
       // The parts and face deltas asked for below, built in the worker with the shape (when there is one).
       const units = EXPRESSIONS[c.expression] ?? {};
-      h.extras = c.robot || c.skeletal ? null : { parts: this.partsConfig(), faces: [...(Object.keys(units).length ? [{ units }] : []), { units: BLINK }] };
+      const rig = c.faceRig && !c.robot && !c.skeletal;
+      h.extras = c.robot || c.skeletal ? null : { parts: this.partsConfig(), faces: rig ? [] : [...(Object.keys(units).length ? [{ units }] : []), { units: BLINK }], rig };
       this.shape = await h.evaluate(this.shape);
       const shape = this.shape;
       this.fittedNames = new Set(needed.filter((n) => {
@@ -549,8 +601,35 @@ export class Character {
       this.actor.setParts(await h.parts(this.shape, this.partsConfig()));
       this.applyLook();
     }
-    const faceKey = `${shapeKey}|${c.expression}`;
-    if (faceKey !== this.applied.face && this.shape) {
+    const rigged = c.faceRig && !c.robot && !c.skeletal;
+    const faceKey = `${shapeKey}|${rigged ? "rig" : c.expression}`;
+    if (rigged && faceKey !== this.applied.face && this.shape) {
+      await nextTask();
+      const rig = await h.faceRig(this.shape);
+      const old = this.face;
+      this.actor.setMorph("expression", null);
+      this.actor.setMorph("blink", null);
+      this.actor.setFaceRig(rig);
+      const index = new Map(rig.units.map((u, i) => [u, i]));
+      const to = this.unitArray(EXPRESSIONS[c.expression] ?? {}, index);
+      // Keep a blend in progress across a shape change (same pack, same unit order).
+      this.face = old && old.units.length === rig.units.length ? { ...old, units: rig.units, index } : { units: rig.units, index, from: to.slice(), to, t: 1, blink: this.unitArray(BLINK, index), extra: null, out: new Float32Array(rig.units.length) };
+      this.applied.face = faceKey;
+    } else if (!rigged && this.face) {
+      this.face = null;
+      this.actor.setFaceRig(null);
+    }
+    if (this.face) {
+      const target = this.unitArray(EXPRESSIONS[c.expression] ?? {}, this.face.index);
+      if (target.some((w, i) => w !== this.face!.to[i])) {
+        // Start the next blend from where the face is now.
+        const f = this.face, e = f.t * f.t * (3 - 2 * f.t);
+        for (let i = 0; i < f.from.length; i++) f.from[i] += (f.to[i] - f.from[i]) * e;
+        f.to = target;
+        f.t = 0;
+      }
+    }
+    if (!rigged && faceKey !== this.applied.face && this.shape) {
       await nextTask();
       const units = EXPRESSIONS[c.expression] ?? {};
       this.actor.setMorph("expression", Object.keys(units).length ? await h.faceDelta(this.shape, units) : null);

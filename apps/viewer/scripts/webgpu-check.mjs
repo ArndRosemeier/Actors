@@ -6,11 +6,13 @@
 // With the fur materials and shells: add &fur (e.g. "...webgpu-animals.html?animals=chicken&fur").
 // --human drives the character viewer: every race, smiling, dressed, with hair
 // (face morphs, generated add-ons and garments all get drawn).
+// --face-rig: a bearded face on the face rig (per-unit morphs from a texture), surprised, close up.
 import { chromium } from "playwright-core";
 import { writeFileSync } from "node:fs";
 
 const [url = "http://localhost:5173/?webgpu", out] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const human = process.argv.includes("--human");
+const faceRig = process.argv.includes("--face-rig");
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH ?? "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
   args: ["--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-vulkan=swiftshader", "--use-webgpu-adapter=swiftshader", "--disable-vulkan-surface", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
@@ -71,6 +73,15 @@ if (human) {
     await character.set({ expression: "smile", animation: null });
     stage.view([0.9, 1.3, 3.2], [0, 0.95, 0]);
   });
+}
+if (faceRig) {
+  await page.evaluate(async (rig) => {
+    const { character, stage } = window.__actors;
+    await character.set({ faceRig: rig, beard: "full", expression: "surprise", expressionIntensity: 1, animation: null, body: { gender: 0.95 } });
+    const y = character.height - 0.12;
+    stage.view([0.2, y, 0.65], [0, y - 0.01, 0]);
+  }, !process.argv.includes("--no-rig")); // --no-rig: the same face on the old morph channel, to compare
+  console.error(`face rig: ${await page.evaluate(() => window.__actors.character.faceUnits().length)} units`);
 }
 await page.waitForTimeout(5000);
 const gpu = await page.evaluate(() => window.__gpu);
