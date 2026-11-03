@@ -296,8 +296,11 @@ export class FootGrounding {
       this.lean.multiplyScalar(1 - ease);
     }
     // 2. Lift so no sole is in the ground; lower (slowly) so the planted ones touch it.
-    let top = -Infinity;
-    for (const s of seen) top = Math.max(top, s.need);
+    let top = -Infinity, least = Infinity;
+    for (const s of seen) (top = Math.max(top, s.need)), (least = Math.min(least, s.need));
+    // One foot far deeper in the ground than the others is on a wall or a high ledge, not a step: the body is lifted a quarter of its height over the others
+    // (a giant that climbs a cliff is not carried up it), and that foot is left in the rock.
+    top = Math.min(top, least + 0.25 * height);
     // Farther above the ground than a quarter of the body's height it is a jump or a fall, not a step: the body is left where it is.
     // (A clip may hold the whole body above its rest place, its feet with it: that much is not a jump.)
     let wanted = top >= -0.25 * height - Math.max(0, this.clipLift) ? top : 0;
