@@ -33,8 +33,14 @@ export interface DeformSpec {
   recipe: DeformRecipe;
   /** Any number: the same seed always gives the same body. */
   seed: number;
-  /** 0 (nothing changes) .. 1 (the recipe at its fullest). */
+  /** 0 (nothing changes) .. 1 (the recipe at its fullest: the body grown GIANT_SCALE times). */
   strength: number;
+  /**
+   * Grow the body this many times its size (1 .. MAX_GROWTH) instead of what the strength gives: the awe-inspiring giant, a
+   * barn of an elk. The proportions follow the size (square-cube: the bigger, the thicker the legs and neck for their weight),
+   * the skin is the strength's. Optional.
+   */
+  size?: number;
 }
 
 /** What the recipe does to the skin, as numbers an adapter turns into the material's own colour. */
@@ -75,6 +81,12 @@ export interface DeformPlan {
 
 /** The biggest the giant recipe grows a body at strength 1 (times its normal size). */
 export const GIANT_SCALE = 2.6;
+
+/** The biggest `DeformSpec.size` (times the normal size). */
+export const MAX_GROWTH = 24;
+
+/** Past this the recipe's proportions stop growing (a giant of any size has legs about this thick for its weight). */
+const MAX_REACH = 2.5;
 
 /** Seeded numbers (mulberry32): the stream for one `(seed, salt)`. */
 export function deformRandom(seed: number, salt = 0): () => number {
@@ -126,12 +138,16 @@ export function deform(spec: DeformSpec): DeformPlan {
   const r = deformRandom(spec.seed, 1);
   // A jitter in -1..1 for one part, always drawn in the same order so a seed keeps its body.
   const jit = (): number => r() * 2 - 1;
-  const scale = lerp(1, GIANT_SCALE, s);
+  const size = spec.size !== undefined && Number.isFinite(spec.size) ? Math.min(MAX_GROWTH, Math.max(1, spec.size)) : 0;
+  const scale = size > 1 ? size : lerp(1, GIANT_SCALE, s);
+  // How far the proportions go: 1 is the recipe at GIANT_SCALE; a body of `size` goes by the log of it, so twice again as big is
+  // not twice again as thick (up to MAX_REACH). Without a size it is the strength.
+  const reach = size > 1 ? Math.min(MAX_REACH, Math.log(size) / Math.log(GIANT_SCALE)) : s;
   const parts = plain();
   const part = (p: BodyPart, len: number, girth: number, wobble = 0.06) => {
-    // The jitter grows with the strength: a slight giant is only a bigger animal.
-    const j = jit() * wobble * s, k = jit() * wobble * s;
-    parts[p] = { len: 1 + (len - 1) * s + j, girth: 1 + (girth - 1) * s + k };
+    // The jitter grows with the reach: a slight giant is only a bigger animal.
+    const j = jit() * wobble * Math.min(1, reach), k = jit() * wobble * Math.min(1, reach);
+    parts[p] = { len: 1 + (len - 1) * reach + j, girth: 1 + (girth - 1) * reach + k };
   };
   part("leg", 0.93, 1.32);
   part("foot", 0.9, 1.4);

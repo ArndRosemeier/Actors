@@ -185,6 +185,8 @@ The plan is applied where the body lives:
 - **Library animals:** `libraryAnimal.setDeform(plan)` puts the part scales on the bones after every animation step (so every clip plays on the new proportions), keeps the feet on the ground, tints the materials with a clone shared by every animal of the same tint (no new shader), and slows `play` by `plan.gait.rate`. Scale `libraryAnimal.object` by `plan.scale`. `setDeform(null)` puts it back. Library rigs name their bones differently; `partOfBone` / `classifyBones` find a bone's part by its name (and a bone with no telling name follows its parent).
 - **Any skeleton:** `deformBones(plan, boneNames, parents)` and `mergeDeform(shapeOptions, plan, names, parents)` give `ShapeOptions` for `ActorRuntime.evaluate`.
 
+`size` makes a giant awe-inspiring rather than only big: `deform({ recipe: "giant", seed: 7, strength: 1, size: 7 })` grows the body 7 times (up to 24, `MAX_GROWTH`). The proportions follow the size by its logarithm (thicker legs, neck and jaw for the weight, up to 2.5 times the recipe), the gait slows by 1/sqrt(size), the skin stays the strength's. Scale `libraryAnimal.object` (or the animal's group) by `plan.scale` as before. A library animal's clips play at the ground speed you move it at, so a giant's `timeScale` has to go well under 1 (about `plan.gait.rate`); `LibraryAnimal.gaitRate` is that number.
+
 What may look wrong: long legs slide their feet (no foot planting), held weapons keep their size, and a giant needs room.
 
 ## Library animals (WildMesh3D, private)
