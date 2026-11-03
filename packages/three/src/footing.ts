@@ -236,8 +236,9 @@ export class FootGrounding {
     const height = this.size.y * m.matrixWorld.getMaxScaleOnAxis();
 
     let seen = this.read(ground);
-    // A sole more than half the body's height inside the ground is a ground that is not this animal's (a wrong frame, a teleport): left alone.
-    if (Math.max(...seen.map((s) => s.need)) > 0.5 * height) {
+    // Every sole more than half the body's height inside the ground is a ground that is not this animal's (a wrong frame, a teleport): left alone.
+    // (One foot that far in is a cliff or a step, and is reached or lifted over as ever.)
+    if (Math.min(...seen.map((s) => s.need)) > 0.5 * height) {
       this.beforeAnimate();
       this.lift = NaN;
       this.lean.set(0, 0);
