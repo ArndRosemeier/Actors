@@ -72,6 +72,8 @@ export class FootGrounding {
   private readonly options: Required<FootingOptions>;
   /** The pose the animation gave the bones the pass has turned: put back before the next animation step. */
   private readonly turned = new Map<THREE.Bone, THREE.Quaternion>();
+  /** The animal is standing about (not walking): every foot is planted, whatever the clip's idle does with a leg. Set by the host from the animal's speed. */
+  standing = false;
   private lift = NaN;
   /** How far the clip holds the lowest foot above its rest place (the whole body's lift, as the clip has it). */
   private clipLift = 0;
@@ -309,13 +311,13 @@ export class FootGrounding {
     // A few rounds, since turning a foot to bring one edge of its sole down can sink another.
     for (let round = 0; ; round++) {
       seen = this.read(ground);
-      if (round === 3) break;
+      if (round === (this.standing ? 10 : 3)) break;
       let again = false;
       for (let f = 0; f < this.feet.length; f++) {
         const s = seen[f];
         // A foot far above the ground is in a jump or a fall: it does not reach for it.
         if (s.need < -o.reach * height) continue;
-        const down = round === 0 ? s.planted : 0;
+        const down = round === 0 || this.standing ? s.planted : 0;
         if (s.need <= 1e-3 * height && !(down > 0 && s.need < -1e-3 * height)) continue;
         this.reach(this.feet[f], down, o.reach * height);
         again = true;
@@ -358,7 +360,7 @@ export class FootGrounding {
     // Planted: no higher than the lowest foot is. (How far a clip lifts the whole body from the rest pose says nothing about it.)
     const base = Math.min(...lifts);
     this.clipLift = base;
-    out.forEach((o, i) => (o.planted = 1 - smooth(0.01 * tall, 0.06 * tall, lifts[i] - base)));
+    out.forEach((o, i) => (o.planted = this.standing ? 1 : 1 - smooth(0.01 * tall, 0.06 * tall, lifts[i] - base)));
     return out;
   }
 

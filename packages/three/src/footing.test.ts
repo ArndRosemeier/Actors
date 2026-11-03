@@ -151,6 +151,25 @@ describe("feet on the ground", () => {
     expect(new THREE.Vector3(0, 1, 0).applyQuaternion(model.quaternion).angleTo(new THREE.Vector3(0, 1, 0))).toBeGreaterThan(0.1);
   });
 
+  it("puts every foot on the ground of an animal that stands about, whatever its idle does with a leg", () => {
+    // The idle holds the front-left thigh swung forward and up, the others as they rest.
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -0.6).toArray();
+    const idle = new THREE.AnimationClip("Idle", 1, [new THREE.QuaternionKeyframeTrack("Thigh_0.quaternion", [0, 1], [...q, ...q])]);
+    const lowest = (standing: boolean) => {
+      const { lib, mesh } = walker([[0.25, 0.5], [-0.25, 0.5], [0.25, -0.5], [-0.25, -0.5]], 0.5, [idle]);
+      lib.setGround(flat);
+      lib.standing = standing;
+      lib.play("Idle");
+      for (let i = 0; i < 20; i++) lib.update(1 / 30);
+      return Math.max(...clearances(lib, mesh, flat));
+    };
+    const hovering = lowest(false), standing = lowest(true);
+    expect(hovering).toBeGreaterThan(0.1);
+    // (The leg bends back to the ground within its limit; a share of a thigh's swing may be left.)
+    expect(standing).toBeLessThan(0.06);
+    expect(standing).toBeLessThan(0.5 * hovering);
+  });
+
   it("lifts the body over a cliff edge that is higher than half its height under some feet only", () => {
     const { lib, mesh } = quad();
     const cliff = (_x: number, z: number) => (z > 0.2 ? 0.9 : 0);

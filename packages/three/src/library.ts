@@ -536,6 +536,19 @@ export class LibraryAnimal {
     this.makeFooting();
   }
 
+  private stands = false;
+  /**
+   * True while the animal stands about (idle, feeding, watching) and false while it walks or runs: a standing animal has all its feet on the ground,
+   * so a clip that lifts or dangles a leg in its idle does not leave it hovering. Set it each frame from the animal's speed; it does nothing without a ground.
+   */
+  get standing(): boolean {
+    return this.stands;
+  }
+  set standing(on: boolean) {
+    this.stands = on;
+    if (this.footing) this.footing.standing = on;
+  }
+
   /** How the feet stood in the last pass (undefined: no ground set, or no feet found). */
   get feet(): FootGrounding | undefined {
     return this.footing?.active ? this.footing : undefined;
@@ -544,6 +557,7 @@ export class LibraryAnimal {
   private makeFooting(): void {
     if (!this.ground) return;
     this.footing = new FootGrounding(this.model, () => this.deformed?.apply(), this.groundOptions);
+    this.footing.standing = this.stands;
   }
 
   /** The playback speed the deform plan asks for (1: none). */
