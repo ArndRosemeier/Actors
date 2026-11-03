@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BODY_PARTS, GIANT_SCALE, changesBody, classifyBones, deform, deformBones, deformShapeOptions, noDeform, partOfBone } from "./deformRecipe";
+import { BODY_PARTS, GIANT_SCALE, MAX_GROWTH, changesBody, classifyBones, deform, deformBones, deformShapeOptions, noDeform, partOfBone } from "./deformRecipe";
 import { hasShapeOptions } from "./deform";
 
 describe("deform recipes", () => {
@@ -50,6 +50,25 @@ describe("deform recipes", () => {
     // Out of range or not a number is clamped.
     expect(deform({ recipe: "giant", seed: 1, strength: 5 }).scale).toBeCloseTo(GIANT_SCALE, 6);
     expect(changesBody(deform({ recipe: "giant", seed: 1, strength: Number.NaN }))).toBe(false);
+  });
+
+  it("grows to a size: a barn of an elk, thicker for its weight the bigger it is, the same seed the same body", () => {
+    const at = (size: number) => deform({ recipe: "giant", seed: 9, strength: 1, size });
+    expect(at(7).scale).toBe(7);
+    expect(at(7)).toEqual(at(7));
+    expect(at(7).gait.rate).toBeCloseTo(1 / Math.sqrt(7), 6);
+    // Proportions follow the size, not twice as thick for twice as big, and stop growing at a point.
+    expect(at(7).parts.leg.girth).toBeGreaterThan(at(GIANT_SCALE).parts.leg.girth);
+    expect(at(14).parts.leg.girth).toBeGreaterThan(at(7).parts.leg.girth);
+    expect(at(14).parts.leg.girth).toBeLessThan(2 * at(7).parts.leg.girth);
+    expect(at(MAX_GROWTH).parts.neck.girth).toBeLessThan(2.2);
+    expect(at(7).parts.head.len).toBeGreaterThan(0.6);
+    // A size at the old maximum is the old giant; sizes are clamped; no size is what the strength gives.
+    expect(at(GIANT_SCALE).parts.leg.girth).toBeCloseTo(deform({ recipe: "giant", seed: 9, strength: 1 }).parts.leg.girth, 6);
+    expect(at(1000).scale).toBe(MAX_GROWTH);
+    expect(deform({ recipe: "giant", seed: 9, strength: 1, size: Number.NaN }).scale).toBeCloseTo(GIANT_SCALE, 6);
+    // Strength 0 changes nothing, whatever the size.
+    expect(changesBody(deform({ recipe: "giant", seed: 9, strength: 0, size: 7 }))).toBe(false);
   });
 
   it("finds the part of a bone by its name, on the animals', the people's and the library's rigs", () => {
