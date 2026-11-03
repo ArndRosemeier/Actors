@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { LibraryAnimal, estimateTravel, extractTravel, footBones, type RootMotion } from "./library";
+import { LibraryAnimal, estimateTravel, extractTravel, footBones, ignoreBodyTracks, type RootMotion } from "./library";
 
 /** A model whose root bone sits under a node turned -90° about X (as FBX conversions do), walking 2 m along +Z per second with a little sway. */
 function walker() {
@@ -139,5 +139,29 @@ describe("library animals", () => {
     expect(estimateTravel(model, idle, tips, 0.6)).toBeUndefined();
     // The model is back in its pose.
     expect(tips[0].position.length()).toBe(0);
+  });
+});
+
+describe("ignoreBodyTracks", () => {
+  it("drops the scale and turn of a node that is not a joint and keeps its position and every joint's tracks", () => {
+    const model = new THREE.Group();
+    const rigRoot = new THREE.Group();
+    rigRoot.name = "RigRoot";
+    const hips = new THREE.Bone();
+    hips.name = "Hips";
+    rigRoot.add(hips);
+    model.add(rigRoot);
+    const q = [0, 0, 0, 1, 0, 0, 0.1, 0.995];
+    const clip = new THREE.AnimationClip("Walk", 1, [
+      new THREE.VectorKeyframeTrack("RigRoot.scale", [0, 1], [0.01, 0.01, 0.01, 0.01, 0.01, 0.01]),
+      new THREE.QuaternionKeyframeTrack("RigRoot.quaternion", [0, 1], q),
+      new THREE.VectorKeyframeTrack("RigRoot.position", [0, 1], [0, 0, 0, 0, 0, 2]),
+      new THREE.QuaternionKeyframeTrack("Hips.quaternion", [0, 1], q),
+      new THREE.VectorKeyframeTrack("Hips.scale", [0, 1], [1, 1, 1, 1, 1, 1]),
+      new THREE.VectorKeyframeTrack("Gone.scale", [0, 1], [1, 1, 1, 1, 1, 1]),
+    ]);
+    const dropped = ignoreBodyTracks(model, clip);
+    expect(dropped.map((t) => t.name)).toEqual(["RigRoot.scale", "RigRoot.quaternion"]);
+    expect(clip.tracks.map((t) => t.name)).toEqual(["RigRoot.position", "Hips.quaternion", "Hips.scale", "Gone.scale"]);
   });
 });

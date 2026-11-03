@@ -73,6 +73,8 @@ export class FootGrounding {
   /** The pose the animation gave the bones the pass has turned: put back before the next animation step. */
   private readonly turned = new Map<THREE.Bone, THREE.Quaternion>();
   private lift = NaN;
+  /** How far the clip holds the lowest foot above its rest place (the whole body's lift, as the clip has it). */
+  private clipLift = 0;
   private lean = new THREE.Vector2();
   /** What the last frame saw. */
   readonly readings: FootReading[] = [];
@@ -165,9 +167,14 @@ export class FootGrounding {
     });
     if (!all.length) return false;
     // Soles: the skin within a hand of the lowest point, on bones within reach of a foot; with no such bones, the lowest skin alone.
-    const near = all;
-    const onFeet = near.filter((p) => p.bone >= 0 && leaf[p.bone] <= 3 && !notFoot(this.bones[p.bone].name));
-    const soles = (onFeet.length ? onFeet : near.map((p) => ({ ...p, bone: -1 }))).sort((a, b) => a.rest.y - b.rest.y).slice(0, 96);
+    // Soles: the skin within a hand of the lowest point. Those on bones near a leaf (not heads or tails) are feet the leg bones reach for;
+    // the rest (a belly, a plastron, a dragging tail) only keep the body out of the ground.
+    const isFoot = (p: Probe) => p.bone >= 0 && leaf[p.bone] <= 3 && !notFoot(this.bones[p.bone].name);
+    const evenly = (list: Probe[], most: number) => {
+      const sorted = list.sort((a, b) => a.rest.y - b.rest.y), stride = Math.max(1, Math.ceil(sorted.length / most));
+      return sorted.filter((_, i) => i % stride === 0);
+    };
+    const soles = [...evenly(all.filter(isFoot), 96), ...evenly(all.filter((p) => !isFoot(p)).map((p) => ({ ...p, bone: -1 })), 32)];
     if (!soles.length) return false;
     for (const p of soles) p.height = p.rest.y - low;
     // Feet: soles whose bones touch in the skeleton (the same bone, parent and child, or siblings: a foot and its toes) are one foot;
@@ -229,6 +236,16 @@ export class FootGrounding {
     const height = this.size.y * m.matrixWorld.getMaxScaleOnAxis();
 
     let seen = this.read(ground);
+    // A sole more than half the body's height inside the ground is a ground that is not this animal's (a wrong frame, a teleport): left alone.
+    if (Math.max(...seen.map((s) => s.need)) > 0.5 * height) {
+      this.beforeAnimate();
+      this.lift = NaN;
+      this.lean.set(0, 0);
+      m.updateMatrixWorld(true);
+      this.readings.length = 0;
+      for (const s of seen) this.readings.push({ x: s.x, y: s.y, z: s.z, ground: s.ground, planted: 0 });
+      return;
+    }
     // 1. Lean to the plane through the planted feet.
     let weight = 0, cx = 0, cz = 0, cn = 0;
     for (const s of seen) {
@@ -279,7 +296,8 @@ export class FootGrounding {
     let top = -Infinity;
     for (const s of seen) top = Math.max(top, s.need);
     // Farther above the ground than a quarter of the body's height it is a jump or a fall, not a step: the body is left where it is.
-    let wanted = top >= -0.25 * height ? top : 0;
+    // (A clip may hold the whole body above its rest place, its feet with it: that much is not a jump.)
+    let wanted = top >= -0.25 * height - Math.max(0, this.clipLift) ? top : 0;
     if (weight < 0.5) wanted = Math.max(0, top);
     if (!Number.isFinite(this.lift)) this.lift = wanted;
     else if (wanted >= this.lift) this.lift = wanted;
@@ -316,7 +334,7 @@ export class FootGrounding {
 
   /** One reading for each foot: where its worst sole point is, how far it must rise to stand on the ground, and whether it is planted. Fills each foot's points. */
   private read(ground: GroundHeight): FootReadingNeed[] {
-    const out: FootReadingNeed[] = [];
+    const out: FootReadingNeed[] = [], lifts: number[] = [];
     const v = new THREE.Vector3(), r = new THREE.Vector3();
     const m = this.model;
     const scale = m.matrixWorld.getMaxScaleOnAxis();
@@ -333,8 +351,13 @@ export class FootGrounding {
         foot.need[k] = need;
         if (need > best) (best = need), (bx = v.x), (by = v.y), (bz = v.z);
       });
-      out.push({ x: bx, y: by, z: bz, need: best, planted: 1 - smooth(0.01 * tall, 0.06 * tall, lifted), ground: ground(bx, bz) });
+      lifts.push(lifted);
+      out.push({ x: bx, y: by, z: bz, need: best, planted: 1, ground: ground(bx, bz) });
     }
+    // Planted: no higher than the lowest foot is. (How far a clip lifts the whole body from the rest pose says nothing about it.)
+    const base = Math.min(...lifts);
+    this.clipLift = base;
+    out.forEach((o, i) => (o.planted = 1 - smooth(0.01 * tall, 0.06 * tall, lifts[i] - base)));
     return out;
   }
 

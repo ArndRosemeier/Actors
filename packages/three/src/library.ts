@@ -105,6 +105,7 @@ function prepareSource(gltf: GLTF, mode: RootMotion): Source {
   const box = new THREE.Box3().setFromObject(scene);
   const tips = mode === "keep" ? [] : footBones(scene);
   for (const clip of gltf.animations) {
+    ignoreBodyTracks(scene, clip);
     if (mode !== "keep") {
       const t = extractTravel(scene, clip) ?? estimateTravel(scene, clip, tips, box.max.y - box.min.y);
       if (t) travel.set(clip.name, t);
@@ -112,6 +113,26 @@ function prepareSource(gltf: GLTF, mode: RootMotion): Source {
     clips.set(clip.name, clip);
   }
   return { gltf, clips, travel, box };
+}
+
+/**
+ * Takes the size and heading out of a clip: a track that scales or turns a node that is not a joint (a rig's root node, an armature) is
+ * dropped. Some rigs key such a node in a few clips (the library elk's Walk scales its `RigRoot` by 0.01, a leftover of the file's units,
+ * and its Run clips turn it), which shrank or tilted the whole animal while the clip played. How big and which way an animal is belongs to
+ * whoever places it (`LibraryAnimal.object`); its position tracks are kept (they carry the root motion). Changes the clip in place;
+ * returns the tracks dropped.
+ */
+export function ignoreBodyTracks(model: THREE.Object3D, clip: THREE.AnimationClip): THREE.KeyframeTrack[] {
+  const dropped: THREE.KeyframeTrack[] = [];
+  clip.tracks = clip.tracks.filter((track) => {
+    const { nodeName, propertyName } = THREE.PropertyBinding.parseTrackName(track.name);
+    if (propertyName !== "scale" && propertyName !== "quaternion" && propertyName !== "rotation") return true;
+    const node = nodeName ? model.getObjectByName(nodeName) : undefined;
+    if (!node || (node as THREE.Bone).isBone) return true;
+    dropped.push(track);
+    return false;
+  });
+  return dropped;
 }
 
 /**
