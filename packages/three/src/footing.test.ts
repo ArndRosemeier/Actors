@@ -170,9 +170,18 @@ describe("feet on the ground", () => {
     expect(standing).toBeLessThan(0.5 * hovering);
   });
 
-  it("lifts the body over a cliff edge that is higher than half its height under some feet only", () => {
+  it("does not carry the body up a wall (6 m here): it is lifted a part of its height only", () => {
+    const { lib, model } = quad();
+    const wall = (_x: number, z: number) => (z > 0.2 ? 6 : 0);
+    lib.setGround(wall);
+    for (let i = 0; i < 30; i++) lib.update(1 / 30);
+    expect(model.position.y).toBeGreaterThan(0.1);
+    expect(model.position.y).toBeLessThan(1);
+  });
+
+  it("lifts the body over a ledge under some feet only", () => {
     const { lib, mesh } = quad();
-    const cliff = (_x: number, z: number) => (z > 0.2 ? 0.9 : 0);
+    const cliff = (_x: number, z: number) => (z > 0.2 ? 0.3 : 0);
     lib.setGround(cliff);
     for (let i = 0; i < 30; i++) lib.update(1 / 30);
     for (const c of clearances(lib, mesh, cliff)) expect(c).toBeGreaterThan(-0.01);
