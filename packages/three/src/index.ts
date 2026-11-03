@@ -62,6 +62,7 @@ export * from "./fur";
 export { srgb } from "./color";
 export * from "./library";
 export * from "./footing";
+export * from "./footingRig";
 export * from "./drone";
 export * from "./mount";
 export { RootSkeleton, bindRoot } from "./rootSkeleton";
