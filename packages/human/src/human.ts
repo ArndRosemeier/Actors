@@ -112,8 +112,12 @@ export class Human {
   shapeOptions(): ShapeOptions {
     const bones = this.runtime.manifest.skeleton?.bones ?? [];
     const names = bones.map((b) => b.name);
-    return mergeDeform(raceShapeOptions(sanitizeRace(this.race), names, this.resolveTarget), this.deform, names, bones.map((b) => b.parent));
+    const options = mergeDeform(raceShapeOptions(sanitizeRace(this.race), names, this.resolveTarget), this.deform, names, bones.map((b) => b.parent));
+    return this.fitScale === 1 ? options : { ...options, scale: (options.scale ?? 1) * this.fitScale };
   }
+
+  /** A uniform scale on top of the race and the deform plan, e.g. to keep the body in a game's height range. Set it, like `params`, before `evaluate`. */
+  fitScale = 1;
 
   /** A deform plan (`deform` in @actors/core) laid over the race's proportions: giants, and later the plague. Null: none. */
   deform: DeformPlan | null = null;
@@ -121,7 +125,7 @@ export class Human {
   /** How much bigger the face is than on a plain human body (overall scale × head scale), for expression deltas. */
   get faceScale(): number {
     const r = sanitizeRace(this.race);
-    return raceScale(r) * raceHeadScale(r) * (this.deform?.scale ?? 1);
+    return raceScale(r) * raceHeadScale(r) * (this.deform?.scale ?? 1) * this.fitScale;
   }
 
   private remote?: RemoteRuntime;

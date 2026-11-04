@@ -2,6 +2,7 @@ import type { MessagePortLike } from "@actors/core";
 import { Character, type CharacterPatch } from "./character";
 import { CharacterEditor, type EditorOptions } from "./editor";
 import type { ThemeFilter } from "./themes";
+import type { AllowOptions } from "./allow";
 import { CharacterStage, type StageOptions } from "./stage";
 
 export interface GeneratorOptions extends StageOptions, EditorOptions {
@@ -16,6 +17,8 @@ export interface GeneratorOptions extends StageOptions, EditorOptions {
   config?: CharacterPatch;
   /** Only the options that fit these themes (see `Character.load`). */
   themes?: ThemeFilter;
+  /** What players may make: races (with robot and skeleton), clothing categories, a height range (see `ALLOW_PRESETS`). */
+  allow?: AllowOptions;
 }
 
 export interface CharacterGenerator {
@@ -37,7 +40,7 @@ export interface CharacterGenerator {
  */
 export async function createCharacterGenerator(options: GeneratorOptions): Promise<CharacterGenerator> {
   const stage = await CharacterStage.create(options.view, options);
-  const character = await Character.load({ pack: options.pack, renderer: stage.renderer, materials: stage.materials, screenTextures: stage.screenTextures, worker: options.worker, config: options.config, themes: options.themes });
+  const character = await Character.load({ pack: options.pack, renderer: stage.renderer, materials: stage.materials, screenTextures: stage.screenTextures, worker: options.worker, config: options.config, themes: options.themes, allow: options.allow });
   const remove = stage.add(character);
   character.lodCamera = stage.camera;
   // Keep very small or very tall characters (goblins, giantkin) in frame.

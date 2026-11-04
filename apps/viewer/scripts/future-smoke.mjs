@@ -22,7 +22,7 @@ try {
     const r = window.__actors.stage.renderer;
     return r.backend?.isWebGPUBackend ? "webgpu" : r.backend?.isWebGLBackend ? "node-webgl" : "webgl";
   });
-  await page.click('button[data-mode="detailed"]');
+  await page.$$eval('button[data-tab="detailed"]', (bs) => bs.forEach((b) => b.click()));
   const report = [];
   const outfits = await page.evaluate(() => window.__actors.character.catalog.outfits.filter((o) => o.id.startsWith("future-")).map((o) => o.id));
   for (const gender of [0.1, 0.9]) {
@@ -80,8 +80,8 @@ try {
   assert.notEqual(screens.restored, screens.tint);
   assert(screens.emissiveTextures >= 3);
   assert(screens.animations > 0);
-  await page.click('button[data-mode="simple"]');
-  await page.selectOption('select[data-role="future-pants"]', "future-cocoon");
+  // 3026 pants are ordinary garments now: ticking one replaces the pants worn.
+  await page.click('input[data-garment="future-cocoon"]');
   await page.waitForFunction(() => window.__actors.character.config.outfit.includes("future-cocoon"));
   const pants = await page.evaluate(async () => {
     const c = window.__actors.character;

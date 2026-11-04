@@ -22,7 +22,7 @@ try {
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
   await page.goto(url);
   await page.waitForFunction(() => window.__actors?.ready, undefined, { timeout: 180000 });
-  await page.click('button[data-mode="detailed"]');
+  await page.$$eval('button[data-tab="detailed"]', (bs) => bs.forEach((b) => b.click()));
   const outfits = await page.evaluate(() => window.__actors.character.catalog.outfits.filter((o) => o.label.startsWith("Medieval · ")).map((o) => ({ id: o.id, gender: o.gender })));
   const view = (pos, target) => page.evaluate(([p, t]) => window.__actors.stage.view(p, t), [pos, target]);
   for (const { id, gender: only1 } of outfits) {

@@ -109,7 +109,7 @@ All of it is a few dozen multiply-adds per frame on the CPU (about 0.02 ms per c
 
 Large clip libraries in the pack (the 2,548 CMU motions) are listed in `catalog.animations` too, with `library: "cmu"`, a `category` (the capture session) and a `description`; only their index is loaded up front, each clip on first play. Pass `clipLibraries: false` to `Character.load` to skip them.
 
-`CharacterEditor` has two modes: **Simple** (body basics, ethnicity, hair, eyes, outfit preset, animation, face) for everyday users and **Detailed** (every control, garment by garment, the CMU library with search, detail sliders). Pick one with `mode`, hide the switch with `modeSwitch: false`; the viewer's last choice is remembered.
+`CharacterEditor` has a section each for race (and kind: person, robot, skeleton), robot, skeleton, body (with skin), face and hair, clothes and animation. Every section has two tabs: **Simple** picks presets (gender, age, body type, height, ethnicity, hairstyle, outfit preset, robot palette, clip, expression) and **Detailed** shows every control of that section (all body and shape sliders, skin, fine detail sliders, garment by garment with colours, the CMU library with search). Both edit the same character, so Detailed opens on exactly what Simple picked, and a preset shows "Custom" once Detailed changed it. `mode` sets the starting tab of every section, `modeSwitch: false` hides the tabs, `setSectionMode("face", "detailed")` switches one section from code; the viewer's last tab per section is remembered.
 
 ## Levels of detail and crowds
 
@@ -159,7 +159,7 @@ const character = await Character.load({
   catalog: (c) => ({ ...c, races: c.races.filter((r) => r.id === "human"), garments: c.garments.filter((g) => !g.credit), outfits: c.outfits.filter((o) => everyday.includes(o.id)) }),
 });
 new CharacterEditor(character, panel, {
-  sections: ["body", "look", "outfit"],          // no race, animation or detail sliders
+  sections: ["body", "face", "outfit"],          // no race or animation ("look" still names the face)
   buttons: ["randomize", "reset"],               // no save, load or glTF export
   hide: ["anatomy", "body.cupSize", "outfit-preset"], // single controls, by key or role
   randomize: () => myGameLook(seed++),            // what Randomize sets
@@ -176,7 +176,28 @@ const t = BODY_TYPES.find((b) => b.id === "athletic")!;
 await character.set({ body: { ...t.body }, shape: { ...t.shape, waist: -0.4 } });
 ```
 
-The editor shows a "Body type" picker under Body and a "Shape" section (`"shape"` in `sections`).
+The editor shows a "Body type" picker on both tabs of Body; the shape sliders are on the Detailed tabs of Body and Face.
+
+### Allow: races, clothing categories and height a game offers
+
+`allow` (on `Character.load` and `createCharacterGenerator`) restricts what players can make; the character, its editor and `randomize` keep to it:
+
+```ts
+import { ALLOW_PRESETS } from "@actors/generator";
+createCharacterGenerator({ pack, view, panel, allow: ALLOW_PRESETS.city });   // or fantasy, scifi, vintage
+createCharacterGenerator({ pack, view, panel, allow: {
+  races: ["human", "elf", "robot"],          // a list: only these (CHARACTER_KINDS: every race, "robot", "skeleton")
+  clothing: { future: false },               // flags: everything but these (CLOTHING_CATEGORIES)
+  height: { min: 1.5, max: 2.1 },            // standing height in meters
+} });
+```
+
+* **Races** (`races`): every race id plus `robot` and `skeleton`. Races left out disappear from the picker and from random characters; robots and skeletons from the Kind picker. With no race at all (`["robot"]`) every character is a robot (or skeleton).
+* **Clothing categories** (`clothing`): `modern`, `vintage`, `future` (the 3026 wardrobe), `antique`, `medieval`, `nordic`, `eastern`, `fantasy`, the same tags as the themes below. A garment stays when one of its categories is allowed; untagged ones (underwear, plain socks) always stay; outfit presets stay when all their garments do.
+* **Height** (`height`): a body outside the range (a giantkin, a goblin, the tallest roll of the dice) is scaled as a whole to the nearest limit, keeping its own proportions. `character.setHeightRange()` changes it later; the editor shows the standing height in meters and the range.
+* Each switch set is either a list (only these) or flags (all but the ones set to `false`). `ALLOW_PRESETS`: `city` (humans in today's clothes, 1.45 to 2.05 m), `vintage`, `fantasy` (every race and skeletons, medieval, nordic, antique, eastern and fantasy clothes), `scifi` (humans and robots in the 3026 wardrobe and today's clothes).
+* `allowCatalog(catalog, allow)` and `fitConfig(catalog, config)` do the same for a catalog and a config you hold. `allow` applies after `themes` and before `catalog`.
+* The viewer takes `?allow=city`, or `?races=human,robot&clothing=modern,future&minHeight=1.5&maxHeight=2`.
 
 ### Themes: only what fits a game's setting
 

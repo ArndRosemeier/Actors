@@ -35,10 +35,10 @@ const camera = (pos, target) => page.evaluate(([pos, target]) => window.__actors
 const seek = (t) => page.evaluate((t) => window.__actors.character.seek(t), t);
 const catalog = await page.evaluate(() => window.__actors.character.catalog);
 
-await page.click('button[data-mode="simple"]');
+await page.$$eval('button[data-tab="simple"]', (bs) => bs.forEach((b) => b.click()));
 await shot("simple-mode");
 await page.selectOption('select[data-key="ethnicity"]', "asian");
-await page.click('button[data-mode="detailed"]');
+await page.$$eval('button[data-tab="detailed"]', (bs) => bs.forEach((b) => b.click()));
 await shot("idle");
 // Drive the editor UI once: the clip select, a garment checkbox and an outfit preset.
 await page.selectOption('select[data-key="animation"]', "");
