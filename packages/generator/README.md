@@ -79,6 +79,8 @@ The rig is built in the worker with each shape (all units at once) and kept spar
 
 ### Wrinkles
 
+`clothTuck` (on by default, "Tuck covered layers in" in the outfit panel) stops inner layers poking through outer ones. Where a garment covers the body (the parts it hides anyway), whatever lies under it sinks in: skin 3 mm under its surface, body-cut garments down onto the skin, fitted garments most of the way to the body point they hang from. Shoes now cover socks worn on the same layer, as later garments in the outfit cover earlier ones. It is done once per outfit or shape change on the CPU and costs nothing per frame. `ThreeActor.tuckCovered` switches it directly.
+
 `wrinkles: true` draws expression wrinkles in the skin shader: forehead lines when the brows go up, the vertical lines between the brows and the line across the nose root when they go down or the nose wrinkles, crow's feet and the nasolabial fold when the face smiles or squints. Their depth follows the face units every frame (the expression, the face rig and the living face alike), and older faces keep some at rest. The crease patterns are drawn once by the importer into the skin's third mask (`skin_mask_c.png`, green, blue and alpha); the shader reads the depth and its slope there and shades the creases a little. While no wrinkle shows it costs nothing; while one does, four extra texture reads per skin pixel. `ThreeActor.setWrinkles(forehead, frown, smile)` and `wrinkleWeights` in `@actors/human` drive them directly.
 
 ### Living face
