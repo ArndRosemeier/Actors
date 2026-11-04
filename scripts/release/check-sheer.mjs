@@ -24,6 +24,8 @@ assert(runtime.meshes.find((m) => m.def.name === opaque).hidesBaseVertices.lengt
 
 // Use real fitted pack geometry; a plain material makes this check independent of a GPU/DOM.
 const actor = new ThreeActor(runtime, () => new MeshStandardMaterial());
+// This reads each garment's own mesh, so keep garments separate at the medium level (no outfit merge).
+actor.mergeOutfitFrom = Infinity;
 actor.setVisible("tights", true);
 actor.applyShape(runtime.evaluateLoaded(new Map()));
 const snapshot = () => Object.fromEntries([...actor.meshes].filter(([name, mesh]) => mesh.visible && (runtime.meshes.find((m) => m.def.name === name)?.def.role === "body" || name === "tights")).map(([name, mesh]) => [name, {
