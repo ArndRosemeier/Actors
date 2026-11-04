@@ -106,6 +106,8 @@ function prepareSource(gltf: GLTF, mode: RootMotion): Source {
   const tips = mode === "keep" ? [] : footBones(scene);
   for (const clip of gltf.animations) {
     ignoreBodyTracks(scene, clip);
+    // A clip that moves no joint (the library elk's "Walk" only keyed its root node's size) is no motion: playing it froze the animal.
+    if (!clip.tracks.length) continue;
     if (mode !== "keep") {
       const t = extractTravel(scene, clip) ?? estimateTravel(scene, clip, tips, box.max.y - box.min.y);
       if (t) travel.set(clip.name, t);
@@ -565,6 +567,38 @@ export class LibraryAnimal {
     return this.deformPlan?.gait.rate ?? 1;
   }
 
+  /** How much longer the plan makes the legs (1: none): a giant's stride is that much longer again than its growth alone gives. */
+  private get legLength(): number {
+    return this.deformPlan?.parts.leg.len ?? 1;
+  }
+
+  /** The ground speed of a clip at timeScale 1 for this body: its own speed (`speedOf`) times the body's size and leg length (parent space of `object`). */
+  private reachOf(name: string): number {
+    return this.speedOf(name) * Math.abs(this.model.scale.x) * Math.abs(this.object.scale.x) * this.legLength;
+  }
+
+  /**
+   * The ground speed (m/s, parent space of `object`) at which this body plays a clip at its own gait: its stride (the clip's travel, grown
+   * with the body and its legs) at the deform plan's pace. A giant's stride is long and slow, so it covers far more ground than a normal
+   * animal at a gait that looks unhurried for its size; move it at this speed and its feet neither skate nor hang. 0 for clips that stay put.
+   */
+  strideSpeed(name: string): number {
+    return this.reachOf(name) * this.gaitRate;
+  }
+
+  /**
+   * Plays the current clip so its feet keep pace with the ground at `speed` m/s (parent space of `object`): the stride's length is the
+   * body's, so the clip runs as fast as the ground goes by, between `slowest` and `fastest` times its own gait (`strideSpeed`). A clip
+   * that stays put (an idle) plays at the gait the plan asks for. Call it every frame the animal moves; returns the timeScale.
+   */
+  pace(speed: number, slowest = 0.5, fastest = 2): number {
+    const a = this.action;
+    if (!a) return 0;
+    const reach = this.reachOf(a.getClip().name), gait = (this.speed ?? 1) * this.gaitRate;
+    a.timeScale = reach > 0 ? Math.min(fastest * this.gaitRate, Math.max(slowest * this.gaitRate, speed / reach)) : gait;
+    return a.timeScale;
+  }
+
   /** The current detail level (index into `lods`). */
   get lod(): number {
     return this.level;
@@ -596,17 +630,32 @@ export class LibraryAnimal {
 
   /** Stops the animation and frees this animal's mixer state. The shared geometry and textures stay loaded for other animals of the same kind. */
   dispose(): void {
+    this.deformed?.restore();
+    this.deformed = undefined;
     this.mixer.stopAllAction();
     this.mixer.uncacheRoot(this.model);
     this.object.removeFromParent();
   }
 }
 
-/** The bones of the first skinned mesh, with what a deform needs of them. */
+/**
+ * A deformed body, baked: each bone's part (`deformBones`) grows its skin along the bone (length) and across it (girth) once, in the bind
+ * pose, and the joints below move out by as much; the bones keep a scale of 1. (Scales on the bones themselves were inherited down the
+ * chain and sheared every limb that turned out of line with its parent: the library elk's hooves were drawn out into long spikes and its
+ * hind legs stood a hoof's height above its front ones.) Each frame `apply` stretches the joints' offsets the clips set (their position
+ * keys are the body's old lengths) by their parent's length; bones a clip does not move keep the stretched rest offset.
+ */
 class Deformed {
   private readonly bones: THREE.Bone[] = [];
-  private readonly local: THREE.Vector3[] = [];
-  private readonly meshes: { mesh: THREE.Mesh; material: THREE.Material | THREE.Material[]; culled: boolean }[] = [];
+  /** Each bone's offset from its parent is stretched by this (its parent's scale, in the parent's own frame). */
+  private readonly stretch: THREE.Vector3[] = [];
+  /** The rest offsets before and after, and what `apply` last wrote. */
+  private readonly restOld: THREE.Vector3[] = [];
+  private readonly restNew: THREE.Vector3[] = [];
+  private readonly written: THREE.Vector3[] = [];
+  private readonly meshes: { mesh: THREE.SkinnedMesh; material: THREE.Material | THREE.Material[]; culled: boolean; geometry: THREE.BufferGeometry; baked?: THREE.BufferGeometry }[] = [];
+  private inverses: THREE.Matrix4[] = [];
+  private readonly skeletons: { skeleton: THREE.Skeleton; inverses: THREE.Matrix4[] }[] = [];
   private readonly baseY: number;
   private readonly lowered: THREE.Object3D;
 
@@ -618,102 +667,189 @@ class Deformed {
       const mesh = o as THREE.SkinnedMesh;
       if (!mesh.isSkinnedMesh) return;
       skeleton ??= mesh.skeleton;
-      this.meshes.push({ mesh, material: mesh.material, culled: mesh.frustumCulled });
+      this.meshes.push({ mesh, material: mesh.material, culled: mesh.frustumCulled, geometry: mesh.geometry });
       mesh.frustumCulled = false;
       mesh.material = tinted(mesh.material, plan);
     });
     if (!skeleton) return;
     this.bones = skeleton.bones;
+    const n = this.bones.length;
     const names = this.bones.map((b) => b.name);
     const parents = this.bones.map((b) => this.bones.indexOf(b.parent as THREE.Bone));
-    // The scale each bone wants in the model's own frame: its part's length along the bone, girth across it.
     const wants = deformBones(plan, names, parents);
-    const want: THREE.Vector3[] = this.bones.map((b, i) => {
+    // Each bone's scale in its own frame: girth across, its part's length along the bone (toward its child; a tip goes the way it hangs off its parent).
+    const scale: THREE.Vector3[] = this.bones.map((b, i) => {
       const s = wants[names[i]];
       const v = new THREE.Vector3(1, 1, 1);
       if (!s) return v;
       const child = this.bones.find((c, j) => parents[j] === i && c.position.lengthSq() > 1e-10);
-      const d = child ? child.position : new THREE.Vector3(0, 1, 0);
+      const d = child ? child.position : b.position.lengthSq() > 1e-10 ? b.position : new THREE.Vector3(0, 1, 0);
       const axis = Math.abs(d.x) > Math.abs(d.y) && Math.abs(d.x) > Math.abs(d.z) ? "x" : Math.abs(d.z) > Math.abs(d.y) ? "z" : "y";
       v.setScalar(s.girth ?? 1);
       v[axis] = s.len ?? 1;
       return v;
     });
-    // Every bone's scale is relative to its parent's, which its children inherit: take that out.
-    this.local = want.map((w, i) => {
-      const p = parents[i] >= 0 ? want[parents[i]] : null;
-      return p ? new THREE.Vector3(w.x / p.x, w.y / p.y, w.z / p.z) : w.clone();
-    });
-    // The feet: thicker, longer or shorter legs move the soles, and the soles are skin, not joints (a flat foot's sole lies well below its
-    // ankle bone, and grows with the foot's girth). Put the model down by as much as the lowest point of the skin rose. The bones are
-    // walked in their bind pose (from the skeleton's inverses) with the scales on, the way three will pose them.
-    const bind = skeleton.boneInverses.map((m) => new THREE.Matrix4().copy(m).invert());
-    const posed: THREE.Matrix4[] = [];
-    const pose = (i: number): THREE.Matrix4 => {
-      if (posed[i]) return posed[i];
+    // The bind pose (in the mesh's bind space), and the new one: the same turns, each joint moved out by its parent's scale.
+    this.inverses = skeleton.boneInverses;
+    const bind = this.inverses.map((m) => new THREE.Matrix4().copy(m).invert());
+    const moved: THREE.Matrix4[] = [];
+    const local = new THREE.Vector3(), at = new THREE.Vector3();
+    const place = (i: number): THREE.Matrix4 => {
+      if (moved[i]) return moved[i];
       const p = parents[i];
-      const local = p >= 0 ? new THREE.Matrix4().copy(bind[p]).invert().multiply(bind[i]) : bind[i].clone();
-      local.multiply(new THREE.Matrix4().makeScale(this.local[i].x, this.local[i].y, this.local[i].z));
-      return (posed[i] = p >= 0 ? new THREE.Matrix4().multiplyMatrices(pose(p), local) : local);
+      const m = bind[i].clone();
+      if (p >= 0) {
+        // Where the joint is in its parent's frame, stretched there, and back out through the parent's new place.
+        local.setFromMatrixPosition(bind[i]).applyMatrix4(this.inverses[p]).multiply(scale[p]);
+        at.copy(local).applyMatrix4(place(p));
+        m.setPosition(at);
+      }
+      return (moved[i] = m);
     };
-    const skins = this.bones.map((_, i) => new THREE.Matrix4().multiplyMatrices(pose(i), skeleton!.boneInverses[i]));
-    const lowest = this.lowestSkin(skins);
-    let shift = NaN;
-    if (lowest) shift = lowest.after - lowest.before;
-    else {
+    for (let i = 0; i < n; i++) place(i);
+    // Each bone's skin goes from the old bind pose to the new one with the bone's scale on (a move of the skin space, by bone): baked into a
+    // copy of each mesh's geometry. A mesh may have its own skeleton (the same bones in another order, with their own inverses).
+    const move = new Map<THREE.Bone, { bake: THREE.Matrix4; moved: THREE.Matrix4; bind: THREE.Matrix4 }>();
+    this.bones.forEach((b, i) => move.set(b, {
+      bake: new THREE.Matrix4().multiplyMatrices(moved[i], new THREE.Matrix4().makeScale(scale[i].x, scale[i].y, scale[i].z)).multiply(this.inverses[i]),
+      moved: moved[i],
+      bind: bind[i],
+    }));
+    let before = Infinity, after = Infinity;
+    model.updateMatrixWorld(true);
+    const fromModel = model.matrixWorld.clone().invert();
+    const skeletons = new Set(this.meshes.map((m) => m.mesh.skeleton));
+    for (const m of this.meshes) {
+      const bake = m.mesh.skeleton.bones.map((b) => move.get(b)?.bake ?? new THREE.Matrix4());
+      const lows = this.bakeMesh(m, bake, fromModel);
+      if (lows) (before = Math.min(before, lows.before)), (after = Math.min(after, lows.after));
+    }
+    for (const sk of skeletons) {
+      this.skeletons.push({ skeleton: sk, inverses: sk.boneInverses });
+      // At the new rest each bone relates to this skeleton's skin as it did at the old one.
+      sk.boneInverses = sk.bones.map((b, k) => {
+        const m = move.get(b);
+        return m ? m.moved.clone().invert().multiply(m.bind).multiply(sk.boneInverses[k]) : sk.boneInverses[k].clone();
+      });
+    }
+    // The joints' rest offsets, stretched; what a clip keys is stretched the same way every frame.
+    for (let i = 0; i < n; i++) {
+      const s = parents[i] >= 0 ? scale[parents[i]].clone() : new THREE.Vector3(1, 1, 1);
+      this.stretch.push(s);
+      this.restOld.push(this.bones[i].position.clone());
+      this.restNew.push(this.bones[i].position.clone().multiply(s));
+      this.written.push(this.restNew[i].clone());
+      this.bones[i].position.copy(this.restNew[i]);
+      this.bones[i].scale.set(1, 1, 1);
+    }
+    // The feet: longer or shorter legs and thicker soles move the lowest skin; the model is put down by as much as it rose.
+    let shift = after - before;
+    if (!Number.isFinite(shift)) {
       // No skin to measure: the lowest joint of the bones that stand (not the tail, the horns, the ears) stands for the soles.
       const leaves = this.bones.map((_, i) => i).filter((i) => !parents.includes(i) && !/tail|ik|target|ref|helper|ear|tongue|jaw|trunk|eye|wing/i.test(names[i]));
-      let before = Infinity, after = Infinity;
+      let b = Infinity, a = Infinity;
       for (const i of leaves) {
-        before = Math.min(before, new THREE.Vector3().setFromMatrixPosition(bind[i]).y);
-        after = Math.min(after, new THREE.Vector3().setFromMatrixPosition(pose(i)).y);
+        b = Math.min(b, new THREE.Vector3().setFromMatrixPosition(bind[i]).y);
+        a = Math.min(a, new THREE.Vector3().setFromMatrixPosition(moved[i]).y);
       }
-      shift = after - before;
+      shift = a - b;
     }
     if (Number.isFinite(shift)) model.position.y = this.baseY - shift;
   }
 
-  /**
-   * The lowest point of the skin (the model's own frame, bind pose) as it is drawn and as it will be with the bone scales on (`skins`: each
-   * bone's matrix from its bind pose to its scaled pose); null if no mesh has skin weights to go by.
-   */
-  private lowestSkin(skins: readonly THREE.Matrix4[]): { before: number; after: number } | null {
+  /** Bakes one mesh's skin into a copy of its geometry; returns its lowest point in the model's frame (`toModel`: from the world) before and after. */
+  private bakeMesh(m: Deformed["meshes"][number], bake: readonly THREE.Matrix4[], toModel: THREE.Matrix4): { before: number; after: number } | null {
+    const g = m.geometry, pos = g.getAttribute("position"), idx = g.getAttribute("skinIndex"), w = g.getAttribute("skinWeight");
+    if (!pos || !idx || !w) return null;
+    // Float copies: a quantized mesh (KHR_mesh_quantization, as the library's are) keeps its points as normalized integers within ±1, so
+    // a point the deform moves out past that would wrap round.
+    const baked = g.clone();
+    const float = (name: string, size: number): THREE.BufferAttribute | undefined => {
+      const a = g.getAttribute(name);
+      if (!a) return undefined;
+      const f = new THREE.Float32BufferAttribute(a.count * size, size);
+      for (let k = 0; k < a.count; k++) for (let c = 0; c < size; c++) f.setComponent(k, c, a.getComponent(k, c));
+      baked.setAttribute(name, f);
+      return f;
+    };
+    const out = float("position", 3)!, normal = float("normal", 3), tangent = float("tangent", 4);
+    const sk = m.mesh;
+    // Skin space: the bind matrix takes the geometry there, the bones' matrices act there, and that is where three draws the skin (an
+    // attached skinned mesh undoes its own world matrix), so `toModel` takes skin space to the model's frame.
+    const unbind = sk.bindMatrix.clone().invert();
+    const normals = bake.map((b) => new THREE.Matrix3().getNormalMatrix(b));
+    const bindNormal = new THREE.Matrix3().getNormalMatrix(sk.bindMatrix), unbindNormal = new THREE.Matrix3().getNormalMatrix(unbind);
+    const v = new THREE.Vector3(), t = new THREE.Vector3(), sum = new THREE.Vector3(), nv = new THREE.Vector3(), ns = new THREE.Vector3();
+    const tv = new THREE.Vector3(), ts = new THREE.Vector3();
     let before = Infinity, after = Infinity;
-    const v = new THREE.Vector3(), t = new THREE.Vector3(), out = new THREE.Vector3();
-    for (const { mesh } of this.meshes) {
-      const sk = mesh as THREE.SkinnedMesh, g = sk.geometry, pos = g.getAttribute("position"), idx = g.getAttribute("skinIndex"), w = g.getAttribute("skinWeight");
-      if (!pos || !idx || !w) continue;
-      for (let n = 0; n < pos.count; n++) {
-        v.fromBufferAttribute(pos, n).applyMatrix4(sk.bindMatrix);
-        out.set(0, 0, 0);
-        let sum = 0;
-        for (let k = 0; k < 4; k++) {
-          const weight = w.getComponent(n, k);
-          if (!(weight > 0)) continue;
-          t.copy(v).applyMatrix4(skins[idx.getComponent(n, k)]);
-          out.addScaledVector(t, weight);
-          sum += weight;
-        }
-        if (sum <= 0) continue;
-        out.multiplyScalar(1 / sum).applyMatrix4(sk.bindMatrixInverse);
-        v.fromBufferAttribute(pos, n);
-        before = Math.min(before, v.y);
-        after = Math.min(after, out.y);
+    for (let k = 0; k < pos.count; k++) {
+      v.fromBufferAttribute(pos, k).applyMatrix4(sk.bindMatrix);
+      if (normal) nv.fromBufferAttribute(normal, k).applyMatrix3(bindNormal);
+      if (tangent) tv.set(tangent.getX(k), tangent.getY(k), tangent.getZ(k)).transformDirection(sk.bindMatrix);
+      sum.set(0, 0, 0);
+      ns.set(0, 0, 0);
+      ts.set(0, 0, 0);
+      let total = 0;
+      for (let c = 0; c < 4; c++) {
+        const weight = w.getComponent(k, c);
+        if (!(weight > 0)) continue;
+        const b = idx.getComponent(k, c);
+        sum.addScaledVector(t.copy(v).applyMatrix4(bake[b]), weight);
+        if (normal) ns.addScaledVector(t.copy(nv).applyMatrix3(normals[b]).normalize(), weight);
+        if (tangent) ts.addScaledVector(t.copy(tv).transformDirection(bake[b]), weight);
+        total += weight;
+      }
+      if (total <= 0) continue;
+      sum.multiplyScalar(1 / total);
+      before = Math.min(before, t.copy(v).applyMatrix4(toModel).y);
+      after = Math.min(after, t.copy(sum).applyMatrix4(toModel).y);
+      sum.applyMatrix4(unbind);
+      out.setXYZ(k, sum.x, sum.y, sum.z);
+      if (normal && ns.lengthSq() > 0) {
+        ns.applyMatrix3(unbindNormal).normalize();
+        normal.setXYZ(k, ns.x, ns.y, ns.z);
+      }
+      if (tangent && ts.lengthSq() > 0) {
+        ts.transformDirection(unbind);
+        tangent.setXYZ(k, ts.x, ts.y, ts.z);
       }
     }
+    baked.computeBoundingBox();
+    baked.computeBoundingSphere();
+    sk.geometry = baked;
+    m.baked = baked;
     return Number.isFinite(before) && Number.isFinite(after) ? { before, after } : null;
   }
 
+  /** After every animation step: the joints a clip set (at the body's old lengths) are stretched; those it left alone keep their stretched rest. */
   apply(): void {
-    for (let i = 0; i < this.bones.length; i++) this.bones[i].scale.copy(this.local[i]);
+    for (let i = 0; i < this.bones.length; i++) {
+      const p = this.bones[i].position;
+      if (this.kept(i)) continue;
+      p.multiply(this.stretch[i]);
+      this.written[i].copy(p);
+    }
+  }
+
+  /** The joint is where the deform put it (what `apply` wrote, or the stretched rest a reset to the bind pose gives), or needs no stretch. */
+  private kept(i: number): boolean {
+    const p = this.bones[i].position, s = this.stretch[i];
+    if (s.x === 1 && s.y === 1 && s.z === 1) return true;
+    const tol = 1e-10 * (1 + p.lengthSq());
+    return p.distanceToSquared(this.written[i]) <= tol || p.distanceToSquared(this.restNew[i]) <= tol;
   }
 
   restore(): void {
-    for (const b of this.bones) b.scale.set(1, 1, 1);
+    for (let i = 0; i < this.bones.length; i++) {
+      if (this.kept(i)) this.bones[i].position.divide(this.stretch[i]);
+    }
+    for (const { skeleton, inverses } of this.skeletons) skeleton.boneInverses = inverses;
     this.lowered.position.y = this.baseY;
     for (const m of this.meshes) {
       m.mesh.material = m.material;
       m.mesh.frustumCulled = m.culled;
+      m.mesh.geometry = m.geometry;
+      m.baked?.dispose();
     }
   }
 }

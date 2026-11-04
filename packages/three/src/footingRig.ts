@@ -3,9 +3,10 @@ import { LibraryAnimal } from "./library";
 
 /**
  * A skinned animal with legs, for checking feet against a ground (made here so a host's checks need no model files): a spine with a body box, and per leg a thigh, a calf and a foot with a flat sole box 0.05 m below
- * its joint. `legs` are the (x, z) of the hips; `leg` the length of each thigh and calf. The model stands with its soles on y = 0.
+ * its joint. `legs` are the (x, z) of the hips; `leg` the length of each thigh and calf; `raised` (per leg, default 0) holds a hip that much
+ * higher, so its sole is off the ground at rest. The model stands with its lowest soles on y = 0.
  */
-export function syntheticWalker(legs: [number, number][], leg = 0.5, clips: THREE.AnimationClip[] = []) {
+export function syntheticWalker(legs: [number, number][], leg = 0.5, clips: THREE.AnimationClip[] = [], raised: number[] = []) {
   const model = new THREE.Group();
   const bones: THREE.Bone[] = [];
   const bone = (name: string, parent: THREE.Object3D, x: number, y: number, z: number) => {
@@ -20,7 +21,7 @@ export function syntheticWalker(legs: [number, number][], leg = 0.5, clips: THRE
   const spine = bone("Spine", root, 0, 2 * leg + 0.05 + 0.1, 0);
   const feetBones: THREE.Bone[] = [];
   legs.forEach(([x, z], n) => {
-    const thigh = bone(`Thigh_${n}`, spine, x, -0.1, z);
+    const thigh = bone(`Thigh_${n}`, spine, x, -0.1 + (raised[n] ?? 0), z);
     const calf = bone(`Calf_${n}`, thigh, 0, -leg, 0);
     feetBones.push(bone(`Foot_${n}`, calf, 0, -leg, 0));
   });

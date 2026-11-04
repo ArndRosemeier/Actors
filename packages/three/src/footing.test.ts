@@ -22,6 +22,19 @@ describe("feet on the ground", () => {
     for (const c of clearances(lib, mesh, flat)) expect(c).toBeCloseTo(0, 3);
   });
 
+  it("finds every foot, each measured from its own lowest point, though the rest pose holds the hind ones higher", () => {
+    // The hind hips 0.12 m up (a tenth of the body's height): their soles are well out of the band of the lowest skin.
+    const { lib, mesh } = walker([[0.25, 0.5], [-0.25, 0.5], [0.25, -0.5], [-0.25, -0.5]], 0.5, [], [0, 0, 0.12, 0.12]);
+    lib.setGround(flat);
+    lib.standing = true;
+    for (let i = 0; i < 20; i++) lib.update(1 / 30);
+    expect(lib.feet!.readings).toHaveLength(4);
+    for (const c of clearances(lib, mesh, flat)) {
+      expect(c).toBeGreaterThan(-0.01);
+      expect(c).toBeLessThan(0.02);
+    }
+  });
+
   it("keeps the soles on the ground with thick, long or short legs and a body grown tenfold, whatever the seed", () => {
     for (let seed = 0; seed < 8; seed++) {
       const a = quad();
