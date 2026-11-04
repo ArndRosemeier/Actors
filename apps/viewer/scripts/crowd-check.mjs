@@ -25,6 +25,7 @@ const measure = (name, on) =>
         c.setLod(level);
         const a = c.actor;
         a.crowdHair = on;
+        a.mergeOutfitFrom = on ? 1 : Infinity;
         a.smallPartShadows = !on;
         a.frustumCulling = on;
         a.animationSteps = on ? undefined : [];

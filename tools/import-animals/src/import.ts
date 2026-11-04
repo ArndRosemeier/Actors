@@ -110,6 +110,11 @@ interface AnimalSpec {
   crowdDrops: RegExp;
   /** Camera distances of the medium and crowd levels (default 5 and 16 m). */
   lodDistances?: [number, number];
+  /**
+   * Most triangles of the body at the Medium and Crowd levels. Default: 12,000 and 3,000 (a
+   * horse-sized animal); small animals take less (a squirrel at 10 m is a few dozen pixels).
+   */
+  lodTriangles?: [number, number];
   furColor: [number, number, number];
   eyeColor: [number, number, number];
   manifestSource: ActorPackManifest["source"];
@@ -181,6 +186,7 @@ function catSpec(cell: number, triangles: number): AnimalSpec {
     stop: bone("Nose").head,
     clipOptions: { clips: CAT_CLIPS, tailMotion: 0.55 },
     lodDistances: [3, 10],
+    lodTriangles: [6000, 1500],
     furColor: [0.45, 0.36, 0.26],
     eyeColor: [0.66, 0.53, 0.17],
     manifestSource: { name: `Generated Maine Coon cat body; ${SOURCE_NOTE}`, license: "CC0-1.0", url: `https://github.com/scottpetrovic/mesh2motion-app/tree/${MESH2MOTION_COMMIT}` },
@@ -205,6 +211,7 @@ function quadrupedSpec(id: "dog" | "squirrel", cell: number, triangles: number):
     clipSource: "Mesh2Motion fox rig (CC0)",
     ownClips: squirrel ? squirrelClips : undefined,
     crowdDrops: /Tip|tip|Foot_1/,
+    ...(squirrel ? { lodTriangles: [5000, 1200] as [number, number], lodDistances: [2, 6] as [number, number] } : { lodTriangles: [8000, 2000] as [number, number] }),
     furColor: squirrel ? [0.5, 0.45, 0.38] : [0.55, 0.38, 0.22],
     eyeColor: squirrel ? [0.02, 0.018, 0.016] : [0.35, 0.2, 0.08],
     manifestSource: { name: `Generated ${squirrel ? "grey squirrel" : "dog"} body; ${SOURCE_NOTE}`, license: "CC0-1.0", url: `https://github.com/scottpetrovic/mesh2motion-app/tree/${MESH2MOTION_COMMIT}` },
@@ -346,6 +353,7 @@ function chickenSpec(cell: number, triangles: number): AnimalSpec {
     ownClips: chickenClips,
     crowdDrops: /feather|tip|Toes|mouth_lower/,
     lodDistances: [3, 10],
+    lodTriangles: [6000, 1500],
     furColor: [0.45, 0.22, 0.08],
     eyeColor: [0.6, 0.32, 0.06],
     manifestSource: { name: `Generated brown hen body and clips; ${BIRD_SOURCE_NOTE}`, license: "CC0-1.0", url: `https://github.com/scottpetrovic/mesh2motion-app/tree/${MESH2MOTION_COMMIT}` },
@@ -454,9 +462,10 @@ async function buildPack(spec: AnimalSpec, out: string): Promise<void> {
 
   await meshoptReady;
   const bodyMap = Uint32Array.from({ length: nBody }, (_, i) => i);
+  const [mediumMax, crowdMax] = spec.lodTriangles ?? [12000, 3000];
   const simplified = simplifyLevels(blob, positions, { map: bodyMap, indices: skinned.indices }, [
-    [1, 0.3, 0.004],
-    [2, 0.08, 0.02],
+    [1, 0.3, 0.004, mediumMax],
+    [2, 0.08, 0.02, crowdMax],
   ]);
   const attr = (data: Float32Array, size: 1 | 2 | 3 | 4) => ({ data: blob.add("f32", data), size });
   const meshes: MeshDef[] = [

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { SkinUniforms } from "./materials";
+import { useDualQuaternionSkinning } from "./dqs";
 
 const white = (() => {
   const t = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
@@ -39,4 +40,37 @@ export function createCrowdMaterial(skin: SkinUniforms, hairMaps: readonly (THRE
   };
   mat.customProgramCacheKey = () => "actors-crowd";
   return mat;
+}
+
+/**
+ * Material of a merged outfit (all garments of a detail level in one draw, see
+ * `ThreeActor.mergeOutfitFrom`): colour from the outfit's texture atlas, recoloured per vertex
+ * the way a garment's tint recolours it (`outfitTint` rgb + mix, `outfitInfo` x = the texture's
+ * mean brightness), roughness and metalness per vertex (`outfitInfo` z, w), hems cut where
+ * `outfitInfo` y < 0, lace and fishnet cut by the atlas alpha. Two-sided, dual-quaternion skinned.
+ */
+export function createOutfitMaterial(atlas: THREE.Texture): THREE.MeshStandardMaterial {
+  const mat = new THREE.MeshStandardMaterial({ map: atlas, roughness: 1, metalness: 1, alphaTest: 0.5, side: THREE.DoubleSide });
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nattribute vec4 outfitTint;\nattribute vec4 outfitInfo;\nvarying vec4 vOutfitTint;\nvarying vec4 vOutfitInfo;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvOutfitTint = outfitTint;\nvOutfitInfo = outfitInfo;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        "#include <common>\nvarying vec4 vOutfitTint;\nvarying vec4 vOutfitInfo;\nfloat tintGain( float g ) { return g > 1.0 ? 1.0 + 0.5 * ( g - 1.0 ) / ( g - 0.5 ) : g; }",
+      )
+      .replace(
+        "#include <map_fragment>",
+        `#include <map_fragment>
+if ( vOutfitInfo.y < 0.0 ) discard;
+float clothLum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+diffuseColor.rgb = mix( diffuseColor.rgb, vOutfitTint.rgb * tintGain( clothLum / max( vOutfitInfo.x, 0.01 ) ), vOutfitTint.a );`,
+      )
+      .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor *= vOutfitInfo.z;")
+      .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor *= vOutfitInfo.w;")
+      .replace("#include <alphatest_fragment>", "if ( textureLod( map, vMapUv, 0.0 ).a < alphaTest ) discard;");
+  };
+  mat.customProgramCacheKey = () => "actors-outfit";
+  return useDualQuaternionSkinning(mat);
 }

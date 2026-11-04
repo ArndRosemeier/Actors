@@ -608,6 +608,32 @@ export function createNodeCrowdMaterial(actor: ThreeActor): MeshStandardNodeMate
   return feed(mat, { ...skinInputs(actor), "crowd.hair0": () => actor.crowdHairMaps[0] ?? white, "crowd.hair1": () => actor.crowdHairMaps[1] ?? white });
 }
 
+/** The merged outfit's shared graph (see createNodeOutfitMaterial). */
+const outfitGraph = once(() => {
+  const tint = attribute("outfitTint", "vec4");
+  const info = attribute("outfitInfo", "vec4");
+  return {
+    color: tinted(tint.rgb, tint.a, max(info.x, 0.01)),
+    // Lace and fishnet: the atlas alpha at full resolution (see createClothMaterial).
+    cutout: inputTexture("outfit.map", white, undefined, 0).a,
+    mask: info.y.greaterThanEqual(0),
+    rough: info.z,
+    metal: info.w,
+  };
+});
+
+/** A merged outfit (see createOutfitMaterial): atlas colour, per-vertex tint, roughness, metalness and hem cut. DQS. */
+export function createNodeOutfitMaterial(atlas: THREE.Texture): MeshStandardNodeMaterial {
+  const g = outfitGraph();
+  const mat = new MeshStandardNodeMaterial({ map: atlas, alphaTest: 0.5, side: THREE.DoubleSide });
+  mat.colorNode = g.color;
+  mat.opacityNode = g.cutout;
+  mat.roughnessNode = g.rough;
+  mat.metalnessNode = g.metal;
+  (mat as unknown as { maskNode: N }).maskNode = g.mask;
+  return useNodeDqs(feed(mat, { "outfit.map": () => atlas }));
+}
+
 /** Node materials for a pack mesh, from the pack's material hints (the twin of `defaultMaterials`). */
 export function nodeMeshMaterial(data: MeshData, actor: ThreeActor): THREE.Material {
   const { def } = data;
@@ -666,6 +692,7 @@ export const nodeMaterials: ActorMaterialKit = {
   part: createNodePartMaterial,
   depth: () => null,
   crowd: createNodeCrowdMaterial,
+  outfit: (_actor, atlas) => createNodeOutfitMaterial(atlas),
   blendSkins(actor, layers) {
     const nodes = skinLayers(actor);
     for (let i = 0; i < 4; i++) nodes.layers[i] = layers[i]?.texture ?? white;
