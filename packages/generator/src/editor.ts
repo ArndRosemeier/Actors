@@ -1,4 +1,4 @@
-import { ADULT_MIN_AGE, BEARD_STYLES, HORN_STYLES, type HumanParams, MAX_AGE, TAIL_STYLES } from "@actors/human";
+import { ADULT_MIN_AGE, BEARD_STYLES, BODY_TYPES, HORN_STYLES, SHAPE_SLIDERS, type HumanParams, MAX_AGE, TAIL_STYLES } from "@actors/human";
 import { type CharacterConfig, PAINTED_BROWS, type RobotLook, type SkeletalLook, outfitGarments } from "./catalog";
 import type { Character, CharacterPatch } from "./character";
 import { PUPILS, SKIN_PATTERNS } from "@actors/three";
@@ -53,7 +53,7 @@ const STYLE = `
 export type EditorMode = "simple" | "detailed";
 
 /** The editor's sections, in order. */
-export type EditorSection = "race" | "robot" | "skeleton" | "body" | "look" | "outfit" | "animation" | "details";
+export type EditorSection = "race" | "robot" | "skeleton" | "body" | "shape" | "look" | "outfit" | "animation" | "details";
 /** The footer's buttons. */
 export type EditorButton = "randomize" | "reset" | "save" | "load" | "export";
 
@@ -274,6 +274,35 @@ export class CharacterEditor {
       if (e) set({ body: { african: e[2][0], asian: e[2][1], caucasian: e[2][2] } });
     }, "ethnicity");
     only("simple", eth);
+    // Body types: a starting point that sets the macros and the shape sliders together.
+    this.select(body, "Body type", [["", "Custom"], ...BODY_TYPES.map((t): [string, string] => [t.id, t.label])], (c) => {
+      const same = (a: Record<string, number>, b: Record<string, number>) => [...new Set([...Object.keys(a), ...Object.keys(b)])].every((k) => Math.abs((a[k] ?? 0) - (b[k] ?? 0)) < 0.005);
+      return BODY_TYPES.find((t) => Object.entries(t.body).every(([k, v]) => Math.abs((c.body[k as keyof HumanParams] as number) - (v as number)) < 0.005) && same(t.shape, c.shape ?? {}))?.id ?? "";
+    }, (v) => {
+      const t = BODY_TYPES.find((b) => b.id === v);
+      if (t) set({ body: { ...t.body }, shape: { ...t.shape } });
+    }, "bodyType");
+
+    // Shape: named sliders that each move several raw modifiers together (on top of the raw ones in Details).
+    const shape = this.section("Shape", "shape");
+    const signed = (v: number) => (v === 0 ? "0" : `${v > 0 ? "+" : ""}${Math.round(v * 100)}`);
+    for (const group of ["Body", "Face"] as const) {
+      const note = document.createElement("div");
+      note.className = "ae-note";
+      note.textContent = group;
+      shape.appendChild(note);
+      if (group === "Face") detailed(note);
+      for (const sl of SHAPE_SLIDERS.filter((x) => x.group === group)) {
+        const row = this.slider(shape, sl.label, -1, 1, 0.01, signed, (c) => c.shape?.[sl.id] ?? 0, (v) => {
+          const next = { ...character.config.shape };
+          if (v === 0) delete next[sl.id];
+          else next[sl.id] = v;
+          set({ shape: next });
+        }, `shape.${sl.id}`);
+        row.title = `${sl.low} ↔ ${sl.high}`;
+        if (group === "Face") detailed(row);
+      }
+    }
 
     // Look
     const look = this.section("Look", "look");
