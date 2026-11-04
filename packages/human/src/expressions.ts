@@ -40,3 +40,30 @@ export function expressionTargetWeights(units: UnitWeights, params: HumanParams,
   }
   return out;
 }
+
+/** Expression wrinkle groups, in the order of the skin's wrinkle mask channels (green, blue, alpha of mask C). */
+export const WRINKLE_GROUPS = ["forehead", "frown", "smile"] as const;
+export type WrinkleGroup = (typeof WRINKLE_GROUPS)[number];
+
+/** Which face units deepen each wrinkle group (weights summed, then capped at 1). */
+export const WRINKLES: Record<WrinkleGroup, UnitWeights> = {
+  forehead: { ...both("eyebrows-*-up", 0.55), ...both("eyebrows-*-extern-up", 0.3), ...both("eyebrows-*-inner-up", 0.35), ...both("eye-*-opened-up", 0.15) },
+  frown: { ...both("eyebrows-*-down", 0.6), ...both("eyebrows-*-inner-up", 0.2), "nose-compression": 0.5, ...both("nose-*-elevation", 0.35) },
+  smile: { "mouth-corner-puller": 0.75, "mouth-upward-retraction": 0.25, ...both("eye-*-slit", 0.4), ...both("nose-*-elevation", 0.15) },
+};
+
+/**
+ * Wrinkle depth per group (forehead, frown, smile; 0..1) for face-unit weights, plus the lines
+ * age leaves at rest (from about 35, deepest at 85+). Writes into `out` when given.
+ */
+export function wrinkleWeights(units: Record<string, number>, ageYears = 25, out: [number, number, number] = [0, 0, 0]): [number, number, number] {
+  const age = Math.min(1, Math.max(0, (ageYears - 35) / 50));
+  const rest = [0.35, 0.25, 0.3];
+  WRINKLE_GROUPS.forEach((g, i) => {
+    let w = 0;
+    const map = WRINKLES[g];
+    for (const u in map) w += (units[u] ?? 0) * map[u];
+    out[i] = Math.min(1, Math.max(0, w) + rest[i] * age * age * (3 - 2 * age));
+  });
+  return out;
+}

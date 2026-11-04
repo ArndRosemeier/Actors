@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { type ActorShape, type Clip, type Fetcher, type MessagePortLike, deform } from "@actors/core";
-import { ADULT_MIN_AGE, BEARD_REGION, BEARD_STYLES, beardPaint, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, type FaceFrame, FaceAnimator, Human, type VisemeKey, type HumanParams, MAX_AGE, type PartsConfig, type RaceId, raceScale, sanitizeRace } from "@actors/human";
+import { ADULT_MIN_AGE, BEARD_REGION, BEARD_STYLES, beardPaint, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, type FaceFrame, FaceAnimator, Human, type VisemeKey, wrinkleWeights, type HumanParams, MAX_AGE, type PartsConfig, type RaceId, raceScale, sanitizeRace } from "@actors/human";
 import { type ActorMaterialKit, type ScreenTexturePool, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
 import { type ThemeFilter, filterCatalog } from "./themes";
 import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, type SkeletalLook, buildCatalog, defaultConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook, sanitizeSkeletalLook } from "./catalog";
@@ -96,6 +96,9 @@ export class Character {
   private eyePitch = 0;
   private gazeOverride: THREE.Vector3 | THREE.Object3D | null | undefined = undefined;
   private readonly gazePoint = new THREE.Vector3();
+  /** Face-unit weights of this frame, for the wrinkles (reused). */
+  private readonly wrinkleUnits: Record<string, number> = {};
+  private readonly wrinkleOut: [number, number, number] = [0, 0, 0];
   /** The camera a living face looks at with `gaze: "camera"` (default: `lodCamera`). */
   camera?: THREE.Camera;
   /** Seconds an expression takes to blend into the next one with the face rig. */
@@ -280,6 +283,7 @@ export class Character {
     const f = this.face;
     if (!f) {
       this.actor.setMorphWeight("blink", b);
+      if (this.cfg.wrinkles) this.updateWrinkles(null, frame);
       return;
     }
     f.t = Math.min(1, f.t + (this.expressionFade > 0 ? dt / this.expressionFade : 1));
@@ -297,6 +301,21 @@ export class Character {
         if (i !== undefined) f.out[i] += frame.units[u];
       }
     this.actor.setFaceUnits(f.out);
+    if (this.cfg.wrinkles) this.updateWrinkles(f, null);
+  }
+
+  /** Wrinkle depth from this frame's face units (the rig's), or the expression preset and the living face's units. */
+  private updateWrinkles(f: { units: string[]; out: Float32Array } | null, frame: FaceFrame | null): void {
+    const u = this.wrinkleUnits, c = this.cfg;
+    for (const k in u) u[k] = 0;
+    if (f) for (let i = 0; i < f.units.length; i++) u[f.units[i]] = f.out[i];
+    else {
+      const preset = EXPRESSIONS[c.expression] ?? {};
+      for (const k in preset) u[k] = preset[k] * c.expressionIntensity;
+      if (frame) for (const k in frame.units) u[k] = (u[k] ?? 0) + frame.units[k];
+    }
+    const w = wrinkleWeights(u, c.youth > 0 ? ADULT_MIN_AGE : c.body.ageYears, this.wrinkleOut);
+    this.actor.setWrinkles(w[0], w[1], w[2]);
   }
 
   /** World point the eyes look at now, or null for straight ahead. */
@@ -708,6 +727,7 @@ export class Character {
       this.actor.setMorphWeight("expression", c.expressionIntensity);
       this.applied.face = faceKey;
     }
+    if (!c.wrinkles) this.actor.setWrinkles(0, 0, 0);
     const living = c.faceAnimation && !c.robot && !c.skeletal;
     if (living && !this.animator) this.animator = new FaceAnimator();
     else if (!living && this.animator) {

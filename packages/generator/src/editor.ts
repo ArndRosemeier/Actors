@@ -493,6 +493,7 @@ export class CharacterEditor {
     detailed(this.slider(motion, "Intensity", 0, 1, 0.01, pct, (c) => c.expressionIntensity, (v) => set({ expressionIntensity: v }), "expressionIntensity"));
     detailed(this.check(motion, "Blink", (c) => c.blink, (v) => set({ blink: v }), "blink"));
     detailed(this.check(motion, "Face rig", (c) => c.faceRig, (v) => set({ faceRig: v }), "faceRig"));
+    detailed(this.check(motion, "Wrinkles", (c) => c.wrinkles, (v) => set({ wrinkles: v }), "wrinkles"));
     detailed(this.check(motion, "Living face", (c) => c.faceAnimation, (v) => set({ faceAnimation: v }), "faceAnimation"));
     detailed(this.check(motion, "Eyes follow camera", (c) => c.gaze === "camera", (v) => set({ gaze: v ? "camera" : "ahead" }), "gaze"));
     // Lip-sync test: speaks a line (needs the face rig and a living face).

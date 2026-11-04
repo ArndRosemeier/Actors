@@ -77,6 +77,10 @@ character.setFaceUnits({ "mouth-open": 0.4 }); // added on top of expression and
 
 The rig is built in the worker with each shape (all units at once) and kept sparse: only vertices a unit moves are stored, as half floats in one texture per character. A frame only uploads the unit weights; the vertex shader does the rest, on both renderers. It is off by default because it costs GPU memory (about 7 MB for MakeHuman's 34 units: 12,800 moved vertices) and time per shape change (about 0.1 s extra in the worker); robots and skeletons don't use it.
 
+### Wrinkles
+
+`wrinkles: true` draws expression wrinkles in the skin shader: forehead lines when the brows go up, the vertical lines between the brows and the line across the nose root when they go down or the nose wrinkles, crow's feet and the nasolabial fold when the face smiles or squints. Their depth follows the face units every frame (the expression, the face rig and the living face alike), and older faces keep some at rest. The crease patterns are drawn once by the importer into the skin's third mask (`skin_mask_c.png`, green, blue and alpha); the shader reads the depth and its slope there and shades the creases a little. While no wrinkle shows it costs nothing; while one does, four extra texture reads per skin pixel. `ThreeActor.setWrinkles(forehead, frown, smile)` and `wrinkleWeights` in `@actors/human` drive them directly.
+
 ### Living face
 
 `faceAnimation` makes the face move on its own: natural blinks (varied speed, now and then a double or a half blink), small eye jumps while looking at something and now and then a glance away, eyes that turn toward the camera or any point (each eye on its own, so near points make them converge), upper lids that follow the eyes down and up, slow idle movement of brows, mouth corners and nostrils, and lip-sync. The eyes turn with or without the face rig; lids, idle movement and lip-sync need `faceRig` too.

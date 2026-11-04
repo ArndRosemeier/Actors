@@ -1678,6 +1678,15 @@ export class ThreeActor {
     if ([...this.shown].some((n) => this.usesColliders(this.data.get(n)!))) this.updateColliders();
   }
 
+  /**
+   * Expression wrinkle depth (forehead, frown, smile; 0..1 each, see `wrinkleWeights` in
+   * `@actors/human`) drawn by the skin shader; all 0 (the default) costs nothing. Needs a pack with
+   * wrinkle masks (0.26.0 and later).
+   */
+  setWrinkles(forehead: number, frown: number, smile: number): void {
+    this.skin.uWrinkle.value.set(forehead, frown, smile);
+  }
+
   /** Limits of the eyes' turn from straight ahead, in radians. */
   static readonly EYE_LIMITS = { yaw: 0.6, up: 0.35, down: 0.5 };
 

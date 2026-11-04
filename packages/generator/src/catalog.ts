@@ -305,6 +305,12 @@ export interface CharacterConfig {
   faceAnimation: boolean;
   /** Where a living face looks: straight ahead, or at the camera (`Character.camera`, else `lodCamera`). */
   gaze: "ahead" | "camera";
+  /**
+   * Expression wrinkles in the skin shader: forehead lines when the brows go up, frown lines
+   * between them, crow's feet and smile folds; older faces keep some at rest. Follows the
+   * expression and the face rig. A few texture reads per skin pixel while a wrinkle shows; off by default.
+   */
+  wrinkles: boolean;
   /** "high" = subdivided body, "low" = base mesh. */
   detail: "high" | "low";
   /**
@@ -553,6 +559,7 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     faceRig: false,
     faceAnimation: false,
     gaze: "camera",
+    wrinkles: false,
     detail: "high",
     robot: false,
     robotLook: { ...DEFAULT_ROBOT_LOOK },
