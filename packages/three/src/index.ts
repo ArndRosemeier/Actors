@@ -5,6 +5,8 @@ import {
   type AxisClip,
   type Clip,
   type FaceRig,
+  faceSpace,
+  followsFace,
   type FingerCurl,
   type FittedSkeleton,
   type Pose,
@@ -79,7 +81,7 @@ export interface MaterialFactory {
 export const defaultMaterials: MaterialFactory = (data, actor) => {
   const { def } = data;
   const color = new THREE.Color(...(def.material.color ?? [0.8, 0.8, 0.8]));
-  const tex = (key: "color" | "normal" | "maskA" | "maskB", srgb = false) => {
+  const tex = (key: "color" | "normal" | "maskA" | "maskB" | "maskC", srgb = false) => {
     const file = def.textures?.[key];
     if (!file) return null;
     return actor.texture(file, srgb);
@@ -89,14 +91,15 @@ export const defaultMaterials: MaterialFactory = (data, actor) => {
       const u = actor.skin;
       u.uMaskA.value ??= tex("maskA");
       u.uMaskB.value ??= tex("maskB");
+      u.uMaskC.value ??= tex("maskC");
       return createSkinMaterial(u);
     }
     case "eye":
       return createEyeMaterial(tex("color", true), actor.eye);
     case "teeth":
-      return createWetMaterial(srgb(0.92, 0.89, 0.8), 0.25);
+      return createWetMaterial(srgb(0.92, 0.89, 0.8), def.material.roughness ?? 0.25, tex("color", true), !!data.attributes?.color);
     case "mouth":
-      return createWetMaterial(srgb(0.75, 0.38, 0.38), 0.4);
+      return createWetMaterial(srgb(0.75, 0.38, 0.38), def.material.roughness ?? 0.4, tex("color", true), !!data.attributes?.color);
     case "hair":
       if (def.textures?.color) {
         const mat = createHairMaterial(tex("color", true), def.tags?.includes("brows"));
@@ -486,9 +489,9 @@ export class ThreeActor {
         }
       }
       g.setIndex(new THREE.BufferAttribute(data.indices, 1));
-      // Face morph channels only on base-following meshes (body, lashes, teeth...), not garments.
+      // Face morph channels only on meshes that follow the face (body, lashes, teeth, brows ...), not garments.
       // (Animals have no faces to animate: no channels, which also keeps a fur body under WebGPU's 16 vertex attributes.)
-      const morphable = data.def.source.kind === "base" && data.def.role !== "garment" && !this.runtime.manifest.extra?.animal;
+      const morphable = this.morphable(data);
       const attributeMorphs = morphable && !!this.kit.attributeMorphs;
       if (attributeMorphs) {
         addMorphAttributes(g, n, ThreeActor.MORPHS.length, true);
@@ -518,7 +521,7 @@ export class ThreeActor {
       if (this.hairColor !== undefined && data.def.role === "hair") this.setHairColor(this.hairColor);
       if (this.lastShape && this.includes(this.lastShape, data)) this.writePositions(data, this.lastShape);
       if (morphable) for (const [channel, delta] of this.lastDeltas) this.fillMorph(mesh, data, ThreeActor.MORPHS.indexOf(channel as (typeof ThreeActor.MORPHS)[number]), delta);
-      if (morphable && this.rig) this.applyFaceRig(mesh, this.rig.slots.size ? faceSlotsFor(this.rig, data.stencil ? data.def.name : BASE_SPACE, data.map) : null);
+      if (morphable && this.rig) this.applyFaceRig(mesh, faceSlotsFor(this.rig, faceSpace(data), data.map));
       return mesh;
     }
   }
@@ -1142,7 +1145,7 @@ export class ThreeActor {
     if (!arrays) return;
     const mp = arrays.positions;
     const mn = arrays.normals!;
-    const src = delta && (data.stencil ? delta.meshes.get(data.def.name) : delta);
+    const src = delta && (data.stencil || data.def.source.kind === "proxy" ? delta.meshes.get(data.def.name) : delta);
     const map = data.map;
     if (!src) {
       clearDeltas(mp, map.length);
@@ -1172,7 +1175,7 @@ export class ThreeActor {
     if (!rig && !had) return;
     for (const data of this.rendered) {
       const mesh = this.meshes.get(data.def.name);
-      if (mesh && this.morphable(data)) this.applyFaceRig(mesh, rig ? faceSlotsFor(rig, data.stencil ? data.def.name : BASE_SPACE, data.map) : null);
+      if (mesh && this.morphable(data)) this.applyFaceRig(mesh, rig ? faceSlotsFor(rig, faceSpace(data), data.map) : null);
     }
     this.applyPartsRig(rig);
   }
@@ -1208,7 +1211,7 @@ export class ThreeActor {
   }
 
   private morphable(data: MeshData): boolean {
-    return data.def.source.kind === "base" && data.def.role !== "garment" && !this.runtime.manifest.extra?.animal;
+    return followsFace(data.def) && !this.runtime.manifest.extra?.animal;
   }
 
   /** Gives one mesh its face slots (null: none) and its material the rig shader. */

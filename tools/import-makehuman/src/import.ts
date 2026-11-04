@@ -366,14 +366,14 @@ async function main() {
     lods: [0, 1],
     lodOf: "body",
     material: skinMaterial,
-    textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png" },
+    textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png", maskC: "textures/skin_mask_c.png" },
   });
   addSubdividedMesh("body", "body-low", {
     role: "body",
     slot: "body",
     lods: [0],
     material: skinMaterial,
-    textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png" },
+    textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png", maskC: "textures/skin_mask_c.png" },
   });
   addBaseMesh("genitals-male-low", facesOf("helper-genital"), {
     role: "bodypart",
@@ -382,17 +382,15 @@ async function main() {
     lodOf: "genitals-male",
     material: skinMaterial,
     tags: ["anatomy", "male"],
-    textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png" },
+    textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png", maskC: "textures/skin_mask_c.png" },
   });
   addSubdividedMesh("genitals-male", "genitals-male-low", {
     role: "bodypart",
     lods: [0],
     material: skinMaterial,
     tags: ["anatomy", "male"],
-    textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png" },
+    textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png", maskC: "textures/skin_mask_c.png" },
   });
-  addBaseMesh("teeth", facesOf("helper-upper-teeth", "helper-lower-teeth"), { role: "bodypart", lods: [0], material: { kind: "teeth", color: [0.92, 0.9, 0.84], roughness: 0.25 } });
-  addBaseMesh("tongue", facesOf("helper-tongue"), { role: "bodypart", lods: [0], material: { kind: "mouth", color: [0.62, 0.3, 0.3], roughness: 0.35 } });
   addBaseMesh(
     "eyelashes",
     facesOf("helper-l-eyelashes-1", "helper-l-eyelashes-2", "helper-r-eyelashes-1", "helper-r-eyelashes-2"),
@@ -439,6 +437,45 @@ async function main() {
     textures: { color: "textures/eye_brown.png" },
   });
 
+  // Teeth and tongue: MakeHuman's CC0 proxies (modelled teeth and gums with a texture, a textured
+  // tongue), bound to the base mesh's teeth and tongue helpers, so mouth units move them. Each
+  // vertex gets a shade (`color`) that darkens with depth behind the front teeth: the mouth is a
+  // cavity little light reaches, and lit molars and the back of the tongue read as a white block.
+  const addMouthPart = (dir: string, id: string, name: string, kind: "teeth" | "mouth", roughness: number, darkest: number, brightest = 1) => {
+    const clo = parseMhclo(fetchZipText(CACHE, SYSTEM_ASSETS, `${dir}/${id}/${id}.mhclo`));
+    const cloObj = parseObj(fetchZipText(CACHE, SYSTEM_ASSETS, `${dir}/${id}/${clo.objFile}`));
+    const mhmat = fetchZipText(CACHE, SYSTEM_ASSETS, `${dir}/${id}/${clo.material ?? `${id}.mhmat`}`);
+    const diffuse = mhmat.match(/^diffuseTexture\s+(\S+)/m)?.[1];
+    if (!diffuse) throw new Error(`${dir}/${id}: no diffuse texture`);
+    const file = `textures/${name}.png`;
+    const mean = writeRgbaDownsampled(fetchZipEntry(CACHE, SYSTEM_ASSETS, `${dir}/${id}/${diffuse}`), join(out, file), 1024);
+    const m = addProxy(name, clo, cloObj);
+    let front = -Infinity;
+    for (let i = 2; i < cloObj.positions.length; i += 3) front = Math.max(front, cloObj.positions[i]);
+    const shade = new Float32Array(m.map.length * 3);
+    for (let i = 0; i < m.map.length; i++) {
+      // Depth behind the front teeth in metres; dark from about 3 cm back.
+      const depth = (front - cloObj.positions[m.map[i] * 3 + 2]) * SCALE;
+      const t = Math.min(1, Math.max(0, depth / 0.03));
+      shade.fill(brightest - (brightest - darkest) * t * t * (3 - 2 * t), i * 3, i * 3 + 3);
+    }
+    meshes.push({
+      name,
+      source: { kind: "proxy", proxy: name },
+      role: "bodypart",
+      baseIndex: blob.add("u32", m.map),
+      uv: blob.add("f32", m.uv),
+      indices: blob.add("u32", m.indices),
+      lods: [0],
+      material: { kind, color: mean, roughness },
+      textures: { color: file },
+      attributes: { color: { data: blob.add("f32", shade), size: 3 } },
+    });
+  };
+  addMouthPart("teeth", "teeth_base", "teeth", "teeth", 0.3, 0.18);
+  // The tongue lies under the upper teeth and lip: in their shade even at its tip.
+  addMouthPart("tongue", "tongue01", "tongue", "mouth", 0.4, 0.12, 0.55);
+
   // Crowd body: MakeHuman's CC0 741-vertex proxy, bound to the base mesh like a garment (so it
   // follows every morph) and sharing the skin's UV layout (photo skins and masks still apply).
   const crowdDir = "proxymeshes/proxy741";
@@ -456,7 +493,7 @@ async function main() {
     uv: blob.add("f32", crowd.uv),
     indices: blob.add("u32", crowd.indices),
     material: skinMaterial,
-    textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png" },
+    textures: { maskA: "textures/skin_mask_a.png", maskB: "textures/skin_mask_b.png", maskC: "textures/skin_mask_c.png" },
   });
   console.log(`Crowd body: ${crowdObj.positions.length / 3} vertices, ${crowd.indices.length / 3} triangles`);
 
@@ -822,9 +859,46 @@ async function main() {
     }
   }
   const brows: Gray = blurGray(browRaw, 1);
+  // Mouth cavity: how deep each skin vertex around the mouth sits behind the skin in front of it
+  // (a ray along +Z from it hits the lips or cheeks). Inside the mouth little light gets in; the
+  // skin shader darkens it, which keeps an open mouth from showing a bright pink bag.
+  const mouthCavity = (): Gray => {
+    const teeth = [...(groupVerts.get("helper-upper-teeth") ?? []), ...(groupVerts.get("helper-lower-teeth") ?? [])];
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity;
+    for (const v of teeth) (x0 = Math.min(x0, P[v * 3])), (x1 = Math.max(x1, P[v * 3])), (y0 = Math.min(y0, P[v * 3 + 1])), (y1 = Math.max(y1, P[v * 3 + 1])), (z0 = Math.min(z0, P[v * 3 + 2]));
+    const margin = 0.015;
+    const near = (v: number) => P[v * 3] > x0 - margin && P[v * 3] < x1 + margin && P[v * 3 + 1] > y0 - margin && P[v * 3 + 1] < y1 + margin;
+    // The mouth itself: within the teeth's width and no lower than the lower teeth (the skin under
+    // the jaw also has skin in front of it, but it is outside).
+    const inBox = (v: number) => near(v) && Math.abs(P[v * 3]) < Math.max(-x0, x1) && P[v * 3 + 1] > y0 - 0.004 && P[v * 3 + 2] > z0 - 0.05;
+    const tris: number[][] = [];
+    for (const f of facesOf("body")) if (f.v.some(near)) for (let i = 1; i + 1 < f.v.length; i++) tris.push([f.v[0], f.v[i], f.v[i + 1]]);
+    const depth = new Map<number, number>();
+    for (const f of facesOf("body"))
+      for (const v of f.v) {
+        if (depth.has(v) || !inBox(v)) continue;
+        const [px, py, pz] = [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]];
+        let best = Infinity;
+        for (const t of tris) {
+          if (t.includes(v)) continue;
+          // Ray (px, py, pz) + s * (0, 0, 1) against the triangle, in the XY plane.
+          const [a, b, c] = t.map((w) => [P[w * 3], P[w * 3 + 1], P[w * 3 + 2]]);
+          const d = (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1]);
+          if (Math.abs(d) < 1e-12) continue;
+          const u = ((px - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (py - a[1])) / d;
+          const w = ((b[0] - a[0]) * (py - a[1]) - (px - a[0]) * (b[1] - a[1])) / d;
+          if (u < 0 || w < 0 || u + w > 1) continue;
+          const z = a[2] + u * (b[2] - a[2]) + w * (c[2] - a[2]);
+          if (z > pz + 1e-4 && z - pz < 0.12) best = Math.min(best, z - pz);
+        }
+        depth.set(v, best === Infinity ? 0 : smooth(0.002, 0.015, best));
+      }
+    return blurGray(rasterizeUV(MASK_SIZE, bodyTris((v) => depth.get(v) ?? 0)), 1);
+  };
   writeRgbaPng(join(out, "textures/skin_mask_a.png"), [mask("lips"), mask("aureolae"), maxGray(mask("fingernails"), mask("toenails")), mask("eyelids")]);
   const genitalsMask = mask("genitals");
   writeRgbaPng(join(out, "textures/skin_mask_b.png"), [genitalsMask, mask("crotch"), mask("ears"), brows]);
+  writeRgbaPng(join(out, "textures/skin_mask_c.png"), [mouthCavity(), blankGray(MASK_SIZE), blankGray(MASK_SIZE), blankGray(MASK_SIZE)]);
   // UV box of the genital region (for procedural detail in the skin shader).
   let gb = [1, 1, 0, 0];
   for (let y = 0; y < MASK_SIZE; y++)
@@ -837,8 +911,8 @@ async function main() {
   // --- Targets ----------------------------------------------------------------
   const targets: TargetRef[] = [];
   let targetBytes = 0;
-  const writeTarget = (name: string, group: string, file: string): boolean => {
-    const t = readTarget(file);
+  const writeTarget = (name: string, group: string, file: string, fix?: (t: { indices: number[]; deltas: number[] }) => { indices: number[]; deltas: number[] }): boolean => {
+    const t = fix ? fix(readTarget(file)) : readTarget(file);
     if (!t.indices.length) return false;
     const enc = encodeTarget(t.indices, t.deltas, vertexCount);
     const fileName = `targets/${name.replace(/[^a-z0-9-]+/gi, "_")}.bin`;
@@ -888,13 +962,40 @@ async function main() {
     }
   }
 
+  // The tongue rests on the lower jaw, but MakeHuman's units barely move it: "mouth-open" drops the
+  // lower teeth 3 cm and the tongue a few millimetres, leaving it in the air. Each tongue vertex
+  // also takes the mean motion of its four nearest lower-teeth vertices.
+  const lowerTeeth = groupVerts.get("helper-lower-teeth") ?? [];
+  const tongueNear = new Map<number, number[]>();
+  for (const v of groupVerts.get("helper-tongue") ?? []) {
+    const d2 = (w: number) => (P[v * 3] - P[w * 3]) ** 2 + (P[v * 3 + 1] - P[w * 3 + 1]) ** 2 + (P[v * 3 + 2] - P[w * 3 + 2]) ** 2;
+    tongueNear.set(v, [...lowerTeeth].sort((a, b) => d2(a) - d2(b)).slice(0, 4));
+  }
+  const tongueOnJaw = (t: { indices: number[]; deltas: number[] }) => {
+    const delta = new Map<number, [number, number, number]>();
+    t.indices.forEach((v, i) => delta.set(v, [t.deltas[i * 3], t.deltas[i * 3 + 1], t.deltas[i * 3 + 2]]));
+    if (!lowerTeeth.some((v) => delta.has(v))) return t;
+    for (const [v, near] of tongueNear) {
+      const jaw = [0, 0, 0];
+      for (const w of near) {
+        const d = delta.get(w);
+        if (d) for (let c = 0; c < 3; c++) jaw[c] += d[c] / near.length;
+      }
+      if (Math.hypot(jaw[0], jaw[1], jaw[2]) < 1e-6) continue;
+      const own = delta.get(v) ?? [0, 0, 0];
+      delta.set(v, [own[0] + jaw[0], own[1] + jaw[1], own[2] + jaw[2]]);
+    }
+    const indices = [...delta.keys()].sort((a, b) => a - b);
+    return { indices, deltas: indices.flatMap((v) => delta.get(v)!) };
+  };
+
   // Facial expression units (per ethnicity; blended by the ethnicity mix at runtime).
   const units = new Set<string>();
   for (const eth of ["african", "asian", "caucasian"]) {
     const dir = join(data, "targets/expression/units", eth);
     for (const f of readdirSync(dir).sort()) {
       const unit = f.replace(".target.gz", "");
-      if (writeTarget(`expression/${eth}/${unit}`, "expression", join(dir, f))) units.add(unit);
+      if (writeTarget(`expression/${eth}/${unit}`, "expression", join(dir, f), tongueOnJaw)) units.add(unit);
     }
   }
 

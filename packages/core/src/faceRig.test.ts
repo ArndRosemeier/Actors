@@ -36,13 +36,18 @@ describe("face rig", () => {
     ["ta", { indices: Uint32Array.from([4]), deltas: Int16Array.from([0, 0, 100]), scale: 0.0001, count: 1 }],
     ["tb", { indices: Uint32Array.from([0, 8]), deltas: Int16Array.from([50, 0, 0, 0, 0, -30]), scale: 0.0001, count: 2 }],
   ]);
-  const runtime = { meshes, targets } as unknown as ActorRuntime;
+  // A face proxy ("teeth": two vertices, each bound to three grid vertices) and a hair proxy that doesn't follow the face.
+  const binding = (n: number) => ({ def: { name: "p", vertexCount: n }, refs: Uint32Array.from([4, 5, 1, 7, 8, 5].slice(0, n * 3)), weights: Float32Array.from([0.5, 0.25, 0.25, 0.6, 0.2, 0.2].slice(0, n * 3)), offsets: new Float32Array(n * 3) });
+  const proxies = new Map([["teeth", binding(2)], ["hair", binding(2)]]);
+  meshes.push(mesh("teeth", { def: { name: "teeth", source: { kind: "proxy", proxy: "teeth" }, role: "bodypart" }, map: iota(2), indices: Uint32Array.from([0, 1, 1]) }));
+  meshes.push(mesh("hair", { def: { name: "hair", source: { kind: "proxy", proxy: "hair" }, role: "hair" }, map: iota(2), indices: Uint32Array.from([0, 1, 1]) }));
+  const runtime = { meshes, targets, proxies } as unknown as ActorRuntime;
   const hi = applyStencil(stencil, grid);
   const lists = (name: string) => meshes.filter((m) => m.def.name === name) as unknown as { indices: Uint32Array; map: Uint32Array }[];
   const shape = {
     positions: grid,
     normals: computeNormals(grid, 9, lists("base")),
-    proxies: new Map(),
+    proxies: new Map([["teeth", { positions: new Float32Array(6), normals: new Float32Array(6) }], ["hair", { positions: new Float32Array(6), normals: new Float32Array(6) }]]),
     meshes: new Map([["body-hi", { positions: hi, normals: computeNormals(hi, 10, lists("body-hi")) }], ["skirt", { positions: hi, normals: computeNormals(hi, 10, lists("skirt")) }]]),
   } as unknown as ActorShape;
   const units: [string, Map<string, number>][] = [["a", new Map([["ta", 1]])], ["b", new Map([["tb", 0.5]])]];
@@ -79,6 +84,18 @@ describe("face rig", () => {
     }
     // The midpoint row moves with vertex 4 (half of it).
     expect(rig.slots.get("body-hi")![9]).toBeGreaterThan(0);
+  });
+
+  it("moves face proxies with the base vertices they are bound to", () => {
+    const rig = buildFaceRig(runtime, shape, units, null);
+    expect(rig.slots.has("proxy:teeth")).toBe(true);
+    expect(rig.slots.has("proxy:hair")).toBe(false); // hair doesn't follow the face
+    const s = rig.slots.get("proxy:teeth")!;
+    // Unit "a" lifts base vertex 4 by 1 cm: teeth vertex 0 (half bound to it) by 5 mm; vertex 1 is bound to 7, 8, 5.
+    const z = (v: number, k: number) => fromHalf(rig.data[((s[v] - 1) * 2 + k) * 8 + 2]);
+    expect(z(0, 0)).toBeCloseTo(0.005, 5);
+    // Unit "b" moves vertex 8 by -1.5 mm (half weight): teeth vertex 1 by 0.2 of that.
+    expect(z(1, 1)).toBeCloseTo(-0.0003, 5);
   });
 
   it("gives no slots to vertices nothing moves", () => {

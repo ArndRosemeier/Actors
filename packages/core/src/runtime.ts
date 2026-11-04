@@ -62,6 +62,21 @@ export function applyStencil(stencil: NonNullable<MeshData["stencil"]>, base: Fl
   return result;
 }
 
+/**
+ * Whether a mesh moves with the face (expressions, blinking): base-following meshes other than
+ * garments (body, lashes ...) and the proxies that sit on the face (teeth, tongue, eyebrows).
+ */
+export function followsFace(def: MeshDef): boolean {
+  if (def.role === "garment") return false;
+  return def.source.kind === "base" || def.role === "bodypart" || !!def.tags?.includes("brows");
+}
+
+/** The vertex space a mesh's vertices index (see FaceRig.slots): "" the base mesh, a stencil mesh's name, or "proxy:" and the proxy's name. */
+export function faceSpace(m: MeshData): string {
+  if (m.stencil) return m.def.name;
+  return m.def.source.kind === "proxy" ? `proxy:${m.def.source.proxy}` : "";
+}
+
 /** Everything that changes when the shape changes. */
 export interface ActorShape {
   /** Base shape positions and normals (per shape vertex). */
@@ -412,7 +427,8 @@ export class ActorRuntime {
    * mesh. Meant for GPU morph targets (facial expressions, blinking) that are
    * blended every frame without re-evaluating the whole shape. Proxies and the
    * skeleton are not affected. All weighted targets must already be loaded.
-   * `only`: the stencil meshes to include (default: all of the shape's).
+   * `meshes` holds the stencil meshes and the face proxies (see `followsFace`) by mesh name;
+   * `only`: the meshes to include there (default: all of the shape's).
    */
   surfaceDelta(shape: ActorShape, weights: Map<string, number>, only?: Set<string>): SurfaceDelta {
     const positions = Float32Array.from(shape.positions);
@@ -435,6 +451,17 @@ export class ActorRuntime {
       const p = applyStencil(m.stencil, positions);
       const n = computeNormals(p, m.stencil.rows, [m]);
       meshes.set(m.def.name, { positions: sub(p, cur.positions), normals: sub(n, cur.normals) });
+    }
+    // Proxies on the face (teeth, tongue, brows): refitted, under each mesh drawn from them.
+    for (const [name, binding] of this.proxies) {
+      const cur = shape.proxies.get(name);
+      const lists = this.meshes.filter((m) => m.def.source.kind === "proxy" && m.def.source.proxy === name);
+      const users = lists.filter((m) => followsFace(m.def) && (!only || only.has(m.def.name)));
+      if (!cur || !users.length) continue;
+      const p = fitProxy(binding, positions);
+      const n = computeNormals(p, binding.def.vertexCount, lists);
+      const d = { positions: sub(p, cur.positions), normals: sub(n, cur.normals) };
+      for (const m of users) meshes.set(m.def.name, d);
     }
     return { positions: sub(positions, shape.positions), normals: sub(normals, shape.normals), meshes };
   }

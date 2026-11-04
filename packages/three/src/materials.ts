@@ -15,6 +15,8 @@ export interface SkinUniforms {
   uTone: { value: THREE.Color };
   uMaskA: { value: THREE.Texture | null };
   uMaskB: { value: THREE.Texture | null };
+  /** Third region mask: r the mouth cavity (darkened; see the importer). */
+  uMaskC: { value: THREE.Texture | null };
   uLip: { value: THREE.Color };
   uAreola: { value: THREE.Color };
   uBrowColor: { value: THREE.Color };
@@ -47,6 +49,7 @@ export function createSkinUniforms(): SkinUniforms {
     uTone: { value: srgb(0.8, 0.6, 0.5) }, // until setSkinTone
     uMaskA: { value: null },
     uMaskB: { value: null },
+    uMaskC: { value: null },
     // Lip and areola are factors on the tone (linear); brow, accent and stubble dark linear colours.
     uLip: { value: new THREE.Color(1.0, 0.62, 0.62) },
     uAreola: { value: new THREE.Color(0.78, 0.58, 0.52) },
@@ -71,6 +74,7 @@ const SKIN_FRAG_PARS = /* glsl */ `
 uniform vec3 uTone;
 uniform sampler2D uMaskA;
 uniform sampler2D uMaskB;
+uniform sampler2D uMaskC;
 uniform vec3 uLip;
 uniform vec3 uAreola;
 uniform vec3 uBrowColor;
@@ -140,6 +144,8 @@ if ( uPattern.x > 0.5 ) tone = skinPattern( tone, mA.r, mA.b );
 vec2 gl = genitalLocal();
 float inner = exp( -pow( gl.x / 0.11, 2.0 ) ) * smoothstep( 0.95, 0.5, abs( gl.y + 0.08 ) ) * mB.r * uFemale;
 tone = mix( tone, tone * vec3( 0.62, 0.36, 0.36 ), inner );
+// Inside the mouth little light gets in.
+tone *= mix( 1.0, 0.2, texture2D( uMaskC, vSkinUv ).r );
 diffuseColor.rgb *= tone;
 `;
 
@@ -414,8 +420,12 @@ export function createAlphaDepthMaterial(map: THREE.Texture | null): THREE.MeshD
   return useDualQuaternionSkinning(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map, alphaTest: 0.35 }));
 }
 
-export function createWetMaterial(color: THREE.Color, roughness: number): THREE.MeshPhysicalMaterial {
-  return useDualQuaternionSkinning(new THREE.MeshPhysicalMaterial({ color, roughness, clearcoat: 0.6, clearcoatRoughness: 0.2 }));
+/**
+ * Wet surfaces in the mouth (teeth, tongue). `map`: their texture; `shaded`: the mesh has a `color`
+ * attribute that darkens it with depth inside the mouth.
+ */
+export function createWetMaterial(color: THREE.Color, roughness: number, map: THREE.Texture | null = null, shaded = false): THREE.MeshPhysicalMaterial {
+  return useDualQuaternionSkinning(new THREE.MeshPhysicalMaterial({ color: map ? new THREE.Color(1, 1, 1) : color, map, vertexColors: shaded, roughness, clearcoat: 0.6, clearcoatRoughness: 0.2 }));
 }
 
 /** Shadow-map material with the same dual-quaternion skinning (so shadows match the mesh). */

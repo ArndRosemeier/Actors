@@ -6,11 +6,11 @@
  * `data` in one texture (RGBA half floats, `width` texels per row); texel
  * `(slot * units.length + u) * 2` holds unit u's position delta for that slot, the next texel its
  * normal delta. Each drawn vertex carries its slot + 1 (0: no unit moves it), looked up from
- * `slots` by its vertex space and source index.
+ * `slots` by its vertex space (see `faceSpace`) and source index.
  *
  * Renderer-free; built in the shape worker (see ActorRuntime.surfaceDelta).
  */
-import type { ActorRuntime, ActorShape, MeshData } from "./runtime";
+import { type ActorRuntime, type ActorShape, type MeshData, followsFace } from "./runtime";
 
 /** The base mesh's vertex space in `FaceRig.slots`. */
 export const BASE_SPACE = "";
@@ -100,7 +100,7 @@ interface Space {
 }
 
 /** Topologies and transposed stencils only depend on the pack: kept per runtime and set of meshes. */
-const cache = new WeakMap<ActorRuntime, Map<string, { topo: Topology; byBase?: { ptr: Uint32Array; rows: Uint32Array } }>>();
+const cache = new WeakMap<ActorRuntime, Map<string, { topo: Topology; byBase?: { ptr: Uint32Array; rows: Uint32Array }; st?: NonNullable<MeshData["stencil"]> }>>();
 
 /** A unit's sparse deltas in one space: moved vertices and their position and normal deltas. */
 interface SparseDelta {
@@ -111,7 +111,8 @@ interface SparseDelta {
 
 /**
  * Builds a face rig on top of `shape`: `units` are pairs of a unit name and its pack target
- * weights. `spaces`: stencil meshes to include besides the base mesh (null: all of the shape's).
+ * weights. `spaces`: the vertex spaces to include besides the base mesh (stencil mesh names and
+ * "proxy:" names, see `faceSpace`; null: every stencil mesh of the shape and every face proxy).
  * All weighted targets must already be loaded.
  *
  * Works locally: a unit's targets move a few hundred vertices, so only those, the normals around
@@ -134,6 +135,20 @@ export function buildFaceRig(runtime: ActorRuntime, shape: ActorShape, units: [s
     let c = perRuntime.get(m.def.name);
     if (!c) perRuntime.set(m.def.name, (c = { topo: topology(m.stencil.rows, [m]), byBase: transpose(m.stencil, baseCount) }));
     all.push({ name: m.def.name, count: m.stencil.rows, topo: c.topo, positions: cur.positions, normals: cur.normals, stencil: { st: m.stencil, byBase: c.byBase! } });
+  }
+  // Proxies on the face (teeth, tongue, brows): each vertex is a weighted sum of three base vertices.
+  for (const [name, binding] of runtime.proxies) {
+    const space = `proxy:${name}`;
+    const cur = shape.proxies.get(name);
+    if (!cur || (wanted ? !wanted.has(space) : !runtime.meshes.some((m) => m.def.source.kind === "proxy" && m.def.source.proxy === name && followsFace(m.def)))) continue;
+    const n = binding.def.vertexCount;
+    let c = perRuntime.get(space);
+    if (!c) {
+      const lists = runtime.meshes.filter((m) => m.def.source.kind === "proxy" && m.def.source.proxy === name);
+      const st = { rows: n, rowPtr: Uint32Array.from({ length: n + 1 }, (_, i) => i * 3), cols: binding.refs, weights: binding.weights };
+      perRuntime.set(space, (c = { topo: topology(n, lists), byBase: transpose(st, baseCount), st }));
+    }
+    all.push({ name: space, count: n, topo: c.topo, positions: cur.positions, normals: cur.normals, stencil: { st: c.st!, byBase: c.byBase! } });
   }
 
   // Scratch per space: positions with one unit applied (restored after each unit), its position
