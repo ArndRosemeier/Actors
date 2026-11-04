@@ -223,6 +223,7 @@ const textureLoader = new THREE.TextureLoader();
 
 export type PlayableClip = AxisClip | Clip;
 const gripTurn = new THREE.Quaternion(), gripAxis = new THREE.Vector3();
+const _eyeDir = new THREE.Vector3();
 const isRetargetClip = (c: PlayableClip): c is Clip => "def" in c;
 
 /**
@@ -300,6 +301,16 @@ export class ThreeActor {
   readonly eye: EyeUniforms = { uIrisHue: { value: -1 }, uIrisSat: { value: 1 }, uIrisLight: { value: 1 }, uPupil: { value: new THREE.Vector4(0, 0.5, 0, 0) } };
   /** The face rig's texture, unit weights and switch, shared by the actor's materials (see `setFaceRig`). */
   readonly face: FaceRigUniforms = createFaceRigUniforms();
+  /** Eye bones (see `enableEyes`): bind-pose centres, rest axes in the head's frame, the current aim. */
+  private eyes: {
+    bones: [THREE.Bone, THREE.Bone];
+    heads: [THREE.Vector3, THREE.Vector3];
+    fwd: THREE.Vector3;
+    up: THREE.Vector3;
+    side: THREE.Vector3;
+    yaw: [number, number];
+    pitch: [number, number];
+  } | null = null;
   private rig: FaceRig | null = null;
   /** Morph channels for face animation (GPU-blended every frame). */
   static readonly MORPHS = ["expression", "blink"] as const;
@@ -522,6 +533,7 @@ export class ThreeActor {
       if (this.lastShape && this.includes(this.lastShape, data)) this.writePositions(data, this.lastShape);
       if (morphable) for (const [channel, delta] of this.lastDeltas) this.fillMorph(mesh, data, ThreeActor.MORPHS.indexOf(channel as (typeof ThreeActor.MORPHS)[number]), delta);
       if (morphable && this.rig) this.applyFaceRig(mesh, faceSlotsFor(this.rig, faceSpace(data), data.map));
+      if (this.eyes && data.def.role === "eyes" && this.lastShape) this.skinEyes(mesh, data);
       return mesh;
     }
   }
@@ -556,6 +568,11 @@ export class ThreeActor {
         this.extraHeads.set(bone, new THREE.Vector3(...b.head));
       }
     const skeletonChanged = hadExtra || this.extraHeads.size > 0;
+    // Eye bones (see enableEyes) come last, after the part bones that parts index from the pack's end.
+    if (this.eyes) {
+      this.bones.push(...this.eyes.bones);
+      this.reskinEyes();
+    }
     if (skeletonChanged && this.skeleton) this.skeleton = new RootSkeleton(this.bones, this.object);
     for (const part of parts) {
       const material = this.kit.part(part, this);
@@ -1057,6 +1074,7 @@ export class ThreeActor {
     // Which meshes the shape includes decides what is drawn; the skin cut is redone either way.
     this.shownKey = "";
     this.updateVisibility();
+    this.measureEyes(shape);
     if (shape.skeleton && this.skeleton) this.rebind(shape.skeleton);
     if (shape.skeleton) this.measureLegs(shape);
     if (this.crowdDirty) this.buildCrowd();
@@ -1542,11 +1560,25 @@ export class ThreeActor {
       this.bones[i].position.fromArray(f.localPositions[i]);
     });
     for (const bone of this.extraHeads.keys()) bone.quaternion.identity();
+    for (const bone of this.eyes?.bones ?? []) bone.quaternion.identity();
   }
 
   /** Puts extra (part) bones at their bind-pose heads, unrotated relative to their parents. Pack bones must be in the bind pose. */
   private placeExtraBones(): void {
     const sway = new THREE.Quaternion();
+    if (this.eyes) {
+      const e = this.eyes, head = e.bones[0].parent as THREE.Bone;
+      // Forward (+Z) and up (+Y) of the body, in the head's frame at bind: the eyes' rest direction.
+      const inv = head.getWorldQuaternion(sway).invert().multiply(this.object.getWorldQuaternion(new THREE.Quaternion()));
+      e.fwd.set(0, 0, 1).applyQuaternion(inv);
+      e.up.set(0, 1, 0).applyQuaternion(inv);
+      e.side.crossVectors(e.up, e.fwd);
+      e.bones.forEach((bone, i) => {
+        bone.quaternion.identity();
+        bone.position.copy(head.worldToLocal(this.object.localToWorld(e.heads[i].clone())));
+        bone.updateMatrixWorld(true);
+      });
+    }
     for (const [bone, head] of this.extraHeads) {
       bone.quaternion.identity();
       bone.position.copy(bone.parent!.worldToLocal(this.object.localToWorld(head.clone())));
@@ -1644,6 +1676,130 @@ export class ThreeActor {
     for (const mesh of this.meshes.values()) if (mesh.visible) updateScreen(mesh.material as THREE.Material, dt);
     // Leg colliders only matter while a skirt-skinned garment is drawn.
     if ([...this.shown].some((n) => this.usesColliders(this.data.get(n)!))) this.updateColliders();
+  }
+
+  /** Limits of the eyes' turn from straight ahead, in radians. */
+  static readonly EYE_LIMITS = { yaw: 0.6, up: 0.35, down: 0.5 };
+
+  /**
+   * Gives the eyes their own bones (children of the head), so they can turn: `aimEyes`. Off until
+   * called (it adds two bones to the skeleton and a little work per frame). False when the pack
+   * has no eyes mesh or no head bone.
+   */
+  enableEyes(): boolean {
+    if (this.eyes) return true;
+    const head = this.bones.find((b) => b.name === "head");
+    const data = [...this.data.values()].find((d) => d.def.role === "eyes");
+    if (!head || !data || !this.skeleton) return false;
+    const bones = ["eye_l", "eye_r"].map((name) => {
+      const b = new THREE.Bone();
+      b.name = name;
+      head.add(b);
+      return b;
+    }) as [THREE.Bone, THREE.Bone];
+    this.eyes = { bones, heads: [new THREE.Vector3(), new THREE.Vector3()], fwd: new THREE.Vector3(0, 0, 1), up: new THREE.Vector3(0, 1, 0), side: new THREE.Vector3(1, 0, 0), yaw: [0, 0], pitch: [0, 0] };
+    // Last in the skeleton: part bones (tails) are indexed from the end of the pack's.
+    this.bones.push(...bones);
+    this.skeleton = new RootSkeleton(this.bones, this.object);
+    this.reskinEyes();
+    if (this.lastShape) this.measureEyes(this.lastShape);
+    if (this.fitted) this.rebind(this.fitted);
+    else for (const m of [...this.meshes.values(), ...this.parts.values()]) bindRoot(m, this.skeleton);
+    return true;
+  }
+
+  /** True once `enableEyes` gave the eyes their bones. */
+  get eyesEnabled(): boolean {
+    return this.eyes !== null;
+  }
+
+  private reskinEyes(): void {
+    const data = [...this.data.values()].find((d) => d.def.role === "eyes");
+    const mesh = data && this.meshes.get(data.def.name);
+    if (data && mesh && this.lastShape) this.skinEyes(mesh, data);
+  }
+
+  /** Each eye's vertices on its own bone (left eye: +X, from the current shape). */
+  private skinEyes(mesh: THREE.SkinnedMesh, data: MeshData): void {
+    if (!this.eyes || !this.lastShape) return;
+    const n = data.map.length;
+    const src = this.source(this.lastShape, data);
+    if (!src) return;
+    const l = this.bones.indexOf(this.eyes.bones[0]), r = this.bones.indexOf(this.eyes.bones[1]);
+    const joints = new Uint16Array(n * 4), weights = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      joints[i * 4] = src.positions[data.map[i] * 3] >= 0 ? l : r;
+      weights[i * 4] = 1;
+    }
+    mesh.geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(joints, 4));
+    mesh.geometry.setAttribute("skinWeight", new THREE.BufferAttribute(weights, 4));
+    mesh.userData.eyesSkinned = true;
+  }
+
+  /**
+   * Eyeball centres for a shape (bind pose). The eye mesh is the front of a sphere: the middle of each
+   * eye's box across, and in depth the mean depth of its four outermost points (they lie on the equator).
+   */
+  private measureEyes(shape: ActorShape): void {
+    const e = this.eyes;
+    if (!e) return;
+    const data = [...this.data.values()].find((d) => d.def.role === "eyes");
+    if (!data) return;
+    const src = this.source(shape, data);
+    if (!src) return;
+    const p = src.positions;
+    for (let s = 0; s < 2; s++) {
+      // Per side: min x, max x, min y, max y, each with the depth of the point that reached it.
+      const ext = [Infinity, -Infinity, Infinity, -Infinity], z = [0, 0, 0, 0];
+      for (const i of data.map) {
+        const x = p[i * 3], y = p[i * 3 + 1];
+        if ((x >= 0 ? 0 : 1) !== s) continue;
+        if (x < ext[0]) (ext[0] = x), (z[0] = p[i * 3 + 2]);
+        if (x > ext[1]) (ext[1] = x), (z[1] = p[i * 3 + 2]);
+        if (y < ext[2]) (ext[2] = y), (z[2] = p[i * 3 + 2]);
+        if (y > ext[3]) (ext[3] = y), (z[3] = p[i * 3 + 2]);
+      }
+      if (ext[0] === Infinity) continue;
+      e.heads[s].set((ext[0] + ext[1]) / 2, (ext[2] + ext[3]) / 2, (z[0] + z[1] + z[2] + z[3]) / 4);
+    }
+    const mesh = this.meshes.get(data.def.name);
+    if (mesh && !mesh.userData.eyesSkinned) this.skinEyes(mesh, data);
+  }
+
+  /**
+   * Turns the eyes toward a point in world space (null: straight ahead), plus offsets in radians
+   * (saccades, glances), within `EYE_LIMITS`. Each eye aims on its own, so near points converge.
+   * `dt` > 0 eases the turn (eyes jump fast but not in one frame); 0 sets it at once. Call after
+   * `update`. Returns the mean pitch (up positive) and yaw, for lids to follow. Needs `enableEyes`.
+   */
+  aimEyes(target: THREE.Vector3 | null, yawOffset = 0, pitchOffset = 0, dt = 0): { yaw: number; pitch: number } {
+    const e = this.eyes;
+    if (!e) return { yaw: 0, pitch: 0 };
+    const L = ThreeActor.EYE_LIMITS;
+    const d = _eyeDir;
+    let my = 0, mp = 0;
+    e.bones.forEach((bone, i) => {
+      let yaw = 0, pitch = 0;
+      if (target) {
+        const head = bone.parent as THREE.Bone;
+        head.worldToLocal(d.copy(target)).sub(bone.position);
+        const f = d.dot(e.fwd), s = d.dot(e.side), u = d.dot(e.up);
+        yaw = Math.atan2(s, f);
+        pitch = Math.atan2(u, Math.hypot(f, s));
+        if (f < 0) yaw = Math.sign(s || 1) * L.yaw; // behind the head: as far round as the eyes go
+      }
+      yaw = Math.max(-L.yaw, Math.min(L.yaw, yaw + yawOffset));
+      pitch = Math.max(-L.down, Math.min(L.up, pitch + pitchOffset));
+      const k = dt > 0 ? 1 - Math.exp(-dt * 35) : 1;
+      e.yaw[i] += (yaw - e.yaw[i]) * k;
+      e.pitch[i] += (pitch - e.pitch[i]) * k;
+      const cy = Math.cos(e.yaw[i]), sy = Math.sin(e.yaw[i]), cp = Math.cos(e.pitch[i]), sp = Math.sin(e.pitch[i]);
+      d.copy(e.fwd).multiplyScalar(cp * cy).addScaledVector(e.side, cp * sy).addScaledVector(e.up, sp);
+      bone.quaternion.setFromUnitVectors(e.fwd, d);
+      my += e.yaw[i] / 2;
+      mp += e.pitch[i] / 2;
+    });
+    return { yaw: my, pitch: mp };
   }
 
   /** Height of the current body shape (lowest to highest point), in meters. */

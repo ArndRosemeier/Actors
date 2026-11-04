@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { type ActorShape, type Clip, type Fetcher, type MessagePortLike, deform } from "@actors/core";
-import { ADULT_MIN_AGE, BEARD_REGION, BEARD_STYLES, beardPaint, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, Human, type HumanParams, MAX_AGE, type PartsConfig, type RaceId, raceScale, sanitizeRace } from "@actors/human";
+import { ADULT_MIN_AGE, BEARD_REGION, BEARD_STYLES, beardPaint, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, type FaceFrame, FaceAnimator, Human, type VisemeKey, type HumanParams, MAX_AGE, type PartsConfig, type RaceId, raceScale, sanitizeRace } from "@actors/human";
 import { type ActorMaterialKit, type ScreenTexturePool, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
 import { type ThemeFilter, filterCatalog } from "./themes";
 import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, type SkeletalLook, buildCatalog, defaultConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook, sanitizeSkeletalLook } from "./catalog";
@@ -91,6 +91,13 @@ export class Character {
   private nextBlink = 2;
   /** Face rig state (see `CharacterConfig.faceRig`): unit order, the expression fading in and the one fading out. */
   private face: { units: string[]; index: Map<string, number>; from: Float32Array; to: Float32Array; t: number; blink: Float32Array; extra: Float32Array | null; out: Float32Array } | null = null;
+  /** The living face (see `CharacterConfig.faceAnimation`), and where the eyes look now (pitch, for the lids). */
+  private animator: FaceAnimator | null = null;
+  private eyePitch = 0;
+  private gazeOverride: THREE.Vector3 | THREE.Object3D | null | undefined = undefined;
+  private readonly gazePoint = new THREE.Vector3();
+  /** The camera a living face looks at with `gaze: "camera"` (default: `lodCamera`). */
+  camera?: THREE.Camera;
   /** Seconds an expression takes to blend into the next one with the face rig. */
   expressionFade = 0.35;
   /** Freezes the animation (see `seek`). */
@@ -256,10 +263,20 @@ export class Character {
     if (this.lodMode === "auto" && this.lodCamera) this.actor.updateLod(this.lodCamera, this.lodBias);
     this.time += dt;
     this.actor.update(this.paused ? 0 : dt);
-    // Blink: ~150 ms close/open every 2-6 s.
-    const t = this.time;
-    if (t > this.nextBlink + 0.15) this.nextBlink = t + 2 + Math.random() * 4;
-    const b = Math.max(0, this.cfg.blink && t > this.nextBlink ? Math.sin(((t - this.nextBlink) / 0.15) * Math.PI) : 0);
+    const a = this.animator;
+    let b: number;
+    let frame: FaceFrame | null = null;
+    if (a) {
+      // Living face: blinks, saccades, idle movement, lip-sync; the eyes turn toward the gaze target.
+      frame = a.update(dt, this.eyePitch);
+      b = frame.blink;
+      if (this.actor.eyesEnabled) this.eyePitch = this.actor.aimEyes(this.gazeTarget(), frame.yaw, frame.pitch, dt).pitch;
+    } else {
+      // Blink: ~150 ms close/open every 2-6 s.
+      const t = this.time;
+      if (t > this.nextBlink + 0.15) this.nextBlink = t + 2 + Math.random() * 4;
+      b = Math.max(0, this.cfg.blink && t > this.nextBlink ? Math.sin(((t - this.nextBlink) / 0.15) * Math.PI) : 0);
+    }
     const f = this.face;
     if (!f) {
       this.actor.setMorphWeight("blink", b);
@@ -268,11 +285,65 @@ export class Character {
     f.t = Math.min(1, f.t + (this.expressionFade > 0 ? dt / this.expressionFade : 1));
     const e = f.t * f.t * (3 - 2 * f.t); // smoothstep
     const k = this.cfg.expressionIntensity;
+    // The living face brings its own lids (blink and gaze follow), so the plain blink is left out then.
+    const bk = frame ? 0 : b;
     for (let i = 0; i < f.out.length; i++) {
-      const w = (f.from[i] + (f.to[i] - f.from[i]) * e) * k + f.blink[i] * b + (f.extra?.[i] ?? 0);
+      const w = (f.from[i] + (f.to[i] - f.from[i]) * e) * k + f.blink[i] * bk + (f.extra?.[i] ?? 0);
       f.out[i] = w;
     }
+    if (frame)
+      for (const u in frame.units) {
+        const i = f.index.get(u);
+        if (i !== undefined) f.out[i] += frame.units[u];
+      }
     this.actor.setFaceUnits(f.out);
+  }
+
+  /** World point the eyes look at now, or null for straight ahead. */
+  private gazeTarget(): THREE.Vector3 | null {
+    const o = this.gazeOverride;
+    if (o === null) return null;
+    if (o instanceof THREE.Vector3) return o;
+    if (o) return o.getWorldPosition(this.gazePoint);
+    const cam = this.cfg.gaze === "camera" ? (this.camera ?? this.lodCamera) : undefined;
+    return cam ? cam.getWorldPosition(this.gazePoint) : null;
+  }
+
+  /**
+   * Where a living face looks: a world point or an object (followed every frame), null for
+   * straight ahead, undefined to go back to the config's `gaze`.
+   */
+  lookAt(target: THREE.Vector3 | THREE.Object3D | null | undefined): void {
+    this.gazeOverride = target;
+  }
+
+  /**
+   * Speaks a line with lip-sync (rough English letter rules); returns its length in seconds.
+   * Needs `faceAnimation` and `faceRig`. Pair it with your own audio, or use `speak` with a
+   * viseme track from a TTS engine for exact timing.
+   */
+  say(text: string, rate = 1): number {
+    return this.animator?.say(text, rate) ?? 0;
+  }
+
+  /** Plays a viseme track (see `VISEMES`, times in seconds from now); returns its length. Needs `faceAnimation` and `faceRig`. */
+  speak(track: VisemeKey[]): number {
+    return this.animator?.speak(track) ?? 0;
+  }
+
+  /** Stops `say`/`speak`. */
+  stopSpeaking(): void {
+    this.animator?.stopSpeaking();
+  }
+
+  /** Voice loudness 0..1 (e.g. from an audio analyser) moving the jaw; 0 when silent. Needs `faceAnimation` and `faceRig`. */
+  setVoiceLevel(level: number): void {
+    this.animator?.setVoiceLevel(level);
+  }
+
+  /** The living face's animator (null while `faceAnimation` is off), for its options and `speechIntensity`. */
+  get faceAnimator(): FaceAnimator | null {
+    return this.animator;
   }
 
   /** The face rig's unit names (empty while `faceRig` is off or not built yet). */
@@ -636,6 +707,16 @@ export class Character {
       this.actor.setMorph("blink", await h.faceDelta(this.shape, BLINK));
       this.actor.setMorphWeight("expression", c.expressionIntensity);
       this.applied.face = faceKey;
+    }
+    const living = c.faceAnimation && !c.robot && !c.skeletal;
+    if (living && !this.animator) this.animator = new FaceAnimator();
+    else if (!living && this.animator) {
+      this.animator = null;
+      this.actor.aimEyes(null);
+    }
+    if (this.animator) {
+      this.animator.options.blink = c.blink;
+      if (this.shape) this.actor.enableEyes();
     }
     await this.actor.setSkinTextures(this.renderer, c.skin === "photo" ? h.skinTextures() : null);
     if (c.animation !== this.applied.animation) {
