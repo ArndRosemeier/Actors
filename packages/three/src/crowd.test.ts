@@ -82,7 +82,7 @@ describe("crowd level", () => {
     expect(drawn(actor)).toEqual(["body", "eyes", "hair", "shirt", "teeth"]);
     actor.setLod(1);
     actor.update(0);
-    expect(drawn(actor)).toEqual(["crowd"]);
+    expect(drawn(actor)).toEqual(["crowd", "eyes"]);
     const crowd = actor.crowdMesh()!;
     expect(crowd.parts.map((p) => p.name)).toEqual(["body", "shirt", "hair"]);
     const hairAttr = crowd.mesh.geometry.getAttribute("crowdHair");
@@ -95,7 +95,7 @@ describe("crowd level", () => {
     expect([...index.slice(12)]).toEqual([index[9], index[11], index[10]]);
     actor.crowdHair = false;
     actor.update(0);
-    expect(drawn(actor)).toEqual(["crowd", "hair"]);
+    expect(drawn(actor)).toEqual(["crowd", "eyes", "hair"]);
     expect(actor.crowdMesh()!.parts.map((p) => p.name)).toEqual(["body", "shirt"]);
   });
 
@@ -106,7 +106,22 @@ describe("crowd level", () => {
     actor.setVisible("cap", true);
     actor.setVisible("cap", false);
     actor.update(0);
+    expect(drawn(actor)).toEqual(["crowd", "eyes"]);
+  });
+
+  it("draws the eyes, which the pack leaves to the full level, unless crowdEyes is off (the crowd body has open sockets)", async () => {
+    const { actor } = await dressed();
+    actor.setLod(1);
+    actor.update(0);
+    expect(drawn(actor)).toContain("eyes");
+    expect(drawn(actor)).not.toContain("teeth");
+    actor.crowdEyes = false;
+    actor.update(0);
     expect(drawn(actor)).toEqual(["crowd"]);
+    actor.crowdEyes = true;
+    actor.setLod(0);
+    actor.update(0);
+    expect(drawn(actor)).toEqual(["body", "eyes", "hair", "shirt", "teeth"]);
   });
 });
 
