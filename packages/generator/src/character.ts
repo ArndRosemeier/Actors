@@ -264,6 +264,8 @@ export class Character {
   /** Advances animation, blinking and cloth colliders. Call once per frame. */
   update(dt: number): void {
     if (this.lodMode === "auto" && this.lodCamera) this.actor.updateLod(this.lodCamera, this.lodBias);
+    // Off screen the animation runs at a lower rate (ThreeActor.offscreenStep; far levels: animationSteps).
+    if (this.lodCamera) this.actor.setOnScreen(this.actor.inView(this.lodCamera));
     this.time += dt;
     this.actor.update(this.paused ? 0 : dt);
     const a = this.animator;

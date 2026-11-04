@@ -20,7 +20,11 @@ export class RootSkeleton extends THREE.Skeleton {
     super(bones, boneInverses);
   }
 
+  /** While true, `update` keeps the last bone matrices (the pose has not changed: see ThreeActor's animation steps). */
+  frozen = false;
+
   override update(): void {
+    if (this.frozen) return;
     rootInverse.copy(this.root.matrixWorld).invert();
     const m = this.boneMatrices!;
     for (let i = 0; i < this.bones.length; i++) {

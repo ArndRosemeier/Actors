@@ -185,7 +185,7 @@ export const webglMaterials: ActorMaterialKit = {
     if (!d) sharedDepth.set(webglMaterials, (d = createDepthMaterial()));
     return d;
   },
-  crowd: (actor) => createCrowdMaterial(actor.skin),
+  crowd: (actor) => createCrowdMaterial(actor.skin, actor.crowdHairMaps),
   blendSkins(actor, layers, renderer) {
     // Actors with (nearly) the same blend share one composed texture: a 2k render target each would add up fast.
     const key = layers.map((l) => `${l.texture.uuid}:${l.weight.toFixed(2)}`).join("|");
@@ -520,11 +520,12 @@ export class ThreeActor {
       if (attributeMorphs) mesh.morphTargetInfluences = ThreeActor.MORPHS.map(() => 0);
       else if (morphable) mesh.updateMorphTargets();
       const transparent = (mesh.material as THREE.Material).transparent;
-      mesh.castShadow = !transparent;
+      mesh.castShadow = !transparent && (this.smallShadows || !isSmallPart(data));
       mesh.receiveShadow = true;
       const depth = transparent ? null : this.kit.depth(mesh.material as THREE.Material, !!data.clip);
       if (depth) mesh.customDepthMaterial = depth;
-      mesh.frustumCulled = false; // bounds change with morphs and animation
+      mesh.frustumCulled = false; // until the next update gives it the actor's bounds (see frustumCulling)
+      this.culled = undefined;
       mesh.visible = false;
       this.object.add(mesh);
       this.meshes.set(data.def.name, mesh);
@@ -581,6 +582,7 @@ export class ThreeActor {
       const mesh = createPartMesh(part, this.skin, material, this.kit.depth(material, false), !!this.kit.attributeMorphs);
       this.object.add(mesh);
       this.parts.set(part.name, mesh);
+      this.culled = undefined;
       if (this.skeleton && !skeletonChanged) bindRoot(mesh, this.skeleton);
     }
     if (skeletonChanged && this.fitted) this.rebind(this.fitted);
@@ -740,6 +742,8 @@ export class ThreeActor {
     if (shape) for (const n of [...this.shown]) if (!this.includes(shape, this.data.get(n)!)) this.shown.delete(n);
     for (const n of this.shown) this.ensureMesh(this.data.get(n)!);
     for (const [n, mesh] of this.meshes) mesh.visible = this.shown.has(n);
+    // Parts merged into the crowd mesh stay hidden (else a part shown and hidden again before the next frame drew twice).
+    if (this.lods[level].merge) for (const n of this.shown) if (this.mergeable(this.data.get(n)!) && !this.crowdOverflow.has(n)) this.meshes.get(n)!.visible = false;
     // Cutting the skin under garments is the slow part: only redo it when what is drawn changed.
     const key = `${level}|${this.data.size}|${[...this.shown].sort().join(",")}`;
     if (key === this.shownKey) return;
@@ -764,6 +768,7 @@ export class ThreeActor {
     if (level === this.level) return;
     const bonesBefore = this.lods[this.level].bones;
     this.level = level;
+    this.wake();
     this.updateVisibility();
     if (this.crowdDirty) this.buildCrowd();
     if (this.lods[level].bones !== bonesBefore && this.clip) this.play(this.clip);
@@ -840,6 +845,7 @@ export class ThreeActor {
    */
   setHairColor(color: THREE.ColorRepresentation | null): void {
     this.hairColor = color;
+    if (this.crowd?.merged.parts.some((p) => p.data.def.role === "hair")) this.colorCrowd();
     for (const mesh of this.meshes.values()) {
       const mat = mesh.material as THREE.Material;
       const u = mat.userData.hair as { uHairTint: { value: THREE.Color }; uHairMix: { value: number }; uHairMeanLum: { value: number } } | undefined;
@@ -1408,12 +1414,56 @@ export class ThreeActor {
   }
 
   /**
-   * Body and garments are merged at crowd levels; hair, eyes and add-ons stay
-   * separate, and so do skirt-skinned garments (they need the leg colliders).
+   * Body, garments and textured hair (scalp hair, beards: cut by their texture's alpha) are merged
+   * at crowd levels; eyes, lashes and add-ons stay separate, and so do skirt-skinned garments
+   * (they need the leg colliders).
    */
   private mergeable(data: MeshData): boolean {
-    return (data.def.role === "body" || data.def.role === "garment") && !this.usesColliders(data);
+    const role = data.def.role;
+    if (role === "hair") return this.mergeHair && !!data.def.textures?.color;
+    return (role === "body" || role === "garment") && !this.usesColliders(data);
   }
+
+  /**
+   * Whether crowd levels merge hair into the one crowd mesh (default true: a far person is one
+   * draw and one shadow). False keeps hair its own mesh with its own material (finer, one more draw).
+   */
+  get crowdHair(): boolean {
+    return this.mergeHair;
+  }
+
+  set crowdHair(on: boolean) {
+    if (on === this.mergeHair) return;
+    this.mergeHair = on;
+    this.shownKey = "";
+    this.updateVisibility();
+  }
+
+  private mergeHair = true;
+
+  /**
+   * Whether eyes, teeth, tongue, lashes and brows cast shadows (default false: each is one more
+   * shadow draw, and their shadows fall inside the head or are too small to see).
+   */
+  get smallPartShadows(): boolean {
+    return this.smallShadows;
+  }
+
+  set smallPartShadows(on: boolean) {
+    this.smallShadows = on;
+    for (const [n, mesh] of this.meshes) {
+      const data = this.data.get(n)!;
+      if (isSmallPart(data)) mesh.castShadow = on && !(mesh.material as THREE.Material).transparent;
+    }
+  }
+
+  private smallShadows = false;
+
+  /**
+   * Hair textures of the crowd mesh, by the value of its `crowdHair` attribute minus 1 (scalp
+   * hair and a beard). Materials made by `ActorMaterialKit.crowd` read them every draw.
+   */
+  readonly crowdHairMaps: (THREE.Texture | null)[] = [null, null];
 
   private readonly colliderUse = new WeakMap<MeshData, boolean>();
 
@@ -1428,6 +1478,8 @@ export class ThreeActor {
   }
 
   private crowdDirty = false;
+  /** Mergeable parts the crowd mesh had no room for (a third hair texture): drawn on their own. */
+  private readonly crowdOverflow = new Set<string>();
 
   /** Builds the crowd level's merged mesh from the shown body and garments (with their current hidden-skin cuts). */
   private buildCrowd(): void {
@@ -1436,8 +1488,21 @@ export class ThreeActor {
     if (!lod.merge || !this.lastShape) return;
     const shape = this.lastShape;
     const parts: { data: MeshData; indices: Uint32Array }[] = [];
+    let hairMaps = 0;
+    const hair: number[] = [];
+    this.crowdOverflow.clear();
     for (const data of this.rendered) {
       if (!this.mergeable(data) || !this.shown.has(data.def.name)) continue;
+      if (data.def.role === "hair") {
+        // Two hair textures at most (hair and beard); any other stays its own mesh.
+        if (hairMaps >= this.crowdHairMaps.length) {
+          this.crowdOverflow.add(data.def.name);
+          this.meshes.get(data.def.name)!.visible = true;
+          continue;
+        }
+        this.crowdHairMaps[hairMaps++] = this.texture(data.def.textures!.color!, true);
+        hair[parts.length] = hairMaps;
+      }
       // Not fitted yet (loaded after the last shape): joins once the next shape includes it.
       if (data.def.source.kind === "proxy" && !shape.proxies.has(data.def.source.proxy)) continue;
       if (data.stencil && !shape.meshes.has(data.def.name)) continue;
@@ -1445,18 +1510,31 @@ export class ThreeActor {
       const indices = g.index!.array as Uint32Array;
       // Hem cuts as they are now (including skin hidden under higher layers), still cut per pixel.
       const clip = data.clip ? ((g.getAttribute("clipValue") as THREE.BufferAttribute).array as Float32Array) : undefined;
-      parts.push({ data: clip ? { ...data, clip } : data, indices });
+      // Hair cards are seen from both sides: their triangles go in twice, the second time turned round.
+      parts.push({ data: clip ? { ...data, clip } : data, indices: data.def.role === "hair" ? twoSided(indices) : indices });
     }
     const skel = this.runtime.manifest.skeleton;
+    for (let i = hairMaps; i < this.crowdHairMaps.length; i++) this.crowdHairMaps[i] = null;
     const merged = mergeMeshes(parts, skel ? lodBoneMap(skel, lod) : null);
     const n = merged.vertexCount;
+    // Per vertex: 0, or 1 + the index into crowdHairMaps whose alpha cuts it (hair cards).
+    const hairOf = new Float32Array(n);
+    merged.parts.forEach((p, k) => hair[k] && hairOf.fill(hair[k], p.offset, p.offset + p.count));
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute("uv", new THREE.BufferAttribute(merged.uv, 2));
     g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
-    g.setAttribute("crowdSkin", new THREE.BufferAttribute(new Float32Array(n), 1));
-    g.setAttribute("crowdClip", new THREE.BufferAttribute(merged.clip ?? new Float32Array(n).fill(1), 1));
+    // Skin flag, hem value and hair map in one interleaved buffer: WebGPU allows 8 vertex buffers.
+    const info = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      info[i * 3 + 1] = merged.clip ? merged.clip[i] : 1;
+      info[i * 3 + 2] = hairOf[i];
+    }
+    const infoBuffer = new THREE.InterleavedBuffer(info, 3);
+    g.setAttribute("crowdSkin", new THREE.InterleavedBufferAttribute(infoBuffer, 1, 0));
+    g.setAttribute("crowdClip", new THREE.InterleavedBufferAttribute(infoBuffer, 1, 1));
+    g.setAttribute("crowdHair", new THREE.InterleavedBufferAttribute(infoBuffer, 1, 2));
     if (merged.joints && merged.weights) {
       g.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(merged.joints, 4));
       g.setAttribute("skinWeight", new THREE.BufferAttribute(merged.weights, 4));
@@ -1468,6 +1546,7 @@ export class ThreeActor {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.frustumCulled = false;
+    this.culled = undefined;
     if (this.crowd) this.dropCrowd(false);
     this.object.add(mesh);
     if (this.skeleton) bindRoot(mesh, this.skeleton);
@@ -1509,12 +1588,12 @@ export class ThreeActor {
   private colorCrowd(): void {
     if (!this.crowd) return;
     const g = this.crowd.mesh.geometry;
-    const color = g.getAttribute("color") as THREE.BufferAttribute, skin = g.getAttribute("crowdSkin") as THREE.BufferAttribute;
+    const color = g.getAttribute("color") as THREE.BufferAttribute, skin = g.getAttribute("crowdSkin") as THREE.InterleavedBufferAttribute;
     const c = new THREE.Color();
     for (const { data, offset, count } of this.crowd.merged.parts) {
       const { def } = data;
       const isSkin = def.role === "body" ? 1 : 0;
-      const tint = this.tints.get(def.name);
+      const tint = def.role === "hair" ? this.hairColor : this.tints.get(def.name);
       if (tint !== undefined && tint !== null) c.set(tint);
       else {
         const rgb = def.material.color ?? [0.5, 0.5, 0.5];
@@ -1532,6 +1611,7 @@ export class ThreeActor {
   }
 
   private rebind(fitted: FittedSkeleton): void {
+    this.wake();
     this.ungrip();
     this.fitted = fitted;
     fitted.names.forEach((_, i) => {
@@ -1557,6 +1637,7 @@ export class ThreeActor {
    * (a walk blends into a jog step for step); 0 (the default) cuts, keeping the time.
    */
   play(clip: PlayableClip | null, options: { fade?: number } = {}): void {
+    this.wake();
     this.ungrip();
     const prev = this.action;
     const time = prev?.time ?? 0;
@@ -1743,6 +1824,7 @@ export class ThreeActor {
    * bones. Stop any playing clip first (`play(null)`), or the mixer overwrites it next update.
    */
   setPose(pose: Pose): void {
+    this.wake();
     const n = Math.min(this.packBones, pose.rotations.length / 4);
     for (let i = 0; i < n; i++) this.bones[i].quaternion.fromArray(pose.rotations, i * 4);
     this.bones[pose.rootIndex]?.position.fromArray(pose.root);
@@ -1753,9 +1835,114 @@ export class ThreeActor {
     return this.action;
   }
 
+  /**
+   * Animation rate per detail level: at level i the clip, grips and bone uploads advance on every
+   * `animationSteps[i]`-th `update` only, by the time gathered since (no time is lost; the pose just
+   * moves in bigger steps). Undefined (the default): every frame, but every 2nd at a last level
+   * that merges (the crowd level). Missing entries count as 1, so `[]` animates every frame.
+   */
+  animationSteps?: number[];
+
+  /** Animation rate while off screen (see `setOnScreen`): every `offscreenStep`-th update. Default 4. */
+  offscreenStep = 4;
+
+  /**
+   * Cull the actor's meshes against the camera (and each shadow camera) with a generous sphere
+   * around the body (see `bounds`), instead of drawing them wherever they are. Default true;
+   * skinned meshes are never culled while clips play with root motion (`inPlace` false), as the
+   * body then walks away from the object.
+   */
+  frustumCulling = true;
+
+  private readonly sphere = new THREE.Sphere();
+  private sphereOf?: ActorShape;
+  private culled?: boolean;
+
+  /**
+   * A sphere in the actor's own space that holds the body in any pose: the current shape's bounds
+   * plus room for limbs swung out. Used for frustum culling and `inView`.
+   */
+  bounds(): THREE.Sphere {
+    const shape = this.lastShape;
+    if (shape && shape !== this.sphereOf) {
+      this.sphereOf = shape;
+      const body = this.runtime.meshes.find((m) => m.def.role === "body" && !m.stencil);
+      const p = shape.positions;
+      const box = new THREE.Box3();
+      const v = new THREE.Vector3();
+      if (body) for (const i of body.map) box.expandByPoint(v.fromArray(p, i * 3));
+      if (box.isEmpty()) this.sphere.set(new THREE.Vector3(0, 1, 0), 2);
+      else {
+        const size = box.getSize(v).length();
+        box.getCenter(this.sphere.center);
+        // Half the diagonal holds the bind pose; the rest is for arms, legs and tails moved by clips.
+        this.sphere.radius = size * 0.6 + 0.5;
+      }
+      this.culled = undefined;
+    } else if (!shape && this.sphere.radius <= 0) this.sphere.set(new THREE.Vector3(0, 1, 0), 2);
+    return this.sphere;
+  }
+
+  private readonly frustum = new THREE.Frustum();
+  private readonly viewSphere = new THREE.Sphere();
+  private readonly viewMatrix = new THREE.Matrix4();
+
+  /** Whether the actor's bounds (see `bounds`) are in the camera's view. */
+  inView(camera: THREE.Camera): boolean {
+    this.viewMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.viewMatrix, camera.coordinateSystem, (camera as { reversedDepth?: boolean }).reversedDepth);
+    this.viewSphere.copy(this.bounds()).applyMatrix4(this.object.matrixWorld);
+    return this.frustum.intersectsSphere(this.viewSphere);
+  }
+
+  /** Gives every mesh the shared bounds and turns culling on or off (when the shape, the option or root motion changed). */
+  private updateCulling(): void {
+    const sphere = this.bounds();
+    const cull = this.frustumCulling && this.inPlace;
+    if (cull === this.culled) return;
+    this.culled = cull;
+    const meshes = [...this.meshes.values(), ...this.parts.values()];
+    if (this.crowd) meshes.push(this.crowd.mesh);
+    for (const mesh of meshes) {
+      mesh.boundingSphere = (mesh.boundingSphere ?? new THREE.Sphere()).copy(sphere); // own copy: three may recompute it in place
+      mesh.frustumCulled = cull;
+    }
+  }
+
+  private onScreen = true;
+  private tick = 0;
+  private gathered = 0;
+
+  /** Tells the actor whether it is in view (Character does this from its `lodCamera`); off screen it animates at `offscreenStep`. */
+  setOnScreen(onScreen: boolean): void {
+    if (onScreen && !this.onScreen) this.wake();
+    this.onScreen = onScreen;
+  }
+
+  /** The current animation step (1 = every update), from the level and whether the actor is in view. */
+  get animationStep(): number {
+    const steps = this.animationSteps;
+    const level = steps ? steps[this.level] ?? 1 : this.level > 0 && this.level === this.lods.length - 1 && this.lods[this.level].merge ? 2 : 1;
+    return Math.max(1, Math.round(this.onScreen ? level : Math.max(level, this.offscreenStep)));
+  }
+
+  /** Makes the next `update` animate (after a pose, clip, level or shape change). */
+  private wake(): void {
+    this.tick = Number.MAX_SAFE_INTEGER;
+    if (this.skeleton instanceof RootSkeleton) this.skeleton.frozen = false;
+  }
+
   update(dt: number): void {
     this.flushVisibility();
     if (this.crowdDirty) this.buildCrowd();
+    this.updateCulling();
+    this.gathered += dt;
+    const frozen = dt > 0 && ++this.tick < this.animationStep;
+    if (this.skeleton instanceof RootSkeleton) this.skeleton.frozen = frozen;
+    if (frozen) return;
+    this.tick = 0;
+    dt = this.gathered;
+    this.gathered = 0;
     this.ungrip();
     this.mixer.update(dt);
     if (this.fading.length && (this.fadeLeft -= dt) <= 0) this.endFades();
@@ -1921,6 +2108,24 @@ export class ThreeActor {
     for (const v of body.map) min = Math.min(min, p[v * 3 + 1]);
     return -min;
   }
+}
+
+/** Eyes, teeth, tongue, lashes, brows: parts whose shadow nobody sees (see ThreeActor.smallPartShadows). */
+function isSmallPart(data: MeshData): boolean {
+  const { def } = data;
+  return def.role === "eyes" || def.material.kind === "teeth" || def.material.kind === "mouth" || !!def.tags?.some((t) => t === "lashes" || t === "brows");
+}
+
+/** A triangle list followed by the same triangles in reverse winding (two-sided in one front-face draw). */
+function twoSided(indices: Uint32Array): Uint32Array {
+  const out = new Uint32Array(indices.length * 2);
+  out.set(indices);
+  for (let t = 0, n = indices.length; t < n; t += 3) {
+    out[n + t] = indices[t];
+    out[n + t + 1] = indices[t + 2];
+    out[n + t + 2] = indices[t + 1];
+  }
+  return out;
 }
 
 /**

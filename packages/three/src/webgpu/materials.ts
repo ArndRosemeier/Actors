@@ -589,20 +589,23 @@ const crowdGraph = once(() => {
   const layer = (i: number) => inputTexture(`skin.layer${i}`, white, uvS).rgb;
   const photo = layer(0).mul(w.x).add(layer(1).mul(w.y)).add(layer(2).mul(w.z)).add(layer(3).mul(w.w));
   const skin = mix(input("skin.uTone", new THREE.Color()), photo.mul(input("skin.uAlbedoTint", new THREE.Color())), input("skin.uAlbedoMix", 0));
+  // Hair cards: cut by their texture's alpha (crowdHair 1 = first map, 2 = second, 0 = no hair).
+  const hair = attribute("crowdHair", "float");
+  const alpha = select(hair.lessThan(1.5), inputTexture("crowd.hair0", white, uvS).a, inputTexture("crowd.hair1", white, uvS).a);
   return {
     color: vec4(mix(attribute("color", "vec3"), skin, attribute("crowdSkin", "float")), 1),
     // Hems: cut where the interpolated clip value is below 0.
-    mask: attribute("crowdClip", "float").greaterThanEqual(0),
+    mask: attribute("crowdClip", "float").greaterThanEqual(0).and(hair.lessThan(0.5).or(alpha.greaterThanEqual(0.35))),
   };
 });
 
-/** Crowd-level merged mesh (see createCrowdMaterial): garment vertex colours, skin tone or photo skin where `crowdSkin` is 1. Linear skinning. */
+/** Crowd-level merged mesh (see createCrowdMaterial): garment vertex colours, skin tone or photo skin where `crowdSkin` is 1, hair cut by its texture's alpha. Linear skinning. */
 export function createNodeCrowdMaterial(actor: ThreeActor): MeshStandardNodeMaterial {
   const g = crowdGraph();
   const mat = new MeshStandardNodeMaterial({ roughness: 0.7, metalness: 0 });
   mat.colorNode = g.color;
   (mat as unknown as { maskNode: N }).maskNode = g.mask;
-  return feed(mat, skinInputs(actor));
+  return feed(mat, { ...skinInputs(actor), "crowd.hair0": () => actor.crowdHairMaps[0] ?? white, "crowd.hair1": () => actor.crowdHairMaps[1] ?? white });
 }
 
 /** Node materials for a pack mesh, from the pack's material hints (the twin of `defaultMaterials`). */
