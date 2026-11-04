@@ -15,7 +15,7 @@ page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
 page.on("pageerror", (e) => errors.push(String(e)));
 await page.goto(url);
 await page.waitForFunction(() => window.__actors?.ready, null, { timeout: 180000 });
-await page.evaluate(() => window.__actors.stage.renderer.setAnimationLoop(null));
+await page.evaluate((w) => { window.__wet = w; window.__actors.stage.renderer.setAnimationLoop(null); }, Number(process.env.WET ?? 0));
 const draw = () => page.evaluate(() => { const { stage } = window.__actors; stage.controls.update(); stage.renderer.render(stage.scene, stage.camera); });
 
 const people = (process.env.PEOPLE ?? "f-cauc,m-afr,f-asian").split(",");
@@ -31,7 +31,7 @@ for (const who of people) {
   for (const skin of (process.env.SKINS ?? "photo,procedural").split(",")) {
     await page.evaluate(async ({ body, skin, detail }) => {
       const { character } = window.__actors;
-      await character.set({ animation: null, outfit: ["briefs"], skin, expression: "neutral", body, skinDetail: detail });
+      await character.set({ animation: null, outfit: ["briefs"], skin, expression: "neutral", body, skinDetail: detail, skinWetness: Number(window.__wet ?? 0) });
       for (let i = 0; i < 5; i++) character.update(1 / 60);
       await new Promise((r) => setTimeout(r, 1000));
     }, { body: bodies[who], skin, detail });
@@ -42,6 +42,9 @@ for (const who of people) {
       face34: [[0.32 * k, eye, 0.32 * k], [0, eye - 0.03 * k, 0]],
       shoulder: [[0.45 * k, h * 0.8, 0.45 * k], [0.15 * k, h * 0.76, 0]],
       torso: [[0.2 * k, h * 0.65, 0.9 * k], [0, h * 0.65, 0]],
+      // Toward the rim light (behind the head, left): ears lit from behind.
+      backlit: [[0.38 * k, eye - 0.08 * k, 0.3 * k], [0.02 * k, eye - 0.02 * k, -0.05 * k]],
+      hand: [[0.75 * k, h * 0.5, 0.35 * k], [0.4 * k, h * 0.48, 0]],
     };
     for (const [name, [cam, at]] of Object.entries(views)) {
       await page.evaluate(({ cam, at }) => window.__actors.stage.view(cam, at), { cam, at });

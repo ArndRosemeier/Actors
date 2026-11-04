@@ -24,6 +24,9 @@ import {
   cos,
   diffuseContribution,
   dot,
+  positionViewDirection,
+  dFdy,
+  dFdx,
   exp,
   faceDirection,
   float,
@@ -178,7 +181,7 @@ function bindVarying(u: Record<string, N>): N {
 }
 
 /** Wrapped, per-channel diffuse: light bleeds further around the terminator in red (cheap subsurface scattering). */
-function useWrappedDiffuse(mat: MeshPhysicalNodeMaterial, sss: N): void {
+function useWrappedDiffuse(mat: MeshPhysicalNodeMaterial, sss: N, thin?: N): void {
   const base = (mat.setupLightingModel as (builder: N) => N).bind(mat);
   mat.setupLightingModel = ((builder: N) => {
     const model = base(builder) as N;
@@ -190,6 +193,12 @@ function useWrappedDiffuse(mat: MeshPhysicalNodeMaterial, sss: N): void {
       const wrapped = clamp(ndl.add(wrap).div(wrap.add(1)), 0, 1);
       const extra = wrapped.sub(ndl.clamp(0, 1)).mul(lightColor);
       reflectedLight.directDiffuse.addAssign(extra.mul(BRDF_Lambert({ diffuseColor: diffuseContribution })));
+      // Thin skin lit from behind glows red where you look toward the light through it (see materials.ts).
+      if (thin) {
+        const back = clamp(dot(positionViewDirection, lightDirection.negate()), 0, 1);
+        const glow = thin.mul(pow(back, 3)).mul(clamp(float(0.4).sub(ndl), 0, 1)).mul(vec3(1, 0.25, 0.12)).mul(lightColor);
+        reflectedLight.directDiffuse.addAssign(glow.mul(BRDF_Lambert({ diffuseColor: diffuseContribution })));
+      }
       direct(inputs, b);
     };
     return model;
@@ -220,6 +229,7 @@ const skinGraph = once(() => {
   const weights = input("skin.weights", new THREE.Vector4(1, 0, 0, 0));
   // Skin detail regions (see skinZones in materials.ts): x flush, y shadow under the eyes, z shine, w pores.
   const zones = property("vec4", "actor_skin_zones");
+  const thin = property("float", "actor_skin_thin");
   const blob = (p: N, c: N, r: N) => float(1).sub(ss(0.35, 1, p.sub(c).div(r).length()));
   const skinZones = Fn(() => {
     const z = vec4(0, 0, 0, 0).toVar();
@@ -261,13 +271,27 @@ const skinGraph = once(() => {
     tone.assign(mix(tone, photo.mul(u.uAlbedoTint), u.uAlbedoMix));
     // Skin detail: flush and shadow (less over a photo skin), and fine pigment speckle.
     zones.assign(vec4(0, 0, 0, 0));
+    thin.assign(0);
     If(u.uDetail.greaterThan(0), () => {
       zones.assign(skinZones());
       const k = u.uDetail.mul(mix(1, 0.55, u.uAlbedoMix)).toVar();
       tone.mulAssign(mix(vec3(1), vec3(1, 0.7, 0.7), zones.x.mul(0.6).mul(k)));
       tone.mulAssign(mix(vec3(1), vec3(0.84, 0.77, 0.86), zones.y.mul(0.6).mul(k)));
       tone.mulAssign(float(1).sub(ss(0.62, 0.9, noise3(bind.mul(260))).mul(0.07).mul(k)));
+      // Creases a little darker: curvature from screen-space derivatives, negative where the surface folds in.
+      const cn = normalize(normalViewGeometry).toVar(), cp = positionView;
+      const dx = dFdx(cp).toVar(), dy = dFdy(cp).toVar();
+      const curv = dot(dFdx(cn), dx).add(dot(dFdy(cn), dy)).div(max(dot(dx, dx).add(dot(dy, dy)), 1e-12));
+      tone.mulAssign(float(1).sub(ss(15, 90, curv.negate()).mul(0.22).mul(u.uDetail)));
+      // Thin skin (ears, nose wings, hands), for the backlight glow.
+      const fe = bind.sub(u.uFace.xyz).div(max(u.uFace.w, 1e-4));
+      const fa = vec3(fe.x.abs(), fe.y, fe.z.negate()).toVar();
+      const faceThin = select(u.uFace.w.greaterThan(0), max(blob(fa, vec3(1.4, -0.45, -1.4), vec3(0.35, 0.85, 0.55)), blob(fa, vec3(0.3, -0.85, 0.5), vec3(0.2, 0.2, 0.3)).mul(0.5)), float(0));
+      const handThin = select(u.uHand.w.greaterThan(0), blob(vec3(bind.x.abs(), bind.y, bind.z), u.uHand.xyz, u.uHand.w).mul(0.7), float(0));
+      thin.assign(max(faceThin, handThin).mul(u.uDetail));
     });
+    // Wet skin is a little darker.
+    tone.mulAssign(float(1).sub(u.uWet.mul(0.12)));
     const browMask = ss(0.02, 0.3, mB.a);
     tone.assign(mix(tone, u.uBrowColor, browMask.mul(u.uBrowDensity)));
     const stubbled = stubble(tone, mA.r, bind, u.uFace, u.uStubble, u.uStubbleColor);
@@ -321,7 +345,9 @@ const skinGraph = once(() => {
   })();
   // Skin detail: a shinier T-zone, slightly rougher elsewhere, and uneven at a fine scale.
   const detailRough = float(0.48).mul(u.uDetail.mul(float(0.1).sub(zones.z.mul(0.24)).add(skinNoise(uvS.mul(700)).sub(0.5).mul(0.3))).add(1));
-  return { color, normal, rough: select(spRough.greaterThanEqual(0), spRough, detailRough), emit: spEmit, sss: u.uSSS };
+  // Wet skin: glossy, in patches.
+  const wetRough = mix(detailRough, 0.12, u.uWet.mul(ss(0.35, 0.65, noise3(bind.mul(18))).mul(0.45).add(0.55)));
+  return { color, normal, rough: select(spRough.greaterThanEqual(0), spRough, wetRough), emit: spEmit, sss: u.uSSS, thin };
 });
 
 /** Skin (see createSkinMaterial): region tints, photo skins, stubble, race pattern, pores, wrapped diffuse. */
@@ -339,7 +365,7 @@ export function createNodeSkinMaterial(actor: ThreeActor): MeshPhysicalNodeMater
   mat.normalNode = g.normal;
   mat.roughnessNode = g.rough;
   mat.emissiveNode = g.emit;
-  useWrappedDiffuse(mat, g.sss);
+  useWrappedDiffuse(mat, g.sss, g.thin);
   return useNodeDqs(feed(mat, skinInputs(actor)));
 }
 

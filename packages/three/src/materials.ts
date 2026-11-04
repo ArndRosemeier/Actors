@@ -53,6 +53,8 @@ export interface SkinUniforms {
   uKnee: { value: THREE.Vector4 };
   uElbow: { value: THREE.Vector4 };
   uHand: { value: THREE.Vector4 };
+  /** Wet or sweaty skin 0..1: glossier in patches, a little darker. 0 skips it. */
+  uWet: { value: number };
 }
 
 export function createSkinUniforms(): SkinUniforms {
@@ -83,6 +85,7 @@ export function createSkinUniforms(): SkinUniforms {
     uKnee: { value: new THREE.Vector4(0, 0, 0, 0) },
     uElbow: { value: new THREE.Vector4(0, 0, 0, 0) },
     uHand: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uWet: { value: 0 },
   };
 }
 
@@ -112,6 +115,9 @@ uniform float uDetail;
 uniform vec4 uKnee;
 uniform vec4 uElbow;
 uniform vec4 uHand;
+uniform float uWet;
+// Set by the colour pass for the lighting: how thin the skin is (ears, nostrils, fingers glow red when backlit).
+float skinThin = 0.0;
 varying vec2 vSkinUv;
 varying vec3 vBind;
 ${GLSL_NOISE}
@@ -146,6 +152,18 @@ vec4 skinZones() {
   if ( uKnee.w > 0.0 ) z.x = max( z.x, 0.6 * max( sd_blob( b, uKnee.xyz, vec3( uKnee.w ) ), sd_blob( b, uElbow.xyz, vec3( uElbow.w ) ) ) );
   if ( uHand.w > 0.0 ) z.x = max( z.x, 0.5 * sd_blob( b, uHand.xyz, vec3( uHand.w ) ) );
   return z;
+}
+// Thin skin that light shines through: the ears, the nose wings, the hands.
+float skinThinness() {
+  float t = 0.0;
+  if ( uFace.w > 0.0 ) {
+    vec3 f = ( vBind - uFace.xyz ) / uFace.w;
+    f.z = -f.z;
+    f.x = abs( f.x );
+    t = max( sd_blob( f, vec3( 1.4, -0.45, -1.4 ), vec3( 0.35, 0.85, 0.55 ) ), 0.5 * sd_blob( f, vec3( 0.3, -0.85, 0.5 ), vec3( 0.2, 0.2, 0.3 ) ) );
+  }
+  if ( uHand.w > 0.0 ) t = max( t, 0.7 * sd_blob( vec3( abs( vBind.x ), vBind.yz ), uHand.xyz, vec3( uHand.w ) ) );
+  return t;
 }
 // Genital region in local coordinates: s across the cleft, t along it (both -1..1).
 vec2 genitalLocal() {
@@ -186,7 +204,15 @@ if ( uDetail > 0.0 ) {
   tone *= mix( vec3( 1.0 ), vec3( 1.0, 0.7, 0.7 ), sz.x * 0.6 * k );
   tone *= mix( vec3( 1.0 ), vec3( 0.84, 0.77, 0.86 ), sz.y * 0.6 * k );
   tone *= 1.0 - smoothstep( 0.62, 0.9, h_noise3( vBind * 260.0 ) ) * 0.07 * k;
+  // Creases (eyelids, nose wings, the folds of the ear) a little darker: the surface's curvature
+  // from screen-space derivatives, negative where it folds inward.
+  vec3 cn = normalize( vNormal ), cp = -vViewPosition;
+  float curv = ( dot( dFdx( cn ), dFdx( cp ) ) + dot( dFdy( cn ), dFdy( cp ) ) ) / max( dot( dFdx( cp ), dFdx( cp ) ) + dot( dFdy( cp ), dFdy( cp ) ), 1e-12 );
+  tone *= 1.0 - 0.22 * uDetail * smoothstep( 15.0, 90.0, -curv );
+  skinThin = uDetail * skinThinness();
 }
+// Wet skin is a little darker.
+tone *= 1.0 - 0.12 * uWet;
 float browHair = smoothstep( 0.3, 0.7, skinNoise( vSkinUv * vec2( 3000.0, 900.0 ) ) );
 float browMask = smoothstep( 0.02, 0.3, mB.a );
 tone = mix( tone, uBrowColor, browMask * uBrowDensity );
@@ -248,6 +274,8 @@ if ( sp_height != 0.0 ) normal = h_bumpNormal( -vViewPosition, normal, sp_height
 // Skin detail: a shinier T-zone, slightly rougher elsewhere, and uneven at a fine scale (no plastic sheen).
 const SKIN_ROUGHNESS = /* glsl */ `
 if ( uDetail > 0.0 ) roughnessFactor *= 1.0 + uDetail * ( 0.1 - 0.24 * sz.z + 0.3 * ( skinNoise( vSkinUv * 700.0 ) - 0.5 ) );
+// Wet skin: glossy, in patches (sweat beads and runs unevenly).
+if ( uWet > 0.0 ) roughnessFactor = mix( roughnessFactor, 0.12, uWet * ( 0.55 + 0.45 * smoothstep( 0.35, 0.65, h_noise3( vBind * 18.0 ) ) ) );
 `;
 
 const SKIN_IRRADIANCE = /* glsl */ `
@@ -259,6 +287,8 @@ vec3 irradiance = dotNL * directLight.color;
 float skinNdl = dot( geometryNormal, directLight.direction );
 vec3 skinWrap = vec3( 0.5, 0.22, 0.14 ) * uSSS;
 vec3 skinIrradiance = clamp( ( vec3( skinNdl ) + skinWrap ) / ( 1.0 + skinWrap ), 0.0, 1.0 ) * directLight.color;
+// Thin skin lit from behind glows red where you look toward the light through it.
+skinIrradiance += skinThin * pow( saturate( dot( geometryViewDir, -directLight.direction ) ), 3.0 ) * saturate( 0.4 - skinNdl ) * vec3( 1.0, 0.25, 0.12 ) * directLight.color;
 `;
 
 const SKIN_DIRECT_DIFFUSE = /reflectedLight\.directDiffuse \+= irradiance \* BRDF_Lambert\(/;

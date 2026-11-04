@@ -279,6 +279,7 @@ export class CharacterEditor {
     const look = this.section("Look", "look");
     if (cat.photoSkin) detailed(this.select(look, "Skin", [["photo", "Photo (follows ethnicity)"], ["procedural", "Procedural"]], (c) => c.skin, (v) => set({ skin: v as CharacterConfig["skin"] }), "skin"));
     detailed(this.check(look, "Skin detail", (c) => c.skinDetail, (v) => set({ skinDetail: v }), "skinDetail"));
+    detailed(this.slider(look, "Wet skin", 0, 1, 0.01, pct, (c) => c.skinWetness, (v) => set({ skinWetness: v }), "skinWetness"));
     const tone = detailed(this.slider(look, "Skin tone", 0, 1, 0.01, pct, (c) => c.skinTone, (v) => set({ skinTone: v }), "skinTone"));
     this.syncers.push((c) => (tone.hidden = c.skin === "photo"));
     this.color(look, "Skin colour", (c) => c.skinColor, (v) => set({ skinColor: v }), "skinColor");
