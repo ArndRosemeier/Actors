@@ -21,6 +21,7 @@ import {
   attribute,
   abs,
   clamp,
+  cos,
   diffuseContribution,
   dot,
   exp,
@@ -399,8 +400,40 @@ const collidersGraph = once(() => {
   const capA = Array.from({ length: MAX_COLLIDERS }, (_, i) => input(`cap.a${i}`, new THREE.Vector4()));
   const capB = Array.from({ length: MAX_COLLIDERS }, (_, i) => input(`cap.b${i}`, new THREE.Vector3()));
   const center = input("cap.center", new THREE.Vector3());
+  const sway = input("cap.sway", new THREE.Vector3());
+  const pivot = input("cap.pivot", new THREE.Vector3());
   return Fn(() => {
     const p = vec3(positionLocal).toVar();
+    // Cloth motion first (see colliders.ts SWAY): a pendulum hung between the hips, lagging their turn.
+    const hang = pivot.y.sub(p.y).toVar();
+    const swayO = vec2(0, 0).toVar();
+    const swayFrom = vec3(positionLocal).toVar();
+    If(hang.greaterThan(0), () => {
+      const tw = sway.y.mul(smoothstep(0, 0.6, hang)).toVar();
+      const rx = p.x.sub(pivot.x).toVar(), rz = p.z.sub(pivot.z).toVar();
+      const c = cos(tw).toVar(), s = sin(tw).toVar();
+      const o = vec2(sway.x, sway.z).mul(hang.mul(float(0.6).add(hang.div(0.6).min(1).mul(0.4)))).toVar();
+      // Cloth against a leg stays with it, unless the swing carries it away (see colliders.ts).
+      const free = float(1).toVar();
+      const dir = vec3(o.x, 0, o.y).div(max(o.length(), 1e-6)).toVar();
+      const q = vec3(positionLocal);
+      for (let i = 0; i < capA.length; i++) {
+        const a = capA[i].xyz, r = capA[i].w;
+        If(r.greaterThan(0), () => {
+          const ab = capB[i].sub(a).toVar();
+          const len = max(ab.length(), 1e-5).toVar();
+          const axis = ab.div(len).toVar();
+          const rel = q.sub(a.add(axis.mul(clamp(dot(q.sub(a), axis), 0, len)))).toVar();
+          const along = dot(rel, dir).toVar();
+          const side = rel.sub(dir.mul(along)).toVar();
+          const lat = side.sub(axis.mul(dot(side, axis))).length();
+          free.assign(free.min(max(smoothstep(r.mul(-0.5), r.mul(1.5), along), smoothstep(r, r.mul(2.5), lat))));
+        });
+      }
+      o.mulAssign(free);
+      swayO.assign(o);
+      p.assign(vec3(pivot.x.add(c.mul(rx)).add(s.mul(rz)).add(o.x), p.y.add(dot(o, o).div(hang.mul(2))), pivot.z.add(c.mul(rz)).sub(s.mul(rx)).add(o.y)));
+    });
     const out = p.sub(center).mul(vec3(1, 0, 1)).toVar();
     const n = select(out.length().greaterThan(1e-4), normalize(out), vec3(0, 0, 1)).toVar();
     for (let i = 0; i < capA.length; i++) {
@@ -409,6 +442,24 @@ const collidersGraph = once(() => {
         const ab = capB[i].sub(a).toVar();
         const len = max(ab.length(), 1e-5).toVar();
         const axis = ab.div(len).toVar();
+        // Cloth swung across a leg stops behind it (see colliders.ts).
+        const sw0 = vec3(swayO.x, 0, swayO.y);
+        const sw = sw0.sub(axis.mul(dot(sw0, axis))).toVar();
+        If(dot(sw, sw).greaterThan(1e-8), () => {
+          const dir = normalize(sw).toVar();
+          const c0 = a.add(axis.mul(clamp(dot(swayFrom.sub(a), axis), 0, len))).toVar();
+          const rel0 = swayFrom.sub(c0).toVar();
+          const along0 = dot(rel0, dir).toVar();
+          const lat0 = rel0.sub(dir.mul(along0)).toVar();
+          const l = lat0.sub(axis.mul(dot(lat0, axis))).length().toVar();
+          If(along0.lessThan(0).and(l.lessThan(r)), () => {
+            const stop = sqrt(r.mul(r).sub(l.mul(l))).negate().toVar();
+            const along = dot(p.sub(c0), dir).toVar();
+            If(along0.lessThanEqual(stop).and(along.greaterThan(stop)), () => {
+              p.subAssign(dir.mul(along.sub(stop).min(sw.length())));
+            });
+          });
+        });
         const h = clamp(dot(p.sub(a), axis), 0, len);
         const d = p.sub(a.add(axis.mul(h))).toVar();
         const dist = d.length().toVar();
@@ -421,6 +472,13 @@ const collidersGraph = once(() => {
           const side = n.sub(axis.mul(dot(n, axis))).toVar();
           const up = vec3(0, 1, 0).sub(axis.mul(axis.y));
           const m = mix(side, up, smoothstep(0.3, 0.8, float(1).sub(abs(axis.y)))).toVar();
+          // Cloth swung into a leg stops at it, back the way it swung (see colliders.ts).
+          const back0 = vec3(swayO.x.negate(), 0, swayO.y.negate());
+          const back = back0.sub(axis.mul(dot(back0, axis))).toVar();
+          const bl = back.length().toVar();
+          If(bl.greaterThan(1e-4), () => {
+            m.assign(mix(m, back.div(bl), smoothstep(0.005, 0.03, swayO.length())));
+          });
           const ml = m.length().toVar();
           If(ml.greaterThanEqual(1e-3), () => {
             m.divAssign(ml);
@@ -438,7 +496,7 @@ const collidersGraph = once(() => {
 /** Pushes a skirt-like garment out of the leg capsules after skinning (see colliders.ts). */
 export function useNodeColliders<T extends THREE.Material>(material: T, c: ColliderUniforms): T {
   (material as unknown as { positionNode: N }).positionNode = collidersGraph();
-  const inputs: Inputs = { "cap.center": () => c.uCenter.value };
+  const inputs: Inputs = { "cap.center": () => c.uCenter.value, "cap.sway": () => c.uSway.value, "cap.pivot": () => c.uPivot.value };
   for (let i = 0; i < MAX_COLLIDERS; i++) {
     inputs[`cap.a${i}`] = () => c.uCapA.value[i];
     inputs[`cap.b${i}`] = () => c.uCapB.value[i];
