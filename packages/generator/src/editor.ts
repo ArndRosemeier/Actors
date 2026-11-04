@@ -493,6 +493,20 @@ export class CharacterEditor {
     detailed(this.slider(motion, "Intensity", 0, 1, 0.01, pct, (c) => c.expressionIntensity, (v) => set({ expressionIntensity: v }), "expressionIntensity"));
     detailed(this.check(motion, "Blink", (c) => c.blink, (v) => set({ blink: v }), "blink"));
     detailed(this.check(motion, "Face rig", (c) => c.faceRig, (v) => set({ faceRig: v }), "faceRig"));
+    detailed(this.check(motion, "Living face", (c) => c.faceAnimation, (v) => set({ faceAnimation: v }), "faceAnimation"));
+    detailed(this.check(motion, "Eyes follow camera", (c) => c.gaze === "camera", (v) => set({ gaze: v ? "camera" : "ahead" }), "gaze"));
+    // Lip-sync test: speaks a line (needs the face rig and a living face).
+    const sayRow = document.createElement("div");
+    sayRow.className = "ae-row";
+    sayRow.innerHTML = `<label>Say</label><input type="text" placeholder="Hello there, traveller!" style="grid-column: 2 / 4">`;
+    const sayInput = sayRow.querySelector("input")!;
+    sayInput.dataset.key = "say";
+    sayInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") character.say(sayInput.value || sayInput.placeholder);
+    });
+    this.syncers.push((c) => (sayRow.hidden = !(c.faceAnimation && c.faceRig)));
+    motion.appendChild(sayRow);
+    detailed(sayRow);
 
     // Detail sliders
     if (options.details !== false && cat.details.length) {

@@ -297,6 +297,14 @@ export interface CharacterConfig {
    * memory per character and a rig build in the worker per shape change; off by default.
    */
   faceRig: boolean;
+  /**
+   * A living face: natural blinks, eye saccades and glances, eyes that turn toward `gaze`, lids
+   * that follow them, slow idle movement and lip-sync (`Character.say`). Eyes turn with or without
+   * the face rig; lids, idle movement and lip-sync need `faceRig`. Off by default.
+   */
+  faceAnimation: boolean;
+  /** Where a living face looks: straight ahead, or at the camera (`Character.camera`, else `lodCamera`). */
+  gaze: "ahead" | "camera";
   /** "high" = subdivided body, "low" = base mesh. */
   detail: "high" | "low";
   /**
@@ -543,6 +551,8 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     expressionIntensity: 0.8,
     blink: true,
     faceRig: false,
+    faceAnimation: false,
+    gaze: "camera",
     detail: "high",
     robot: false,
     robotLook: { ...DEFAULT_ROBOT_LOOK },

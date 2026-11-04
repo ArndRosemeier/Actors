@@ -77,6 +77,22 @@ character.setFaceUnits({ "mouth-open": 0.4 }); // added on top of expression and
 
 The rig is built in the worker with each shape (all units at once) and kept sparse: only vertices a unit moves are stored, as half floats in one texture per character. A frame only uploads the unit weights; the vertex shader does the rest, on both renderers. It is off by default because it costs GPU memory (about 7 MB for MakeHuman's 34 units: 12,800 moved vertices) and time per shape change (about 0.1 s extra in the worker); robots and skeletons don't use it.
 
+### Living face
+
+`faceAnimation` makes the face move on its own: natural blinks (varied speed, now and then a double or a half blink), small eye jumps while looking at something and now and then a glance away, eyes that turn toward the camera or any point (each eye on its own, so near points make them converge), upper lids that follow the eyes down and up, slow idle movement of brows, mouth corners and nostrils, and lip-sync. The eyes turn with or without the face rig; lids, idle movement and lip-sync need `faceRig` too.
+
+```ts
+await character.set({ faceRig: true, faceAnimation: true, gaze: "camera" }); // or gaze: "ahead"
+character.camera = myCamera;            // what "camera" means (default: lodCamera, the stage camera)
+character.lookAt(npc.object);           // follow an object or a point; null = ahead, undefined = back to the config
+character.say("Well met, traveller!");  // rough English letter-to-mouth rules; returns the length in seconds
+character.speak([{ time: 0, viseme: "PP" }, { time: 0.08, viseme: "aa" }]); // exact timing from a TTS engine (VISEMES)
+character.setVoiceLevel(level);         // or move the jaw with your audio's loudness, 0..1, every frame
+character.faceAnimator!.options.saccades = false; // each part can be switched off; speechIntensity scales the lips
+```
+
+All of it is a few dozen multiply-adds per frame on the CPU (about 0.02 ms per character with the mixer); the faces move on the GPU through the face rig. The eyes get two bones (`eye_l`, `eye_r`, children of the head) when the living face is first switched on, so they also turn in exported glTF skeletons. The animator itself (`FaceAnimator`, `textToVisemes` and `VISEMES` in `@actors/human`) is renderer-free and works with any engine that can set face units and turn two bones.
+
 `character.catalog` lists every choice the pack offers (ids and labels): `animations`, `garments` (with category, body layers, slots and whether they cover the anatomy), `garmentColors` (a suggested palette; any hex colour works), `outfits` (presets), `hair`, `hairColors`, `brows`, `eyes`, `expressions` and the detail sliders. Build your own UI from it, or use `CharacterEditor`.
 
 Large clip libraries in the pack (the 2,548 CMU motions) are listed in `catalog.animations` too, with `library: "cmu"`, a `category` (the capture session) and a `description`; only their index is loaded up front, each clip on first play. Pass `clipLibraries: false` to `Character.load` to skip them.
