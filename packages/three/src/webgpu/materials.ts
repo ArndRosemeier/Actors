@@ -60,7 +60,7 @@ import { METAL_FABRICS, fabricNormalMap, lashAlphaMap, poreNormalMap } from "../
 import { type ScreenTexturePool, useScreenMaterial } from "../screens";
 import { beardTexture, leafTexture, robotMaterialParams } from "../parts";
 import { useNodeDqs } from "./dqs";
-import { bumpNormal } from "./noise";
+import { bumpNormal, noise3 } from "./noise";
 import { eyeColor, skinPattern, ss, stubble } from "./patterns";
 import type { N } from "./types";
 import { srgb } from "../color";
@@ -218,6 +218,32 @@ const skinGraph = once(() => {
   const maskB = () => inputTexture("skin.maskB", black, uvS);
   const maskC = () => inputTexture("skin.maskC", black, uvS);
   const weights = input("skin.weights", new THREE.Vector4(1, 0, 0, 0));
+  // Skin detail regions (see skinZones in materials.ts): x flush, y shadow under the eyes, z shine, w pores.
+  const zones = property("vec4", "actor_skin_zones");
+  const blob = (p: N, c: N, r: N) => float(1).sub(ss(0.35, 1, p.sub(c).div(r).length()));
+  const skinZones = Fn(() => {
+    const z = vec4(0, 0, 0, 0).toVar();
+    If(u.uFace.w.greaterThan(0), () => {
+      const f0 = bind.sub(u.uFace.xyz).div(u.uFace.w);
+      const f = vec3(f0.x.abs(), f0.y, f0.z.negate()).toVar(); // vBind has +Z back
+      const front = ss(-1.1, -0.5, f.z).toVar();
+      const cheek = blob(f, vec3(0.95, -0.85, 0), vec3(0.65, 0.55, 3)).mul(front).toVar();
+      const nose = blob(f, vec3(0, -0.8, 0.7), vec3(0.42, 0.42, 0.6)).toVar();
+      const ear = blob(f, vec3(1.35, -0.35, -1.35), vec3(0.4, 0.75, 0.6));
+      const chin = blob(f, vec3(0, -1.95, 0.3), vec3(0.45, 0.32, 1)).mul(front);
+      const under = blob(f, vec3(0.5, -0.42, 0.2), vec3(0.42, 0.16, 1)).mul(front);
+      const brow = blob(f, vec3(0, 1, 0.2), vec3(0.9, 0.6, 1.2)).mul(front);
+      z.assign(vec4(max(max(cheek.mul(0.8), nose), max(ear.mul(0.9), chin.mul(0.5))), under, max(brow, nose), max(nose, cheek.mul(0.7))));
+    });
+    const b = vec3(bind.x.abs(), bind.y, bind.z).toVar();
+    If(u.uKnee.w.greaterThan(0), () => {
+      z.x.assign(max(z.x, max(blob(b, u.uKnee.xyz, u.uKnee.w), blob(b, u.uElbow.xyz, u.uElbow.w)).mul(0.6)));
+    });
+    If(u.uHand.w.greaterThan(0), () => {
+      z.x.assign(max(z.x, blob(b, u.uHand.xyz, u.uHand.w).mul(0.5)));
+    });
+    return z;
+  });
   const color = Fn(() => {
     const mA = maskA().toVar();
     const mB = maskB().toVar();
@@ -233,6 +259,15 @@ const skinGraph = once(() => {
     const layer = (i: number) => inputTexture(`skin.layer${i}`, white, uvS).rgb;
     const photo = layer(0).mul(weights.x).add(layer(1).mul(weights.y)).add(layer(2).mul(weights.z)).add(layer(3).mul(weights.w));
     tone.assign(mix(tone, photo.mul(u.uAlbedoTint), u.uAlbedoMix));
+    // Skin detail: flush and shadow (less over a photo skin), and fine pigment speckle.
+    zones.assign(vec4(0, 0, 0, 0));
+    If(u.uDetail.greaterThan(0), () => {
+      zones.assign(skinZones());
+      const k = u.uDetail.mul(mix(1, 0.55, u.uAlbedoMix)).toVar();
+      tone.mulAssign(mix(vec3(1), vec3(1, 0.7, 0.7), zones.x.mul(0.6).mul(k)));
+      tone.mulAssign(mix(vec3(1), vec3(0.84, 0.77, 0.86), zones.y.mul(0.6).mul(k)));
+      tone.mulAssign(float(1).sub(ss(0.62, 0.9, noise3(bind.mul(260))).mul(0.07).mul(k)));
+    });
     const browMask = ss(0.02, 0.3, mB.a);
     tone.assign(mix(tone, u.uBrowColor, browMask.mul(u.uBrowDensity)));
     const stubbled = stubble(tone, mA.r, bind, u.uFace, u.uStubble, u.uStubbleColor);
@@ -256,6 +291,11 @@ const skinGraph = once(() => {
     const pore = texture(poreNormalMap(), uvS.mul(48)).xyz.mul(2).sub(1).toVar();
     const scale = float(1).sub(max(mA.r, mA.b).mul(0.7)).mul(0.35);
     const mapN = vec3(pore.xy.mul(scale), pore.z).toVar();
+    // Skin detail: pores show more on the nose and cheeks, and a finer layer of skin texture over all.
+    If(u.uDetail.greaterThan(0), () => {
+      const fine = texture(poreNormalMap(), uvS.mul(48 * 3.3).add(0.21)).xy.mul(2).sub(1);
+      mapN.assign(vec3(mapN.xy.mul(u.uDetail.mul(0.8).mul(zones.w).add(1)).add(fine.mul(scale).mul(0.45).mul(u.uDetail)), mapN.z));
+    });
     If(u.uFemale.greaterThan(0).and(mB.r.greaterThan(0.01)), () => {
       const gl = genitalLocal(u.uGenitalBox, uvS).toVar();
       const e = 0.02;
@@ -279,7 +319,9 @@ const skinGraph = once(() => {
     });
     return n;
   })();
-  return { color, normal, rough: select(spRough.greaterThanEqual(0), spRough, float(0.48)), emit: spEmit, sss: u.uSSS };
+  // Skin detail: a shinier T-zone, slightly rougher elsewhere, and uneven at a fine scale.
+  const detailRough = float(0.48).mul(u.uDetail.mul(float(0.1).sub(zones.z.mul(0.24)).add(skinNoise(uvS.mul(700)).sub(0.5).mul(0.3))).add(1));
+  return { color, normal, rough: select(spRough.greaterThanEqual(0), spRough, detailRough), emit: spEmit, sss: u.uSSS };
 });
 
 /** Skin (see createSkinMaterial): region tints, photo skins, stubble, race pattern, pores, wrapped diffuse. */

@@ -44,6 +44,15 @@ export interface SkinUniforms {
   uStubbleColor: { value: THREE.Color };
   /** How deep the expression wrinkles show (forehead, frown, smile), 0..1 each; all 0 skips them. */
   uWrinkle: { value: THREE.Vector3 };
+  /**
+   * Skin detail 0..1 (0 skips it): blood flush on cheeks, nose, ears, chin, knees, elbows and hands,
+   * shadow under the eyes, a shinier T-zone, uneven roughness, pigment speckle, finer pores.
+   */
+  uDetail: { value: number };
+  /** Knee, elbow and hand centres (one side, mirrored; pattern space as vBind) and radius (w); w = 0 skips. */
+  uKnee: { value: THREE.Vector4 };
+  uElbow: { value: THREE.Vector4 };
+  uHand: { value: THREE.Vector4 };
 }
 
 export function createSkinUniforms(): SkinUniforms {
@@ -70,6 +79,10 @@ export function createSkinUniforms(): SkinUniforms {
     uStubble: { value: new THREE.Vector4(0, 0, 0, 0) },
     uStubbleColor: { value: new THREE.Color(0.03, 0.02, 0.015) },
     uWrinkle: { value: new THREE.Vector3(0, 0, 0) },
+    uDetail: { value: 0 },
+    uKnee: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uElbow: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uHand: { value: new THREE.Vector4(0, 0, 0, 0) },
   };
 }
 
@@ -95,6 +108,10 @@ uniform vec4 uFace;
 uniform vec4 uStubble;
 uniform vec3 uStubbleColor;
 uniform vec3 uWrinkle;
+uniform float uDetail;
+uniform vec4 uKnee;
+uniform vec4 uElbow;
+uniform vec4 uHand;
 varying vec2 vSkinUv;
 varying vec3 vBind;
 ${GLSL_NOISE}
@@ -106,6 +123,29 @@ float skinNoise( vec2 p ) {
   vec2 i = floor( p ), f = fract( p );
   vec2 u = f * f * ( 3.0 - 2.0 * f );
   return mix( mix( skinHash( i ), skinHash( i + vec2( 1, 0 ) ), u.x ), mix( skinHash( i + vec2( 0, 1 ) ), skinHash( i + vec2( 1, 1 ) ), u.x ), u.y );
+}
+float sd_blob( vec3 p, vec3 c, vec3 r ) { return 1.0 - smoothstep( 0.35, 1.0, length( ( p - c ) / r ) ); }
+// Skin detail regions: x blood flush, y shadow under the eyes, z shine (T-zone), w pore emphasis.
+// The face ones in face units around the eyes (see stubble), the limb ones round the joints.
+vec4 skinZones() {
+  vec4 z = vec4( 0.0 );
+  if ( uFace.w > 0.0 ) {
+    vec3 f = ( vBind - uFace.xyz ) / uFace.w;
+    f.z = -f.z; // vBind has +Z back
+    f.x = abs( f.x );
+    float front = smoothstep( -1.1, -0.5, f.z );
+    float cheek = sd_blob( f, vec3( 0.95, -0.85, 0.0 ), vec3( 0.65, 0.55, 3.0 ) ) * front;
+    float nose = sd_blob( f, vec3( 0.0, -0.8, 0.7 ), vec3( 0.42, 0.42, 0.6 ) );
+    float ear = sd_blob( f, vec3( 1.35, -0.35, -1.35 ), vec3( 0.4, 0.75, 0.6 ) );
+    float chin = sd_blob( f, vec3( 0.0, -1.95, 0.3 ), vec3( 0.45, 0.32, 1.0 ) ) * front;
+    float under = sd_blob( f, vec3( 0.5, -0.42, 0.2 ), vec3( 0.42, 0.16, 1.0 ) ) * front;
+    float brow = sd_blob( f, vec3( 0.0, 1.0, 0.2 ), vec3( 0.9, 0.6, 1.2 ) ) * front;
+    z = vec4( max( max( cheek * 0.8, nose ), max( ear * 0.9, chin * 0.5 ) ), under, max( brow, nose ), max( nose, cheek * 0.7 ) );
+  }
+  vec3 b = vec3( abs( vBind.x ), vBind.yz );
+  if ( uKnee.w > 0.0 ) z.x = max( z.x, 0.6 * max( sd_blob( b, uKnee.xyz, vec3( uKnee.w ) ), sd_blob( b, uElbow.xyz, vec3( uElbow.w ) ) ) );
+  if ( uHand.w > 0.0 ) z.x = max( z.x, 0.5 * sd_blob( b, uHand.xyz, vec3( uHand.w ) ) );
+  return z;
 }
 // Genital region in local coordinates: s across the cleft, t along it (both -1..1).
 vec2 genitalLocal() {
@@ -138,6 +178,15 @@ tone = mix( tone, tone * vec3( 0.94, 0.88, 0.86 ), mB.g * 0.6 );
 tone = mix( tone, tone * vec3( 1.02, 0.9, 0.88 ), mB.b * 0.5 );
 // Photographic skin already carries lips, areolae, nails and mottling.
 if ( uAlbedoMix > 0.0 ) tone = mix( tone, texture2D( uAlbedo, vSkinUv ).rgb * uAlbedoTint, uAlbedoMix );
+// Skin detail: flush and shadow (less over a photo skin, which has some), and fine pigment speckle.
+vec4 sz = vec4( 0.0 );
+if ( uDetail > 0.0 ) {
+  sz = skinZones();
+  float k = uDetail * mix( 1.0, 0.55, uAlbedoMix );
+  tone *= mix( vec3( 1.0 ), vec3( 1.0, 0.7, 0.7 ), sz.x * 0.6 * k );
+  tone *= mix( vec3( 1.0 ), vec3( 0.84, 0.77, 0.86 ), sz.y * 0.6 * k );
+  tone *= 1.0 - smoothstep( 0.62, 0.9, h_noise3( vBind * 260.0 ) ) * 0.07 * k;
+}
 float browHair = smoothstep( 0.3, 0.7, skinNoise( vSkinUv * vec2( 3000.0, 900.0 ) ) );
 float browMask = smoothstep( 0.02, 0.3, mB.a );
 tone = mix( tone, uBrowColor, browMask * uBrowDensity );
@@ -165,7 +214,13 @@ mapN.xy *= normalScale;
 // Fewer visible pores on lips, nails and brows.
 {
   vec4 nA = texture2D( uMaskA, vSkinUv );
-  mapN.xy *= 1.0 - 0.7 * max( nA.r, nA.b );
+  float poreK = 1.0 - 0.7 * max( nA.r, nA.b );
+  mapN.xy *= poreK;
+  // Skin detail: pores show more on the nose and cheeks, and a finer layer of skin texture over all.
+  if ( uDetail > 0.0 ) {
+    vec2 fine = texture2D( normalMap, vNormalMapUv * 3.3 + 0.21 ).xy * 2.0 - 1.0;
+    mapN.xy = mapN.xy * ( 1.0 + 0.8 * uDetail * sz.w ) + fine * normalScale * 0.45 * uDetail * poreK;
+  }
 }
 if ( uFemale > 0.0 ) {
   vec2 l = genitalLocal();
@@ -188,6 +243,11 @@ if ( uWrinkle.x + uWrinkle.y + uWrinkle.z > 0.001 ) {
 }
 normal = normalize( tbn * mapN );
 if ( sp_height != 0.0 ) normal = h_bumpNormal( -vViewPosition, normal, sp_height, gl_FrontFacing ? 1.0 : -1.0 );
+`;
+
+// Skin detail: a shinier T-zone, slightly rougher elsewhere, and uneven at a fine scale (no plastic sheen).
+const SKIN_ROUGHNESS = /* glsl */ `
+if ( uDetail > 0.0 ) roughnessFactor *= 1.0 + uDetail * ( 0.1 - 0.24 * sz.z + 0.3 * ( skinNoise( vSkinUv * 700.0 ) - 0.5 ) );
 `;
 
 const SKIN_IRRADIANCE = /* glsl */ `
@@ -230,7 +290,7 @@ export function createSkinMaterial(uniforms: SkinUniforms): THREE.MeshPhysicalMa
       .replace("#include <lights_physical_pars_fragment>", physical)
       .replace("#include <map_fragment>", `#include <map_fragment>\n${SKIN_ALBEDO}`)
       .replace("#include <normal_fragment_maps>", SKIN_NORMAL)
-      .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nif ( sp_rough >= 0.0 ) roughnessFactor = sp_rough;")
+      .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\n" + SKIN_ROUGHNESS + "\nif ( sp_rough >= 0.0 ) roughnessFactor = sp_rough;")
       .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += sp_emit;");
   };
   mat.customProgramCacheKey = () => "actors-skin";
