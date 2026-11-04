@@ -60,30 +60,48 @@ describe("a deformed library animal", () => {
     expect(lib.gaitRate).toBe(1);
   });
 
-  it("puts the plan's proportions on the bones after every animation step, and takes them off again", () => {
-    const { lib, bones } = quadruped();
+  it("bakes the plan's proportions into the skin and the joints, never into bone scales, and takes them off again", () => {
+    const { lib, bones, mesh } = quadruped();
     const plan = deform({ recipe: "giant", seed: 6, strength: 1 });
+    const geometry = mesh.geometry;
+    const bone = (name: string) => bones.find((x) => x.name === name)!;
     lib.setDeform(plan);
-    // Thighs hang along y: girth across (x, z), length along y; the calf below carries the part, not the thigh's scale twice.
-    // A bone's scale is relative to its parent's, so what a leg bone ends up with in the model is the product up the chain.
-    const total = (name: string) => {
-      const v = new THREE.Vector3(1, 1, 1);
-      for (let b: THREE.Object3D | null = bones.find((x) => x.name === name)!; b && (b as THREE.Bone).isBone; b = b.parent) v.multiply(b.scale);
-      return v;
-    };
-    expect(total("Thigh_FL").x).toBeCloseTo(plan.parts.leg.girth, 5);
-    expect(total("Thigh_FL").y).toBeCloseTo(plan.parts.leg.len, 5);
-    expect(total("Calf_FL").y).toBeCloseTo(plan.parts.leg.len, 5);
-    expect(total("Foot_FL").y).toBeCloseTo(plan.parts.foot.len, 5);
-    expect(total("Foot_FL").x).toBeCloseTo(plan.parts.foot.girth, 5);
-    lib.play("Walk");
-    // A clip with scale keys would set them back to 1: the plan goes on after the mixer.
-    scaleOf(bones, "Thigh_FL").set(1, 1, 1);
-    lib.update(0.1);
-    expect(total("Thigh_FL").x).toBeCloseTo(plan.parts.leg.girth, 5);
+    // No bone is scaled (an inherited scale shears every limb that turns out of line with its parent).
+    for (const b of bones) expect(b.scale.toArray()).toEqual([1, 1, 1]);
+    // Thighs hang along y: each joint below moves out by its parent's length, the skin widens by its girth.
+    expect(bone("Calf_FL").position.y).toBeCloseTo(-0.45 * plan.parts.leg.len, 5);
+    expect(bone("Foot_FL").position.y).toBeCloseTo(-0.4 * plan.parts.leg.len, 5);
+    expect(mesh.geometry).not.toBe(geometry);
+    const thigh = bones.indexOf(bone("Thigh_FL")) - 1;
+    const p = mesh.geometry.getAttribute("position");
+    expect(p.getX(thigh * 3 + 1) - p.getX(thigh * 3)).toBeCloseTo(0.05 * plan.parts.leg.girth, 4);
+    // A clip that keys a joint where the old body had it: stretched after the mixer, every frame, not twice.
+    const keyed = new THREE.AnimationClip("Keyed", 1, [new THREE.VectorKeyframeTrack("Calf_FL.position", [0, 1], [0, -0.45, 0, 0, -0.45, 0])]);
+    (lib as unknown as { clips: Map<string, THREE.AnimationClip> }).clips.set("Keyed", keyed);
+    lib.play("Keyed");
+    for (let k = 0; k < 3; k++) {
+      lib.update(0.1);
+      expect(bone("Calf_FL").position.y).toBeCloseTo(-0.45 * plan.parts.leg.len, 5);
+    }
+    lib.play(null);
     lib.setDeform(null);
     for (const b of bones) expect(b.scale.toArray()).toEqual([1, 1, 1]);
+    expect(bone("Foot_FL").position.y).toBeCloseTo(-0.4, 5);
+    expect(mesh.geometry).toBe(geometry);
     expect(lib.gaitRate).toBe(1);
+  });
+
+  it("keeps a turned leg's skin in shape (no shear), whatever the parent's proportions", () => {
+    const { lib, bones, mesh } = quadruped();
+    lib.setDeform(deform({ recipe: "giant", seed: 3, strength: 1 }));
+    // The calf turned 60 degrees: its three skin points keep their right angle at the joint.
+    bones.find((x) => x.name === "Calf_FL")!.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 3);
+    mesh.parent!.updateMatrixWorld(true);
+    mesh.skeleton.update();
+    const calf = bones.findIndex((x) => x.name === "Calf_FL") - 1;
+    const at = (k: number) => mesh.getVertexPosition(calf * 3 + k, new THREE.Vector3());
+    const a = at(1).sub(at(0)), b = at(2).sub(at(0));
+    expect(Math.abs(a.dot(b)) / (a.length() * b.length())).toBeLessThan(1e-4);
   });
 
   it("keeps the feet on the ground when the legs get shorter, whatever the seed", () => {

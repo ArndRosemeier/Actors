@@ -15,7 +15,7 @@ export interface FootingOptions {
 }
 
 /** Words in a bone's name (split at separators and camel case) that say it is not a foot: tails, heads, horns, helpers. */
-const NOT_FEET = new Set("tail ik target ref helper twist ear ears tongue jaw lip lips trunk eye eyes wing wings feather feathers head neck horn horns antler antlers snout nose beak mouth".split(" "));
+const NOT_FEET = new Set("tail ik target ref helper twist ear ears tongue jaw chin lip lips trunk eye eyes wing wings feather feathers head neck horn horns antler antlers snout nose beak mouth".split(" "));
 const notFoot = (name: string) => name.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z]+/).some((w) => NOT_FEET.has(w));
 
 /** How the pass reads a foot, for tests and tools. */
@@ -160,23 +160,45 @@ export class FootGrounding {
     if (!(high > low)) return false;
     box.getSize(this.size);
     const tall = high - low;
+    // Sole bones: those near a leaf (not heads or tails) whose skin is the lowest of their limb (no bone below them in the skeleton
+    // reaches lower), in the lower part of the body. Each foot's sole is measured from its own lowest point: a rest pose may hold one pair
+    // of legs a little higher than the other (or a deform may lengthen them unevenly), and a foot is still a foot.
+    const isFoot = (bone: number) => bone >= 0 && leaf[bone] <= 3 && !notFoot(this.bones[bone].name);
+    const lowOf = new Map<number, number>();
+    meshes.forEach((_, m) => {
+      for (let i = 0; i < boneOf[m].length; i++) {
+        const bone = boneOf[m][i];
+        if (isFoot(bone)) lowOf.set(bone, Math.min(lowOf.get(bone) ?? Infinity, rests[m][i * 3 + 1]));
+      }
+    });
+    const below = (i: number): number => {
+      let least = Infinity;
+      for (const c of this.bones[i].children) {
+        const k = this.bones.indexOf(c as THREE.Bone);
+        if (k < 0) continue;
+        least = Math.min(least, lowOf.get(k) ?? Infinity, below(k));
+      }
+      return least;
+    };
+    const sole = new Set<number>();
+    for (const [bone, y] of lowOf) if (y <= low + 0.35 * tall && !(below(bone) < y - 0.02 * tall)) sole.add(bone);
     const all: Probe[] = [];
     meshes.forEach((mesh, m) => {
       for (let i = 0; i < boneOf[m].length; i++) {
-        if (rests[m][i * 3 + 1] > low + 0.06 * tall) continue;
-        all.push({ mesh, index: i, bone: boneOf[m][i], rest: new THREE.Vector3().fromArray(rests[m], i * 3), height: 0 });
+        const bone = boneOf[m][i], y = rests[m][i * 3 + 1];
+        const foot = sole.has(bone) && y <= lowOf.get(bone)! + 0.05 * tall;
+        if (!foot && y > low + 0.06 * tall) continue;
+        all.push({ mesh, index: i, bone: foot ? bone : -1, rest: new THREE.Vector3().fromArray(rests[m], i * 3), height: 0 });
       }
     });
     if (!all.length) return false;
-    // Soles: the skin within a hand of the lowest point, on bones within reach of a foot; with no such bones, the lowest skin alone.
-    // Soles: the skin within a hand of the lowest point. Those on bones near a leaf (not heads or tails) are feet the leg bones reach for;
-    // the rest (a belly, a plastron, a dragging tail) only keep the body out of the ground.
-    const isFoot = (p: Probe) => p.bone >= 0 && leaf[p.bone] <= 3 && !notFoot(this.bones[p.bone].name);
+    // Soles: the skin of the sole bones within a hand of their own lowest point are feet the leg bones reach for; the rest of the skin within
+    // a hand of the lowest point (a belly, a plastron, a dragging tail) only keeps the body out of the ground.
     const evenly = (list: Probe[], most: number) => {
       const sorted = list.sort((a, b) => a.rest.y - b.rest.y), stride = Math.max(1, Math.ceil(sorted.length / most));
       return sorted.filter((_, i) => i % stride === 0);
     };
-    const soles = [...evenly(all.filter(isFoot), 96), ...evenly(all.filter((p) => !isFoot(p)).map((p) => ({ ...p, bone: -1 })), 32)];
+    const soles = [...evenly(all.filter((p) => p.bone >= 0), 192), ...evenly(all.filter((p) => p.bone < 0), 32)];
     if (!soles.length) return false;
     for (const p of soles) p.height = p.rest.y - low;
     // Feet: soles whose bones touch in the skeleton (the same bone, parent and child, or siblings: a foot and its toes) are one foot;
@@ -200,6 +222,11 @@ export class FootGrounding {
     });
     this.feet.push(...feet.values());
     for (const f of this.feet) {
+      // A foot stands on its own lowest point (the body's lowest skin, a plastron say, only keeps out of the ground).
+      if (f.probes[0].bone >= 0) {
+        const base = Math.min(...f.probes.map((p) => p.rest.y));
+        for (const p of f.probes) p.height = p.rest.y - base;
+      }
       // At most 8 points, spread over the sole; the leg turns about the bone nearest the root among those that carry them.
       const stride = Math.max(1, Math.ceil(f.probes.length / 8));
       f.probes = f.probes.filter((_, i) => i % stride === 0);
@@ -371,6 +398,8 @@ export class FootGrounding {
     const base = Math.min(...lifts);
     this.clipLift = base;
     out.forEach((o, i) => (o.planted = this.standing ? 1 : 1 - smooth(0.01 * tall, 0.06 * tall, lifts[i] - base)));
+    // Skin that only keeps the body out of the ground (a belly, a plastron) is not stood on: when there are feet, it does not lean the body.
+    if (this.feet.some((f) => f.bone >= 0)) this.feet.forEach((f, i) => f.bone < 0 && (out[i].planted = 0));
     return out;
   }
 

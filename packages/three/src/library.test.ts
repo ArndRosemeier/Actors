@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
+import { deform } from "@actors/core";
 import { LibraryAnimal, estimateTravel, extractTravel, footBones, ignoreBodyTracks, type RootMotion } from "./library";
 
 /** A model whose root bone sits under a node turned -90° about X (as FBX conversions do), walking 2 m along +Z per second with a little sway. */
@@ -43,6 +44,26 @@ function animal(mode: RootMotion) {
 }
 
 describe("library animals", () => {
+  it("paces a giant's stride to the ground speed: a long slow stride, its feet neither skating nor hanging", () => {
+    const a = animal("in-place");
+    a.object.scale.setScalar(3);
+    const plan = deform({ recipe: "giant", seed: 2, strength: 1, size: 4 });
+    a.setDeform(plan);
+    // The clip's own 2 m/s, grown with the body and its legs, at the plan's slower gait.
+    const reach = 2 * 3 * plan.parts.leg.len;
+    expect(a.strideSpeed("Walk")).toBeCloseTo(reach * plan.gait.rate, 6);
+    expect(a.strideSpeed("Idle")).toBe(0);
+    a.play("Walk");
+    expect(a.pace(a.strideSpeed("Walk"))).toBeCloseTo(plan.gait.rate, 6);
+    expect(a.pace(0.6 * a.strideSpeed("Walk"))).toBeCloseTo(0.6 * plan.gait.rate, 6);
+    // Far too fast or too slow for this stride: held within its own gait's half and double.
+    expect(a.pace(100)).toBeCloseTo(2 * plan.gait.rate, 6);
+    expect(a.pace(0.001)).toBeCloseTo(0.5 * plan.gait.rate, 6);
+    // A clip that stays put plays at the plan's gait.
+    a.play("Idle");
+    expect(a.pace(5)).toBeCloseTo(plan.gait.rate, 6);
+  });
+
   it("takes the ground travel out of the topmost moving bone, keeping height and sway", () => {
     const { model, walk, idle } = walker();
     const t = extractTravel(model, walk)!;
