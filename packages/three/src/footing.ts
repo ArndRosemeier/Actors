@@ -37,7 +37,7 @@ interface Probe {
   bone: number;
   /** Where the point is in the rest pose, in the model's frame. */
   rest: THREE.Vector3;
-  /** How far above the lowest sole it stands at rest (the model's frame). */
+  /** How far above the lowest sole it stands at rest (the model's frame); only skin that keeps the body out of the ground is laid by it. */
   height: number;
 }
 
@@ -223,11 +223,6 @@ export class FootGrounding {
     });
     this.feet.push(...feet.values());
     for (const f of this.feet) {
-      // A foot stands on its own lowest point (the body's lowest skin, a plastron say, only keeps out of the ground).
-      if (f.probes[0].bone >= 0) {
-        const base = Math.min(...f.probes.map((p) => p.rest.y));
-        for (const p of f.probes) p.height = p.rest.y - base;
-      }
       // At most 8 points, spread over the sole; the leg turns about the bone nearest the root among those that carry them.
       const stride = Math.max(1, Math.ceil(f.probes.length / 8));
       f.probes = f.probes.filter((_, i) => i % stride === 0);
@@ -339,11 +334,12 @@ export class FootGrounding {
     this.turnAbout(new THREE.Vector3(), new THREE.Quaternion(), this.lift, false);
     this.update();
     // 3. Each leg reaches what is left: its points are drawn down to the ground by the planted share, and up out of it all the way.
-    // A few rounds, since turning a foot to bring one edge of its sole down can sink another.
+    // A few rounds, since turning a foot to bring one edge of its sole down can sink another. (A foot moves as one, but the leg turns it on
+    // the way: on broken ground, a cliff's edge under a giant's foot, a walk takes a fourth round to bring it out.)
     let last = Infinity;
     for (let round = 0; ; round++) {
       seen = this.read(ground);
-      if (round === (this.standing ? 6 : 3)) break;
+      if (round === (this.standing ? 6 : 4)) break;
       // A standing animal's rounds (three at least, since a round can overshoot) stop when they stop gaining on the best so far (a leg at its limit would go on for ever).
       if (this.standing) {
         const worst = Math.max(...seen.map((r) => (r.planted > 0.5 ? Math.abs(r.need) : Math.max(0, r.need))));
@@ -387,15 +383,16 @@ export class FootGrounding {
         r.copy(p.rest).applyMatrix4(m.matrixWorld);
         // How far the animation has raised this point above its rest place.
         lifted = Math.min(lifted, v.y - r.y);
-        // Standing, the sole is laid on the ground as it lies at rest (each point its rest height above it); walking, the clip turns the foot
-        // (a heel lifted, the toes reaching), and the foot meets the ground with whichever point is lowest, as the clip holds it.
-        const need = ground(v.x, v.z) + (this.standing || foot.bone < 0 ? p.height * scale : 0) - v.y;
+        // A foot meets the ground with whichever point the clip holds lowest (a walk lifts a heel, an idle holds a stubby foot tilted):
+        // laid as it lies at rest, each point its rest height above the ground, a turned foot stood on its rest sole and hung in the air.
+        // (Skin that only keeps the body out of the ground keeps its rest heights.)
+        const need = ground(v.x, v.z) + (foot.bone < 0 ? p.height * scale : 0) - v.y;
         (foot.at[k] ??= new THREE.Vector3()).copy(v);
         foot.need[k] = need;
         if (need > best) (best = need), (bx = v.x), (by = v.y), (bz = v.z);
       });
-      // Walking, the foot moves as one: every point by as much as brings its lowest to the ground.
-      if (!this.standing && foot.bone >= 0) foot.need.fill(best);
+      // The foot moves as one: every point by as much as brings its lowest to the ground.
+      if (foot.bone >= 0) foot.need.fill(best);
       lifts.push(lifted);
       out.push({ x: bx, y: by, z: bz, need: best, planted: 1, ground: ground(bx, bz) });
     }
