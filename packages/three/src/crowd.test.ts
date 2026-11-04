@@ -7,7 +7,7 @@ import { RootSkeleton, ThreeActor } from "./index";
  * A quad body on four base vertices with a full and a merging crowd level, a garment, textured
  * hair, eyes and teeth (one-triangle proxies or base meshes), on a two-bone rig.
  */
-async function crowdPack(): Promise<ActorRuntime> {
+async function crowdPack(limbs: string[] = []): Promise<ActorRuntime> {
   const parts: ArrayBufferView[] = [];
   let offset = 0;
   const put = <T extends "f32" | "u32">(type: T, values: number[]) => {
@@ -44,6 +44,7 @@ async function crowdPack(): Promise<ActorRuntime> {
     skeleton: { name: "tiny", bones: [
       { name: "root", parent: -1, head: { vertices: [0, 1] }, tail: { vertices: [0, 1, 2, 3] }, roll: 0 },
       { name: "top", parent: 0, head: { vertices: [0, 1, 2, 3] }, tail: { vertices: [2, 3] }, roll: 0 },
+      ...limbs.map((name) => ({ name, parent: 0, head: { vertices: [0, 1] }, tail: { vertices: [1] }, roll: 0 })),
     ] },
     skin: { joints: put("u32", [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]), weights: put("f32", [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]) },
   };
@@ -181,5 +182,36 @@ describe("frustum culling", () => {
     actor.inPlace = false;
     actor.update(0);
     expect(body.frustumCulled).toBe(false);
+  });
+});
+
+describe("binding", () => {
+  it("binds every bone in the actor's own frame, also detached from a scene far from the origin (MasterWorld's stretched crowd bodies)", async () => {
+    const rt = await crowdPack(["head", "arm"]);
+    vi.spyOn(ThreeActor.prototype, "texture").mockReturnValue(new THREE.Texture());
+    // As MasterWorld dresses a person: the actor in a place, the place in a scene 41 km out, then taken off the scene.
+    const scene = new THREE.Scene();
+    scene.position.set(-41000, 0, 30000);
+    const place = new THREE.Group();
+    place.position.set(5, 0, 2);
+    scene.add(place);
+    const actor = new ThreeActor(rt);
+    place.add(actor.object);
+    actor.setVisible("shirt", true);
+    actor.applyShape(rt.evaluateLoaded(new Map(), undefined, undefined, actor.neededMeshes()));
+    expect(actor.enableEyes()).toBe(true); // the eyes' bones hang under the head: binding reads its chain's world matrices
+    scene.updateMatrixWorld(true);
+    place.removeFromParent(); // its world matrix still holds the scene's offset
+    actor.applyShape(rt.evaluateLoaded(new Map(), undefined, undefined, actor.neededMeshes()));
+    // In the bind pose every bone's matrix, relative to the root, undoes its inverse: the skin stays where it was made.
+    scene.add(place);
+    scene.updateMatrixWorld(true);
+    const skeleton = actor.skeleton as RootSkeleton;
+    skeleton.update();
+    const identity = new THREE.Matrix4().toArray();
+    actor.bones.forEach((bone, i) => {
+      const m = Array.from(skeleton.boneMatrices!.subarray(i * 16, i * 16 + 16));
+      m.forEach((v, k) => expect(v, `${bone.name}[${k}]`).toBeCloseTo(identity[k], 3));
+    });
   });
 });
