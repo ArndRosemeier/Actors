@@ -890,13 +890,29 @@ export class ThreeActor {
     const map = data.map;
     const inflate = data.def.inflate ?? 0;
     const lift = this.liftOf(data, shape);
+    // Covered parts sink in (see setTuck): skin 3 mm under its surface, body-cut garments onto the skin,
+    // fitted ones most of the way to their body anchors.
+    const tuck = this.tucks.get(data.def.name);
+    const body = data.def.role === "body";
+    const src0 = data.def.source;
+    const binding = tuck && src0.kind === "proxy" && !data.stencil ? this.runtime.proxies.get(src0.proxy) : undefined;
     for (let i = 0; i < map.length; i++) {
       const s = map[i] * 3;
       const nx = src.normals[s], ny = src.normals[s + 1], nz = src.normals[s + 2];
-      const d = lift ? inflate + lift[map[i]] : inflate;
+      let d = lift ? inflate + lift[map[i]] : inflate;
+      const t = tuck ? tuck[i] : 0;
+      if (t && !binding) d = body ? -0.003 : d * 0.15;
       p[i * 3] = src.positions[s] + nx * d;
       p[i * 3 + 1] = src.positions[s + 1] + ny * d;
       p[i * 3 + 2] = src.positions[s + 2] + nz * d;
+      if (t && binding) {
+        // Toward the body point the proxy vertex hangs from (its weighted anchors), keeping 1 mm.
+        const P = shape.positions, N = shape.normals, r = binding.refs, w = binding.weights, v = map[i] * 3;
+        for (let c = 0; c < 3; c++) {
+          const a = w[v] * (P[r[v] * 3 + c] + N[r[v] * 3 + c] * 0.001) + w[v + 1] * (P[r[v + 1] * 3 + c] + N[r[v + 1] * 3 + c] * 0.001) + w[v + 2] * (P[r[v + 2] * 3 + c] + N[r[v + 2] * 3 + c] * 0.001);
+          p[i * 3 + c] += (a - p[i * 3 + c]) * 0.85;
+        }
+      }
       nn[i * 3] = nx;
       nn[i * 3 + 1] = ny;
       nn[i * 3 + 2] = nz;
@@ -1251,6 +1267,43 @@ export class ThreeActor {
 
 
   /**
+   * Per mesh vertex, 1 where something drawn over it covers it (see `setTuck`), by mesh name; absent
+   * or null where nothing does.
+   */
+  private readonly tucks = new Map<string, Uint8Array | null>();
+  /**
+   * Tucks covered surfaces in (`writePositions`): what lies under another garment sinks toward the
+   * body, so the triangles along the covering edge, which are still drawn, slope in under it instead
+   * of poking out (a T-shirt at the jeans' waist, socks in shoes, skin at every hem). On by default;
+   * costs a position rewrite of the affected meshes when the outfit changes, nothing per frame.
+   */
+  get tuckCovered(): boolean {
+    return this.tucking;
+  }
+  set tuckCovered(on: boolean) {
+    if (on === this.tucking) return;
+    this.tucking = on;
+    this.shownKey = "";
+    this.updateVisibility();
+  }
+  private tucking = true;
+
+  private setTuck(data: MeshData, hide: Set<number>, base: (i: number) => number): void {
+    const name = data.def.name;
+    const old = this.tucks.get(name) ?? null;
+    let next: Uint8Array | null = null;
+    if (this.tucking && hide.size) {
+      next = new Uint8Array(data.map.length);
+      let any = false;
+      for (let i = 0; i < next.length; i++) if (hide.has(base(i))) (next[i] = 1), (any = true);
+      if (!any) next = null;
+    }
+    if (old === next || (old && next && old.length === next.length && old.every((v, i) => v === next![i]))) return;
+    this.tucks.set(name, next);
+    if (this.lastShape && this.includes(this.lastShape, data)) this.writePositions(data, this.lastShape);
+  }
+
+  /**
    * Drops triangles hidden under visible garments to avoid poke-through: skin
    * under any garment (e.g. feet under socks), and body-following garments
    * (briefs, bra, tights, …) under a garment on a higher layer.
@@ -1259,7 +1312,7 @@ export class ThreeActor {
     const level = this.level;
     const covers: { layer: number; verts: Uint32Array }[] = [];
     for (const data of this.rendered)
-      if (data.hidesBaseVertices && this.shown.has(data.def.name)) covers.push({ layer: garmentLayer(data.def), verts: data.hidesBaseVertices });
+      if (data.hidesBaseVertices && this.shown.has(data.def.name)) covers.push({ layer: this.depthOrder(data), verts: data.hidesBaseVertices });
     for (const data of this.rendered) {
       const { def } = data;
       const mesh = this.meshes.get(def.name);
@@ -1275,12 +1328,14 @@ export class ThreeActor {
       if (fitted && !this.shown.has(def.name)) continue;
       // Hidden garments keep their last index list; it is rebuilt when they are shown.
       if (isGarment && !this.shown.has(def.name)) continue;
-      const layer = garmentLayer(def);
+      // Covered by what is drawn over it: a higher layer, or the same layer later in the outfit (shoes over socks).
+      const layer = this.depthOrder(data);
       const hide = new Set<number>();
       for (const c of covers) if (c.layer > layer) for (const v of c.verts) hide.add(v);
       const { map, dominant } = data;
       const indices = lodIndices(data, level);
       const base = (i: number) => (dominant ? dominant[map[i]] : map[i]);
+      this.setTuck(data, hide, base);
       // Garments with a hem cut fade out around covered vertices per pixel instead of losing whole triangles.
       if (isGarment && data.clip) {
         this.useIndices(mesh, data, level);
