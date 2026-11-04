@@ -1477,9 +1477,16 @@ export class ThreeActor {
     g.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute("uv", new THREE.BufferAttribute(merged.uv, 2));
     g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
-    g.setAttribute("crowdSkin", new THREE.BufferAttribute(new Float32Array(n), 1));
-    g.setAttribute("crowdClip", new THREE.BufferAttribute(merged.clip ?? new Float32Array(n).fill(1), 1));
-    g.setAttribute("crowdHair", new THREE.BufferAttribute(hairOf, 1));
+    // Skin flag, hem value and hair map in one interleaved buffer: WebGPU allows 8 vertex buffers.
+    const info = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      info[i * 3 + 1] = merged.clip ? merged.clip[i] : 1;
+      info[i * 3 + 2] = hairOf[i];
+    }
+    const infoBuffer = new THREE.InterleavedBuffer(info, 3);
+    g.setAttribute("crowdSkin", new THREE.InterleavedBufferAttribute(infoBuffer, 1, 0));
+    g.setAttribute("crowdClip", new THREE.InterleavedBufferAttribute(infoBuffer, 1, 1));
+    g.setAttribute("crowdHair", new THREE.InterleavedBufferAttribute(infoBuffer, 1, 2));
     if (merged.joints && merged.weights) {
       g.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(merged.joints, 4));
       g.setAttribute("skinWeight", new THREE.BufferAttribute(merged.weights, 4));
@@ -1533,7 +1540,7 @@ export class ThreeActor {
   private colorCrowd(): void {
     if (!this.crowd) return;
     const g = this.crowd.mesh.geometry;
-    const color = g.getAttribute("color") as THREE.BufferAttribute, skin = g.getAttribute("crowdSkin") as THREE.BufferAttribute;
+    const color = g.getAttribute("color") as THREE.BufferAttribute, skin = g.getAttribute("crowdSkin") as THREE.InterleavedBufferAttribute;
     const c = new THREE.Color();
     for (const { data, offset, count } of this.crowd.merged.parts) {
       const { def } = data;

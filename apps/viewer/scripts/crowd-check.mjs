@@ -2,6 +2,7 @@
 // frame (shadow pass included) with the cost controls on and off, and a screenshot of each.
 // Usage: node scripts/crowd-check.mjs ["http://localhost:5173/?crowd=24"] [out-prefix] [--level=2]
 import { chromium } from "playwright-core";
+import { writeFileSync } from "node:fs";
 
 const [url = "http://localhost:5173/?crowd=24", out = "crowd"] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const level = Number(process.argv.find((a) => a.startsWith("--level="))?.slice(8) ?? 2);
@@ -45,7 +46,13 @@ const measure = (name, on) =>
     },
     { on, level },
   ).then(async (r) => {
-    await page.screenshot({ path: `${out}-${name}.png` });
+    // A canvas capture right after a render (page screenshots of a WebGPU canvas come out blank).
+    const png = await page.evaluate(() => {
+      const { stage } = window.__actors;
+      stage.renderer.render(stage.scene, stage.camera);
+      return document.querySelector("canvas").toDataURL("image/png");
+    });
+    writeFileSync(`${out}-${name}.png`, Buffer.from(png.split(",")[1], "base64"));
     console.log(name, JSON.stringify(r));
   });
 
