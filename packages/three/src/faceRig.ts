@@ -56,6 +56,25 @@ export function setFaceRigTexture(u: FaceRigUniforms, rig: FaceRig | null): void
 }
 
 /**
+ * Uploads the rig texture now and lets go of its CPU copy: a rig's deltas are about 7 MB a character, and
+ * three keeps the array in `texture.image.data` for good (33 characters held 260 MB of JS memory). The
+ * renderer must be initialised (`initTexture`); without one, or when the upload throws, nothing is dropped
+ * and false is returned. A lost WebGL context can no longer restore the texture; set the rig again then.
+ */
+export function releaseFaceRigTexture(u: FaceRigUniforms, renderer: unknown): boolean {
+  const t = u.uFaceRig.value;
+  const r = renderer as { initTexture?: (texture: THREE.Texture) => unknown } | null;
+  if (!r?.initTexture || !t.image?.data || t.image.width <= 1) return false;
+  try {
+    r.initTexture(t);
+  } catch {
+    return false;
+  }
+  t.image = { data: null, width: t.image.width, height: t.image.height };
+  return true;
+}
+
+/**
  * Slot + 1 of each drawn vertex: `map` maps drawn vertices to their source vertex in `space`
  * (BASE_SPACE or the mesh's own stencil space); `anchors` (parts) map them to base vertices.
  * Null when no vertex is moved.

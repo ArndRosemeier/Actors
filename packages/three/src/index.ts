@@ -47,7 +47,7 @@ import { type ColliderUniforms, MAX_COLLIDERS, createColliderUniforms, useCollid
 import { ClothSway } from "./sway";
 import { createPartMaterial, createPartMesh } from "./parts";
 import { addMorphAttributes, clearDeltas, morphArrays, morphsChanged, setDelta } from "./morphs";
-import { BASE_SPACE, type FaceRigUniforms, createFaceRigUniforms, faceSlotsFor, setFaceRigTexture, setFaceSlots, useFaceRig } from "./faceRig";
+import { BASE_SPACE, type FaceRigUniforms, createFaceRigUniforms, faceSlotsFor, releaseFaceRigTexture, setFaceRigTexture, setFaceSlots, useFaceRig } from "./faceRig";
 import { createCrowdMaterial } from "./crowd";
 import { garmentLayer } from "./layers";
 import { RootSkeleton, bindRoot } from "./rootSkeleton";
@@ -553,6 +553,7 @@ export class ThreeActor {
       mesh.removeFromParent();
       mesh.geometry.dispose();
       (mesh.material as THREE.Material).dispose();
+      mesh.dispatchEvent({ type: "dispose" } as never); // else the renderer's draws keep the mesh through a shared material
     }
     this.parts.clear();
     // Extra bones (tail chains): replace the previous ones, then rebuild the skeleton.
@@ -1252,6 +1253,17 @@ export class ThreeActor {
     this.applyPartsRig(rig);
   }
 
+  /**
+   * After `setFaceRig`: uploads the rig's texture to `renderer` now and frees its CPU copy (the
+   * rig's `data` and the texture's image), about 7 MB a character. The slots stay. Returns whether
+   * it did; do it again after the next `setFaceRig`.
+   */
+  releaseFaceRigData(renderer: unknown): boolean {
+    if (!this.rig || !releaseFaceRigTexture(this.face, renderer)) return false;
+    this.rig.data = new Uint16Array(0);
+    return true;
+  }
+
   /** Face slots for the parts that follow the skin (beards, tusks), from their base-vertex anchors. */
   private applyPartsRig(rig: FaceRig | null): void {
     for (const mesh of this.parts.values()) {
@@ -1572,6 +1584,9 @@ export class ThreeActor {
     this.crowd.mesh.removeFromParent();
     this.crowd.mesh.geometry.dispose();
     if (disposeMaterial) (this.crowd.mesh.material as THREE.Material).dispose();
+    // Else the renderer's draws keep the dropped mesh (and its arrays) through the shared crowd material:
+    // about 3 geometries a re-dressing in MasterWorld.
+    this.crowd.mesh.dispatchEvent({ type: "dispose" } as never);
     this.crowd = undefined;
   }
 
