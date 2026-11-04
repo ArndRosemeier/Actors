@@ -723,7 +723,7 @@ export class ThreeActor {
     this.shown.clear();
     for (const [n, d] of this.data) {
       const { def } = d;
-      if (!drawnAt(def, level)) continue;
+      if (!drawnAt(def, level) && !(this.eyesInCrowd && def.role === "eyes" && this.lods[level].merge)) continue;
       let show = on(n);
       // A stand-in (e.g. the low-poly body) is drawn where the mesh it stands in for is not.
       const target = def.lodOf ? this.data.get(def.lodOf) : undefined;
@@ -1452,6 +1452,25 @@ export class ThreeActor {
   }
 
   private mergeHair = true;
+
+  /**
+   * Whether crowd levels (`merge`) draw the eyes too (default true). The packs leave them to the near
+   * levels, but the crowd body has open sockets: without eyes a face looks out of two pale holes, which
+   * shows wherever a game uses the crowd level near the camera (MasterWorld gives it to every townsperson
+   * but the few nearest). One small draw more per person, no shadow (`smallPartShadows`).
+   */
+  get crowdEyes(): boolean {
+    return this.eyesInCrowd;
+  }
+
+  set crowdEyes(on: boolean) {
+    if (on === this.eyesInCrowd) return;
+    this.eyesInCrowd = on;
+    this.shownKey = "";
+    this.updateVisibility();
+  }
+
+  private eyesInCrowd = true;
 
   /**
    * Whether eyes, teeth, tongue, lashes and brows cast shadows (default false: each is one more
