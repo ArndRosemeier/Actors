@@ -317,6 +317,8 @@ export interface CharacterConfig {
    * shader instructions per skin pixel; on by default.
    */
   skinDetail: boolean;
+  /** Wet or sweaty skin, 0 (dry) .. 1: glossier in patches and a little darker. */
+  skinWetness: number;
   /**
    * Tucks what a garment covers in under it (skin at hems, a shirt at the waistband, socks in
    * shoes), so it doesn't poke through in poses. Only work when the outfit changes; on by default.
@@ -577,6 +579,7 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     gaze: "camera",
     wrinkles: false,
     skinDetail: true,
+    skinWetness: 0,
     clothTuck: true,
     clothMotion: true,
     detail: "high",

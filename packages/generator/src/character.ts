@@ -740,6 +740,7 @@ export class Character {
     }
     if (!c.wrinkles) this.actor.setWrinkles(0, 0, 0);
     this.actor.skin.uDetail.value = c.skinDetail ? 1 : 0;
+    this.actor.skin.uWet.value = c.skinWetness ?? 0;
     this.actor.tuckCovered = c.clothTuck;
     this.actor.clothMotion = c.clothMotion;
     const living = c.faceAnimation && !c.robot && !c.skeletal;
