@@ -716,6 +716,8 @@ export class Character {
       this.actor.setMorph("expression", null);
       this.actor.setMorph("blink", null);
       this.actor.setFaceRig(rig);
+      // The rig's CPU copy is 7 MB a character and three keeps it after the upload: upload now, let go.
+      this.actor.releaseFaceRigData(this.renderer);
       const index = new Map(rig.units.map((u, i) => [u, i]));
       const to = this.unitArray(EXPRESSIONS[c.expression] ?? {}, index);
       // Keep a blend in progress across a shape change (same pack, same unit order).

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { BASE_SPACE, type FaceRig } from "@actors/core";
 import { addMorphAttributes, morphAttribute } from "./morphs";
-import { FACE_SLOT, createFaceRigUniforms, faceSlotsFor, patchFaceRig, setFaceRigTexture, setFaceSlots } from "./faceRig";
+import { FACE_SLOT, createFaceRigUniforms, faceSlotsFor, patchFaceRig, releaseFaceRigTexture, setFaceRigTexture, setFaceSlots } from "./faceRig";
 
 const rig: FaceRig = { units: ["a", "b"], slots: new Map([[BASE_SPACE, new Uint32Array([0, 1, 0, 2])]]), slotCount: 2, width: 4, height: 2, data: new Uint16Array(32) };
 
@@ -65,3 +65,23 @@ describe("face rig uniforms", () => {
     expect(vs.indexOf("actorFaceRig( actorFaceP, actorFaceN )")).toBeGreaterThan(vs.indexOf("void main()"));
   });
 });
+
+describe("face rig CPU copy", () => {
+  it("is uploaded and dropped, only with a renderer that can upload", () => {
+    const u = createFaceRigUniforms();
+    setFaceRigTexture(u, rig);
+    expect(releaseFaceRigTexture(u, null)).toBe(false);
+    expect(u.uFaceRig.value.image.data).not.toBeNull();
+    const uploaded: THREE.Texture[] = [];
+    expect(releaseFaceRigTexture(u, { initTexture: (t: THREE.Texture) => uploaded.push(t) })).toBe(true);
+    expect(uploaded).toEqual([u.uFaceRig.value]);
+    expect(u.uFaceRig.value.image.data).toBeNull();
+    expect(u.uFaceRig.value.image.width).toBe(4);
+    // Nothing left to drop, and a failing upload keeps the data.
+    expect(releaseFaceRigTexture(u, { initTexture: () => undefined })).toBe(false);
+    setFaceRigTexture(u, rig);
+    expect(releaseFaceRigTexture(u, { initTexture: () => { throw new Error("not ready"); } })).toBe(false);
+    expect(u.uFaceRig.value.image.data).not.toBeNull();
+  });
+});
+
