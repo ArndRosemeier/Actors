@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { type ActorShape, type Clip, type Fetcher, type MessagePortLike, deform } from "@actors/core";
-import { ADULT_MIN_AGE, BEARD_REGION, BEARD_STYLES, beardPaint, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, type FaceFrame, FaceAnimator, Human, type VisemeKey, wrinkleWeights, type HumanParams, MAX_AGE, type PartsConfig, type RaceId, raceScale, sanitizeRace } from "@actors/human";
+import { ADULT_MIN_AGE, BEARD_REGION, BEARD_STYLES, beardPaint, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, type FaceFrame, FaceAnimator, Human, type VisemeKey, wrinkleWeights, shapeModifiers, type HumanParams, MAX_AGE, type PartsConfig, type RaceId, raceScale, sanitizeRace } from "@actors/human";
 import { type ActorMaterialKit, type ScreenTexturePool, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
 import { type ThemeFilter, filterCatalog } from "./themes";
 import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, type SkeletalLook, buildCatalog, defaultConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook, sanitizeSkeletalLook } from "./catalog";
@@ -76,6 +76,11 @@ export function skinToneColor(tone: number): THREE.Color {
 export class Character {
   readonly actor: ThreeActor;
   readonly catalog: CharacterCatalog;
+  /** Lower bound of each detail modifier (-1 two-sided, 0 one-sided), for the shape sliders. */
+  private get modifierRanges(): Map<string, number> {
+    return (this.ranges ??= new Map(this.catalog.details.map((d) => [d.id, d.min])));
+  }
+  private ranges?: Map<string, number>;
   private cfg: CharacterConfig;
   private shape?: ActorShape;
   private readonly clips = new Map<string, Promise<Clip>>();
@@ -618,7 +623,7 @@ export class Character {
     const robotConfig = c.robot ? { head: r.head, ears: r.ears, plating: r.plating, thickness: r.thickness, core: r.core } : null;
     const k = c.skeletalLook;
     const skeletalConfig = c.skeletal && !c.robot ? { robust: k.robust, wear: k.wear, missing: k.missing, jaw: k.jaw, eyes: k.eyes, heart: k.heart, seed: c.seed } : null;
-    const shapeKey = JSON.stringify([c.body, c.details, c.race, c.race2, c.raceMix, c.raceSize, c.youth, c.deform ?? null, robotConfig, skeletalConfig]);
+    const shapeKey = JSON.stringify([c.body, c.details, c.shape, c.race, c.race2, c.raceMix, c.raceSize, c.youth, c.deform ?? null, robotConfig, skeletalConfig]);
     // Only what is worn is fitted; wearing something the last shape left out needs a new one.
     const needed = this.actor.neededMeshes();
     const unfitted = !!this.shape && needed.some((n) => !this.fittedNames.has(n));
@@ -630,7 +635,7 @@ export class Character {
       // A skeleton has no soft tissue: it is built from an average-build body of the same height and proportions.
       h.params = skeletalConfig ? { ...c.body, weight: 0.5, muscle: 0.5, cupSize: 0, firmness: 0.5 } : c.youth > 0 ? childParams(c.body, c.youth) : { ...c.body };
       h.race = sanitizeRace({ race: c.race, race2: c.race2, mix: c.raceMix, size: c.raceSize, youth: c.youth });
-      h.modifierValues = { ...c.details };
+      h.modifierValues = shapeModifiers(c.shape ?? {}, c.details, this.modifierRanges);
       h.deform = c.deform ? deform(c.deform) : null;
       // The parts and face deltas asked for below, built in the worker with the shape (when there is one).
       const units = EXPRESSIONS[c.expression] ?? {};

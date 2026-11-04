@@ -166,6 +166,18 @@ new CharacterEditor(character, panel, {
 });
 ```
 
+### Body types and shape sliders
+
+Besides the raw MakeHuman sliders (`details`, about 250), a character has `shape`: named sliders from -1 to 1 that each move several raw modifiers together (`SHAPE_SLIDERS` in `@actors/human`: body fat, fitness, shoulders, waist, hips, jaw, nose and so on). They add to the raw values, so both can be used together. `BODY_TYPES` are starting points that set the macros and shape at once:
+
+```ts
+import { BODY_TYPES } from "@actors/human";
+const t = BODY_TYPES.find((b) => b.id === "athletic")!;
+await character.set({ body: { ...t.body }, shape: { ...t.shape, waist: -0.4 } });
+```
+
+The editor shows a "Body type" picker under Body and a "Shape" section (`"shape"` in `sections`).
+
 ### Themes: only what fits a game's setting
 
 Garments, hairstyles and races carry theme tags (`themes` on each catalog choice; the tables are `GARMENT_THEMES`, `HAIR_THEMES` and `RACE_THEMES`). A game passes the themes it allows, and the character, its editor and `randomize` then offer only what fits:

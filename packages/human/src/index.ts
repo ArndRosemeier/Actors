@@ -13,3 +13,4 @@ export * from "./extras";
 export * from "./robot";
 export * from "./skeletal";
 export * from "./faceAnimator";
+export * from "./shapes";

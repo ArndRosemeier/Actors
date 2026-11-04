@@ -3,7 +3,7 @@ import { raceParts, randomRaceLook } from "./racelook";
 import { FUTURE_OUTFITS } from "./future-outfits";
 import { MEDIEVAL_OUTFITS } from "./medieval-outfits";
 import { GARMENT_THEMES, HAIR_THEMES, RACE_THEMES } from "./themes";
-import { ADULT_MIN_AGE, DEFAULT_PARAMS, DEFAULT_ROBOT, DEFAULT_SKELETAL, type SkeletalConfig, sanitizeSkeletal, ROBOT_EARS, ROBOT_HEADS, ROBOT_PLATING, type RobotConfig, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type BeardStyle, type HornStyle, type PupilShape, RACES, RACE_IDS, type RaceId, type SkinPattern, type TailStyle } from "@actors/human";
+import { ADULT_MIN_AGE, DEFAULT_PARAMS, DEFAULT_ROBOT, DEFAULT_SKELETAL, type SkeletalConfig, sanitizeSkeletal, ROBOT_EARS, ROBOT_HEADS, ROBOT_PLATING, type RobotConfig, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type BeardStyle, type HornStyle, type PupilShape, RACES, RACE_IDS, type RaceId, SHAPE_SLIDERS, type SkinPattern, type TailStyle } from "@actors/human";
 
 /** One choice in a list: the id the API takes and a display label. */
 export interface Choice {
@@ -237,6 +237,11 @@ export interface CharacterConfig {
   body: HumanParams;
   /** Detail slider values by id (missing = 0). */
   details: Record<string, number>;
+  /**
+   * Shape slider values by id (-1..1, missing = 0; see SHAPE_SLIDERS in @actors/human): plain-language
+   * sliders such as shoulders, waist or jaw that move several detail modifiers at once, added to `details`.
+   */
+  shape: Record<string, number>;
   /** "photo" follows gender, age and ethnicity; "procedural" uses `skinTone`. */
   skin: "photo" | "procedural";
   /** 0 = light .. 1 = dark, for the procedural skin. */
@@ -545,6 +550,7 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     youth: 0,
     body: { ...DEFAULT_PARAMS },
     details: {},
+    shape: {},
     skin: catalog.photoSkin ? "photo" : "procedural",
     skinTone: 0.3,
     skinColor: null,
@@ -647,6 +653,9 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
   };
   const details: Record<string, number> = {};
   for (const d of catalog.details) if (r() < 0.15) details[d.id] = (r() - (d.min < 0 ? 0.5 : 0)) * 0.8;
+  // Shape sliders vary the build and face in ways people read (shoulders, hips, jaw...).
+  const shape: Record<string, number> = {};
+  for (const s of SHAPE_SLIDERS) if (r() < 0.5) shape[s.id] = Math.round((r() - 0.5) * 80) / 100;
   const hairPool = catalog.hair.filter((h) => !(h.id in PROCEDURAL_HAIR) && (female || SHORT_HAIR.test(h.id)));
   const old = body.ageYears > 60 && r() < 0.7;
   const presets = catalog.outfits.filter((o) => !o.gender || o.gender === (female ? "female" : "male"));
@@ -674,6 +683,7 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
     raceSize: look?.raceSize ?? 0.5,
     body,
     details,
+    shape,
     ...humanLook,
     skinColor: look?.skinColor ?? null,
     eyeColor: look?.eyeColor ?? null,
