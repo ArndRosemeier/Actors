@@ -33,7 +33,7 @@ export const SHAPE_SLIDERS: ShapeSlider[] = [
     "torso/torso-muscle-pectoral-decr-incr": 0.5, "torso/torso-muscle-dorsi-decr-incr": 0.5, "stomach/stomach-tone-decr-incr": 0.6, "pelvis/pelvis-tone-decr-incr": 0.4,
   } },
   { id: "shoulders", label: "Shoulders", group: "Body", low: "narrow", high: "broad", drives: {
-    "torso/measure-shoulder-dist-decr-incr": 0.8, "torso/torso-vshape-decr-incr": 0.4, "arms/upperarm-shoulder-muscle-decr-incr": 0.25,
+    "torso/measure-shoulder-dist-decr-incr": 1, "torso/torso-vshape-decr-incr": 0.6, "torso/torso-muscle-dorsi-decr-incr": 0.3, "arms/upperarm-shoulder-muscle-decr-incr": 0.25,
   } },
   { id: "chest", label: "Chest", group: "Body", low: "flat", high: "deep", drives: {
     "torso/torso-scale-depth-decr-incr": 0.5, "torso/measure-frontchest-dist-decr-incr": 0.4, "torso/torso-muscle-pectoral-decr-incr": 0.3,
@@ -137,11 +137,11 @@ export const BODY_TYPES: BodyType[] = [
   { id: "average", label: "Average", body: { muscle: 0.5, weight: 0.5, proportions: 0.5 }, shape: {} },
   { id: "slim", label: "Slim", body: { muscle: 0.4, weight: 0.3, proportions: 0.6 }, shape: { fat: -0.4, waist: -0.3, arms: -0.3, thighs: -0.3, neck: -0.2, fullness: -0.3 } },
   { id: "athletic", label: "Athletic", body: { muscle: 0.75, weight: 0.45, proportions: 0.6 }, shape: { fat: -0.4, fitness: 0.7, shoulders: 0.3, waist: -0.2, thighs: 0.2 } },
-  { id: "muscular", label: "Muscular", body: { muscle: 0.85, weight: 0.6, proportions: 0.55 }, shape: { fitness: 0.7, shoulders: 0.5, chest: 0.4, arms: 0.3, neck: 0.4, waist: -0.1, thighs: 0.15, jaw: 0.3 } },
+  { id: "muscular", label: "Muscular", body: { muscle: 0.75, weight: 0.5, proportions: 0.55 }, shape: { fat: -0.3, fitness: 0.6, shoulders: 0.5, chest: 0.4, arms: 0.2, neck: 0.3, waist: -0.15, jaw: 0.3 } },
   { id: "curvy", label: "Curvy", body: { muscle: 0.4, weight: 0.6, proportions: 0.5 }, shape: { hips: 0.6, bottom: 0.6, thighs: 0.4, waist: -0.2, fat: 0.2, fullness: 0.2 } },
   { id: "hourglass", label: "Hourglass", body: { muscle: 0.45, weight: 0.5, proportions: 0.6 }, shape: { hips: 0.5, bottom: 0.4, waist: -0.6, shoulders: 0.2 } },
   { id: "pear", label: "Pear", body: { muscle: 0.45, weight: 0.55, proportions: 0.5 }, shape: { hips: 0.7, thighs: 0.6, bottom: 0.4, shoulders: -0.4 } },
-  { id: "inverted", label: "Inverted triangle", body: { muscle: 0.6, weight: 0.5, proportions: 0.55 }, shape: { shoulders: 0.7, chest: 0.4, hips: -0.4, thighs: -0.2 } },
+  { id: "inverted", label: "Inverted triangle", body: { muscle: 0.65, weight: 0.5, proportions: 0.55 }, shape: { shoulders: 0.9, chest: 0.4, waist: -0.2, hips: -0.5, bottom: -0.3, thighs: -0.2 } },
   { id: "stocky", label: "Stocky", body: { muscle: 0.65, weight: 0.65, height: 0.3, proportions: 0.35 }, shape: { shoulders: 0.4, waist: 0.4, neck: 0.5, legs: -0.4, arms: 0.3, faceWidth: 0.4, jaw: 0.3 } },
   { id: "heavy", label: "Heavy", body: { muscle: 0.45, weight: 0.9, proportions: 0.4 }, shape: { fat: 0.7, belly: 0.6, waist: 0.4, neck: 0.4, fullness: 0.6 } },
   { id: "lanky", label: "Tall and lanky", body: { muscle: 0.35, weight: 0.3, height: 0.85, proportions: 0.7 }, shape: { fat: -0.3, legs: 0.3, arms: -0.4, neck: -0.2, shoulders: -0.2, fullness: -0.3 } },
