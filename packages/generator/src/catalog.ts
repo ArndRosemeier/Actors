@@ -311,6 +311,16 @@ export interface CharacterConfig {
    * expression and the face rig. A few texture reads per skin pixel while a wrinkle shows; off by default.
    */
   wrinkles: boolean;
+  /**
+   * Tucks what a garment covers in under it (skin at hems, a shirt at the waistband, socks in
+   * shoes), so it doesn't poke through in poses. Only work when the outfit changes; on by default.
+   */
+  clothTuck: boolean;
+  /**
+   * Loose garments (skirts, dresses, robes, tunics) swing as the character moves and turns, and
+   * settle when it stops. A spring per character and a few shader instructions; on by default.
+   */
+  clothMotion: boolean;
   /** "high" = subdivided body, "low" = base mesh. */
   detail: "high" | "low";
   /**
@@ -560,6 +570,8 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     faceAnimation: false,
     gaze: "camera",
     wrinkles: false,
+    clothTuck: true,
+    clothMotion: true,
     detail: "high",
     robot: false,
     robotLook: { ...DEFAULT_ROBOT_LOOK },

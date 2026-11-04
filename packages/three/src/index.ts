@@ -44,6 +44,7 @@ import {
 } from "./materials";
 import { SkinComposer } from "./skincompose";
 import { type ColliderUniforms, MAX_COLLIDERS, createColliderUniforms, useColliders } from "./colliders";
+import { ClothSway } from "./sway";
 import { createPartMaterial, createPartMesh } from "./parts";
 import { addMorphAttributes, clearDeltas, morphArrays, morphsChanged, setDelta } from "./morphs";
 import { BASE_SPACE, type FaceRigUniforms, createFaceRigUniforms, faceSlotsFor, setFaceRigTexture, setFaceSlots, useFaceRig } from "./faceRig";
@@ -58,6 +59,7 @@ export * from "./dqs";
 export * from "./procedural";
 export * from "./skincompose";
 export * from "./colliders";
+export * from "./sway";
 export * from "./racepatterns";
 export * from "./parts";
 export * from "./morphs";
@@ -896,13 +898,29 @@ export class ThreeActor {
     const map = data.map;
     const inflate = data.def.inflate ?? 0;
     const lift = this.liftOf(data, shape);
+    // Covered parts sink in (see setTuck): skin 3 mm under its surface, body-cut garments onto the skin,
+    // fitted ones most of the way to their body anchors.
+    const tuck = this.tucks.get(data.def.name);
+    const body = data.def.role === "body";
+    const src0 = data.def.source;
+    const binding = tuck && src0.kind === "proxy" && !data.stencil ? this.runtime.proxies.get(src0.proxy) : undefined;
     for (let i = 0; i < map.length; i++) {
       const s = map[i] * 3;
       const nx = src.normals[s], ny = src.normals[s + 1], nz = src.normals[s + 2];
-      const d = lift ? inflate + lift[map[i]] : inflate;
+      let d = lift ? inflate + lift[map[i]] : inflate;
+      const t = tuck ? tuck[i] : 0;
+      if (t && !binding) d = body ? -0.003 : d * 0.15;
       p[i * 3] = src.positions[s] + nx * d;
       p[i * 3 + 1] = src.positions[s + 1] + ny * d;
       p[i * 3 + 2] = src.positions[s + 2] + nz * d;
+      if (t && binding) {
+        // Toward the body point the proxy vertex hangs from (its weighted anchors), keeping 1 mm.
+        const P = shape.positions, N = shape.normals, r = binding.refs, w = binding.weights, v = map[i] * 3;
+        for (let c = 0; c < 3; c++) {
+          const a = w[v] * (P[r[v] * 3 + c] + N[r[v] * 3 + c] * 0.001) + w[v + 1] * (P[r[v + 1] * 3 + c] + N[r[v + 1] * 3 + c] * 0.001) + w[v + 2] * (P[r[v + 2] * 3 + c] + N[r[v + 2] * 3 + c] * 0.001);
+          p[i * 3 + c] += (a - p[i * 3 + c]) * 0.85;
+        }
+      }
       nn[i * 3] = nx;
       nn[i * 3 + 1] = ny;
       nn[i * 3 + 2] = nz;
@@ -1119,16 +1137,46 @@ export class ThreeActor {
     }
   }
 
-  private updateColliders(): void {
+  /**
+   * Loose garments (skirts, dresses, robes, tunics: the ones hung between the legs) swing as the
+   * character moves and turns (see ClothSway). On by default; off, they hang as skinned. Costs one
+   * small spring per character on the CPU and a few instructions per loose-garment vertex.
+   */
+  get clothMotion(): boolean {
+    return this.swaying;
+  }
+  set clothMotion(on: boolean) {
+    this.swaying = on;
+    if (!on) {
+      this.clothSway.reset();
+      this.colliders.uSway.value.set(0, 0, 0);
+    }
+  }
+  private swaying = true;
+  readonly clothSway = new ClothSway();
+
+  private updateColliders(dt = 0): void {
     const { uCapA, uCapB } = this.colliders;
     this.object.updateMatrixWorld(true);
     const inv = new THREE.Matrix4().copy(this.object.matrixWorld).invert();
-    const pos = (name: string, out: THREE.Vector3) => {
+    const world = (name: string, out: THREE.Vector3) => {
       const bone = this.bones.find((b) => b.name === name);
-      return bone ? out.setFromMatrixPosition(bone.matrixWorld).applyMatrix4(inv) : null;
+      return bone ? out.setFromMatrixPosition(bone.matrixWorld) : null;
     };
+    const pos = (name: string, out: THREE.Vector3) => (world(name, out) ? out.applyMatrix4(inv) : null);
     const a = new THREE.Vector3(), b = new THREE.Vector3();
     pos("pelvis", this.colliders.uCenter.value);
+    if (this.swaying && world("thigh_l", a) && world("thigh_r", b)) {
+      // The cloth hangs from between the hip joints; their line gives the hips' heading.
+      const hips = a.clone().add(b).multiplyScalar(0.5);
+      const sway = this.clothSway;
+      sway.step(hips, Math.atan2(b.x - a.x, b.z - a.z), dt);
+      this.colliders.uPivot.value.copy(hips).applyMatrix4(inv);
+      // The tilt into model space (a direction: the actor's own rotation only).
+      const q = this.object.getWorldQuaternion(new THREE.Quaternion()).invert();
+      const t = new THREE.Vector3(sway.tilt.x, 0, sway.tilt.y).applyQuaternion(q);
+      this.colliders.uSway.value.set(t.x, sway.twist, t.z);
+    }
     ThreeActor.LEGS.slice(0, MAX_COLLIDERS).forEach(([bone, child], i) => {
       const r = this.legRadii.get(bone) ?? 0;
       if (!r || !pos(bone, a) || !pos(child, b)) {
@@ -1257,28 +1305,52 @@ export class ThreeActor {
 
 
   /**
+   * Per mesh vertex, 1 where something drawn over it covers it (see `setTuck`), by mesh name; absent
+   * or null where nothing does.
+   */
+  private readonly tucks = new Map<string, Uint8Array | null>();
+  /**
+   * Tucks covered surfaces in (`writePositions`): what lies under another garment sinks toward the
+   * body, so the triangles along the covering edge, which are still drawn, slope in under it instead
+   * of poking out (a T-shirt at the jeans' waist, socks in shoes, skin at every hem). On by default;
+   * costs a position rewrite of the affected meshes when the outfit changes, nothing per frame.
+   */
+  get tuckCovered(): boolean {
+    return this.tucking;
+  }
+  set tuckCovered(on: boolean) {
+    if (on === this.tucking) return;
+    this.tucking = on;
+    this.shownKey = "";
+    this.updateVisibility();
+  }
+  private tucking = true;
+
+  private setTuck(data: MeshData, hide: Set<number>, base: (i: number) => number): void {
+    const name = data.def.name;
+    const old = this.tucks.get(name) ?? null;
+    let next: Uint8Array | null = null;
+    if (this.tucking && hide.size) {
+      next = new Uint8Array(data.map.length);
+      let any = false;
+      for (let i = 0; i < next.length; i++) if (hide.has(base(i))) (next[i] = 1), (any = true);
+      if (!any) next = null;
+    }
+    if (old === next || (old && next && old.length === next.length && old.every((v, i) => v === next![i]))) return;
+    this.tucks.set(name, next);
+    if (this.lastShape && this.includes(this.lastShape, data)) this.writePositions(data, this.lastShape);
+  }
+
+  /**
    * Drops triangles hidden under visible garments to avoid poke-through: skin
    * under any garment (e.g. feet under socks), and body-following garments
    * (briefs, bra, tights, …) under a garment on a higher layer.
    */
-  /**
-   * Cut index lists and hem values by what is drawn (`shownKey`): characters that switch back and
-   * forth between levels or outfits (a crowd's detail following the camera) reuse them.
-   */
-  private readonly hiddenMemo = new Map<string, Map<string, THREE.BufferAttribute | Float32Array | null>>();
-
   private updateHiddenSkin(): void {
     const level = this.level;
-    let memo = this.hiddenMemo.get(this.shownKey);
-    if (!memo) {
-      memo = new Map();
-      this.hiddenMemo.set(this.shownKey, memo);
-      if (this.hiddenMemo.size > 8) this.hiddenMemo.delete(this.hiddenMemo.keys().next().value!);
-    }
-    const hideSets = new Map<number, Set<number>>();
     const covers: { layer: number; verts: Uint32Array }[] = [];
     for (const data of this.rendered)
-      if (data.hidesBaseVertices && this.shown.has(data.def.name)) covers.push({ layer: garmentLayer(data.def), verts: data.hidesBaseVertices });
+      if (data.hidesBaseVertices && this.shown.has(data.def.name)) covers.push({ layer: this.depthOrder(data), verts: data.hidesBaseVertices });
     for (const data of this.rendered) {
       const { def } = data;
       const mesh = this.meshes.get(def.name);
@@ -1294,42 +1366,24 @@ export class ThreeActor {
       if (fitted && !this.shown.has(def.name)) continue;
       // Hidden garments keep their last index list; it is rebuilt when they are shown.
       if (isGarment && !this.shown.has(def.name)) continue;
-      const layer = garmentLayer(def);
-      const known = memo.get(def.name);
-      // Base vertices covered by higher layers (one set per layer, made on first use).
-      const hidden = () => {
-        let hide = hideSets.get(layer);
-        if (!hide) {
-          hide = new Set<number>();
-          for (const c of covers) if (c.layer > layer) for (const v of c.verts) hide.add(v);
-          hideSets.set(layer, hide);
-        }
-        return hide;
-      };
+      // Covered by what is drawn over it: a higher layer, or the same layer later in the outfit (shoes over socks).
+      const layer = this.depthOrder(data);
+      const hide = new Set<number>();
+      for (const c of covers) if (c.layer > layer) for (const v of c.verts) hide.add(v);
       const { map, dominant } = data;
       const indices = lodIndices(data, level);
       const base = (i: number) => (dominant ? dominant[map[i]] : map[i]);
+      this.setTuck(data, hide, base);
       // Garments with a hem cut fade out around covered vertices per pixel instead of losing whole triangles.
       if (isGarment && data.clip) {
         this.useIndices(mesh, data, level);
         const attr = mesh.geometry.getAttribute("clipValue") as THREE.BufferAttribute;
         const values = attr.array as Float32Array;
-        if (known instanceof Float32Array) values.set(known);
-        else {
-          const hide = hidden();
-          // Barely below zero: the cut sits right at the covered vertices, so no gap opens below the covering hem.
-          for (let i = 0; i < map.length; i++) values[i] = hide.has(map[i]) ? -0.002 : data.clip[i];
-          memo.set(def.name, values.slice());
-        }
+        // Barely below zero: the cut sits right at the covered vertices, so no gap opens below the covering hem.
+        for (let i = 0; i < map.length; i++) values[i] = hide.has(map[i]) ? -0.002 : data.clip[i];
         attr.needsUpdate = true;
         continue;
       }
-      if (known !== undefined && !(known instanceof Float32Array)) {
-        if (known) mesh.geometry.setIndex(known);
-        else this.useIndices(mesh, data, level);
-        continue;
-      }
-      const hide = hidden();
       const out = new Uint32Array(indices.length);
       let n = 0;
       for (let t = 0; t < indices.length; t += 3) {
@@ -1338,14 +1392,8 @@ export class ThreeActor {
         out[n++] = indices[t + 1];
         out[n++] = indices[t + 2];
       }
-      if (n === indices.length) {
-        this.useIndices(mesh, data, level); // nothing covered: the shared list
-        memo.set(def.name, null);
-      } else {
-        const attr = new THREE.BufferAttribute(out.slice(0, n), 1);
-        mesh.geometry.setIndex(attr);
-        memo.set(def.name, attr);
-      }
+      if (n === indices.length) this.useIndices(mesh, data, level); // nothing covered: the shared list
+      else mesh.geometry.setIndex(new THREE.BufferAttribute(out.slice(0, n), 1));
     }
     if (this.lods[level].merge) {
       // Merged into the crowd mesh: hide the parts now, rebuild the merged mesh before the next frame.
@@ -1901,7 +1949,8 @@ export class ThreeActor {
     this.applyGrip();
     for (const mesh of this.meshes.values()) if (mesh.visible) updateScreen(mesh.material as THREE.Material, dt);
     // Leg colliders only matter while a skirt-skinned garment is drawn.
-    if ([...this.shown].some((n) => this.usesColliders(this.data.get(n)!))) this.updateColliders();
+    if ([...this.shown].some((n) => this.usesColliders(this.data.get(n)!))) this.updateColliders(dt);
+    else this.clothSway.reset();
   }
 
   /**

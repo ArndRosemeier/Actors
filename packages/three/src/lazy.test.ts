@@ -230,3 +230,29 @@ describe("fitted garments under fitted garments", () => {
     expect(count()).toBe(3);
   });
 });
+
+describe("tucking covered layers in", () => {
+  it("sinks the skin and garments a garment covers, and puts them back when switched off", async () => {
+    const rt = await tinyPack(false, true);
+    const actor = new ThreeActor(rt);
+    actor.setVisible("shirt", true);
+    actor.setVisible("hat", true);
+    actor.flushVisibility();
+    const shape = () => actor.applyShape(rt.evaluateLoaded(new Map(), undefined, undefined, actor.neededMeshes()));
+    shape();
+    actor.flushVisibility();
+    const z = (n: string, i: number) => (actor.meshes.get(n)!.geometry.getAttribute("position").array as Float32Array)[i * 3 + 2];
+    expect(actor.tuckCovered).toBe(true);
+    expect(z("body", 0)).toBeLessThan(0); // the skin under the hat sinks in
+    expect(z("body", 3)).toBeCloseTo(0, 6); // the uncovered corner stays
+    const tucked = z("shirt", 0);
+    actor.tuckCovered = false;
+    shape();
+    expect(z("body", 0)).toBeCloseTo(0, 6);
+    // Tucked, the shirt went 85% of the way to its body anchor (1 mm off the skin).
+    const free = z("shirt", 0);
+    expect(tucked).toBeCloseTo(free + (0.001 - free) * 0.85, 6);
+    actor.tuckCovered = true;
+    expect(z("body", 0)).toBeLessThan(0);
+  });
+});
