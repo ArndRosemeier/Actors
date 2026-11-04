@@ -1654,7 +1654,12 @@ export class ThreeActor {
       bone.quaternion.fromArray(fitted.localRotations[i]);
       bone.scale.set(1, 1, 1);
     });
-    this.object.updateMatrixWorld(true);
+    // Every matrix from the same frame: with its ancestors too (updateWorldMatrix, not updateMatrixWorld), as
+    // placeExtraBones' world reads (getWorldQuaternion, worldToLocal) recompute the head's chain from them. A
+    // host that detaches the actor's parent (MasterWorld dresses people off the scene) left that parent's world
+    // matrix from the scene: the limbs were bound in the scene's frame and the head's chain in the parent's own,
+    // and the crowd body (which skins the limbs from these inverses) stretched kilometres away from its hands.
+    this.object.updateWorldMatrix(true, true);
     this.placeExtraBones();
     const rootInv = this.object.matrixWorld.clone().invert();
     this.skeleton!.boneInverses = this.bones.map((b) => new THREE.Matrix4().multiplyMatrices(rootInv, b.matrixWorld).invert());
