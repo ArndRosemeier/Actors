@@ -54,7 +54,7 @@ import type { MeshData, PartMesh } from "@actors/core";
 import type { ActorMaterialKit, ThreeActor } from "../index";
 import { MAX_COLLIDERS, type ColliderUniforms } from "../colliders";
 import { garmentLayer } from "../layers";
-import { createSkinUniforms, type SkinUniforms } from "../materials";
+import { WRINKLE_SLOPE, createSkinUniforms, type SkinUniforms } from "../materials";
 import { METAL_FABRICS, fabricNormalMap, lashAlphaMap, poreNormalMap } from "../procedural";
 import { type ScreenTexturePool, useScreenMaterial } from "../screens";
 import { beardTexture, leafTexture, robotMaterialParams } from "../parts";
@@ -243,7 +243,10 @@ const skinGraph = once(() => {
     const gl = genitalLocal(u.uGenitalBox, uvS).toVar();
     const inner = exp(pow(gl.x.div(0.11), 2).negate()).mul(ss(0.95, 0.5, gl.y.add(0.08).abs())).mul(mB.r).mul(u.uFemale);
     // Inside the mouth little light gets in.
-    return vec4(mix(pattern.color, pattern.color.mul(vec3(0.62, 0.36, 0.36)), inner).mul(mix(1, 0.2, maskC().r)), 1);
+    // Inside the mouth little light gets in; wrinkle creases are a little shaded.
+    const mC = maskC().toVar();
+    const crease = float(1).sub(clamp(dot(mC.gba, u.uWrinkle), 0, 1).mul(0.18));
+    return vec4(mix(pattern.color, pattern.color.mul(vec3(0.62, 0.36, 0.36)), inner).mul(mix(1, 0.2, mC.r)).mul(crease), 1);
   })();
   // Pores (fewer on lips, nails and brows), vulva relief, pattern bumps.
   const normal = Fn(() => {
@@ -260,6 +263,14 @@ const skinGraph = once(() => {
       const g = vec2(dx, dy).div(2 * e).mul(0.35).mul(u.uFemale).mul(mB.r).toVar();
       const h = u.uGenitalBox.zw.sub(u.uGenitalBox.xy).mul(0.5);
       mapN.assign(vec3(mapN.xy.sub(select(h.y.greaterThanEqual(h.x), g, g.yx)), mapN.z));
+    });
+    // Expression wrinkles: the slope of the crease depth tilts the normal.
+    If(u.uWrinkle.x.add(u.uWrinkle.y).add(u.uWrinkle.z).greaterThan(0.001), () => {
+      const t = 1 / 2048;
+      const at = (o: N) => inputTexture("skin.maskC", black, uvS.add(o)).gba;
+      const hx = dot(at(vec2(t, 0)).sub(at(vec2(-t, 0))), u.uWrinkle);
+      const hy = dot(at(vec2(0, t)).sub(at(vec2(0, -t))), u.uWrinkle);
+      mapN.assign(vec3(mapN.xy.add(vec2(hx, hy).mul(WRINKLE_SLOPE)), mapN.z));
     });
     const n = normalize(TBNViewMatrix.mul(mapN)).toVar();
     If(spHeight.notEqual(0), () => {

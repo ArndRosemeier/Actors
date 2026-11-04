@@ -28,6 +28,7 @@ import { fetchCached, fetchText, fetchZipEntry, fetchZipText } from "./fetch";
 import { GARMENTS, garmentCut, insideFaces, selectGarmentFaces } from "./garments";
 import { orbitalHalo } from "./future-accessories";
 import { shapedGarment } from "./shaped-garment";
+import { type FaceLandmarks, wrinkleMasks } from "./wrinkles";
 import { type Gray, blankGray, blurGray, loadGray, massHairPng, maxGray, meanColor, meanPngColor, rasterizeUV, resizeGray, writeJpeg, writeRgbaDownsampled, writeRgbaPng, tintPng } from "./image";
 import { type Mhclo, parseMhclo } from "./mhclo";
 import { type ObjData, type ObjFace, buildRenderMesh, parseObj } from "./obj";
@@ -898,7 +899,23 @@ async function main() {
   writeRgbaPng(join(out, "textures/skin_mask_a.png"), [mask("lips"), mask("aureolae"), maxGray(mask("fingernails"), mask("toenails")), mask("eyelids")]);
   const genitalsMask = mask("genitals");
   writeRgbaPng(join(out, "textures/skin_mask_b.png"), [genitalsMask, mask("crotch"), mask("ears"), brows]);
-  writeRgbaPng(join(out, "textures/skin_mask_c.png"), [mouthCavity(), blankGray(MASK_SIZE), blankGray(MASK_SIZE), blankGray(MASK_SIZE)]);
+  // Expression wrinkles (green: forehead, blue: frown, alpha: smile), lit by face units at run time.
+  const teethV = [...(groupVerts.get("helper-upper-teeth") ?? []), ...(groupVerts.get("helper-lower-teeth") ?? [])];
+  const teethBox: [number, number, number, number] = [Infinity, -Infinity, Infinity, -Infinity];
+  for (const v of teethV) {
+    teethBox[0] = Math.min(teethBox[0], P[v * 3]);
+    teethBox[1] = Math.max(teethBox[1], P[v * 3]);
+    teethBox[2] = Math.min(teethBox[2], P[v * 3 + 1]);
+    teethBox[3] = Math.max(teethBox[3], P[v * 3 + 1]);
+  }
+  const landmarks: FaceLandmarks = { eyes: eyeSpots, teeth: teethBox };
+  if (process.env.WRINKLE_DUMP) {
+    // Inputs for tuning the wrinkle patterns without a full import (see wrinkles.ts).
+    writeFileSync(join(CACHE, "wrinkle-landmarks.json"), JSON.stringify(landmarks));
+    for (let c = 0; c < 3; c++) writeFileSync(join(CACHE, `wrinkle-pos${c}.f32`), Buffer.from(posImg[c].data.buffer));
+  }
+  const wr = wrinkleMasks(posImg, landmarks, MASK_SIZE);
+  writeRgbaPng(join(out, "textures/skin_mask_c.png"), [mouthCavity(), wr.forehead, wr.frown, wr.smile]);
   // UV box of the genital region (for procedural detail in the skin shader).
   let gb = [1, 1, 0, 0];
   for (let y = 0; y < MASK_SIZE; y++)

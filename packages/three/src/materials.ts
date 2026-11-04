@@ -15,7 +15,7 @@ export interface SkinUniforms {
   uTone: { value: THREE.Color };
   uMaskA: { value: THREE.Texture | null };
   uMaskB: { value: THREE.Texture | null };
-  /** Third region mask: r the mouth cavity (darkened; see the importer). */
+  /** Third region mask: r the mouth cavity (darkened), g/b/a expression wrinkle depth (forehead, frown, smile; see the importer). */
   uMaskC: { value: THREE.Texture | null };
   uLip: { value: THREE.Color };
   uAreola: { value: THREE.Color };
@@ -42,6 +42,8 @@ export interface SkinUniforms {
   uStubble: { value: THREE.Vector4 };
   /** Stubble colour (linear). */
   uStubbleColor: { value: THREE.Color };
+  /** How deep the expression wrinkles show (forehead, frown, smile), 0..1 each; all 0 skips them. */
+  uWrinkle: { value: THREE.Vector3 };
 }
 
 export function createSkinUniforms(): SkinUniforms {
@@ -67,6 +69,7 @@ export function createSkinUniforms(): SkinUniforms {
     uFace: { value: new THREE.Vector4(0, 0, 0, 0) },
     uStubble: { value: new THREE.Vector4(0, 0, 0, 0) },
     uStubbleColor: { value: new THREE.Color(0.03, 0.02, 0.015) },
+    uWrinkle: { value: new THREE.Vector3(0, 0, 0) },
   };
 }
 
@@ -91,6 +94,7 @@ uniform vec4 uBind;
 uniform vec4 uFace;
 uniform vec4 uStubble;
 uniform vec3 uStubbleColor;
+uniform vec3 uWrinkle;
 varying vec2 vSkinUv;
 varying vec3 vBind;
 ${GLSL_NOISE}
@@ -144,10 +148,16 @@ if ( uPattern.x > 0.5 ) tone = skinPattern( tone, mA.r, mA.b );
 vec2 gl = genitalLocal();
 float inner = exp( -pow( gl.x / 0.11, 2.0 ) ) * smoothstep( 0.95, 0.5, abs( gl.y + 0.08 ) ) * mB.r * uFemale;
 tone = mix( tone, tone * vec3( 0.62, 0.36, 0.36 ), inner );
-// Inside the mouth little light gets in.
-tone *= mix( 1.0, 0.2, texture2D( uMaskC, vSkinUv ).r );
+// Inside the mouth little light gets in; wrinkle creases are a little shaded.
+{
+  vec4 mC = texture2D( uMaskC, vSkinUv );
+  tone *= mix( 1.0, 0.2, mC.r ) * ( 1.0 - 0.18 * clamp( dot( mC.gba, uWrinkle ), 0.0, 1.0 ) );
+}
 diffuseColor.rgb *= tone;
 `;
+
+/** How strongly a wrinkle's depth slope (per mask texel pair) tilts the normal. */
+export const WRINKLE_SLOPE = 1.6;
 
 const SKIN_NORMAL = /* glsl */ `
 vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
@@ -168,6 +178,13 @@ if ( uFemale > 0.0 ) {
     vec2 h = 0.5 * ( uGenitalBox.zw - uGenitalBox.xy );
     mapN.xy -= ( h.y >= h.x ) ? g : g.yx;
   }
+}
+// Expression wrinkles: the slope of the crease depth (mask texels apart) tilts the normal.
+if ( uWrinkle.x + uWrinkle.y + uWrinkle.z > 0.001 ) {
+  vec2 t = vec2( 1.0 / 2048.0, 0.0 );
+  float hx = dot( texture2D( uMaskC, vSkinUv + t.xy ).gba - texture2D( uMaskC, vSkinUv - t.xy ).gba, uWrinkle );
+  float hy = dot( texture2D( uMaskC, vSkinUv + t.yx ).gba - texture2D( uMaskC, vSkinUv - t.yx ).gba, uWrinkle );
+  mapN.xy += vec2( hx, hy ) * ${WRINKLE_SLOPE.toFixed(2)};
 }
 normal = normalize( tbn * mapN );
 if ( sp_height != 0.0 ) normal = h_bumpNormal( -vViewPosition, normal, sp_height, gl_FrontFacing ? 1.0 : -1.0 );

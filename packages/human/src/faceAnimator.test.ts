@@ -98,3 +98,19 @@ describe("textToVisemes", () => {
     expect(textToVisemes("Think", 2).at(-1)!.time).toBeCloseTo(textToVisemes("Think").at(-1)!.time / 2);
   });
 });
+
+describe("wrinkleWeights", () => {
+  it("deepens the forehead when the brows go up, the frown when they go down, and adds age lines at rest", async () => {
+    const { wrinkleWeights, EXPRESSIONS } = await import("./expressions");
+    const surprise = wrinkleWeights(EXPRESSIONS.surprise);
+    expect(surprise[0]).toBeGreaterThan(0.6);
+    expect(surprise[1]).toBe(0);
+    const angry = wrinkleWeights(EXPRESSIONS.angry);
+    expect(angry[1]).toBeGreaterThan(0.6);
+    expect(wrinkleWeights(EXPRESSIONS.smile)[2]).toBeGreaterThan(0.5);
+    expect(wrinkleWeights({}, 25)).toEqual([0, 0, 0]);
+    const old = wrinkleWeights({}, 85);
+    expect(old[0]).toBeCloseTo(0.35);
+    for (const w of wrinkleWeights({ "eyebrows-left-up": 5, "eyebrows-right-up": 5 }, 90)) expect(w).toBeLessThanOrEqual(1);
+  });
+});
