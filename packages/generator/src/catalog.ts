@@ -312,6 +312,12 @@ export interface CharacterConfig {
    */
   wrinkles: boolean;
   /**
+   * Skin detail in the skin shader: blood flush on cheeks, nose, ears, knees, elbows and hands,
+   * shadow under the eyes, a shinier T-zone, uneven roughness, speckle and finer pores. A few
+   * shader instructions per skin pixel; on by default.
+   */
+  skinDetail: boolean;
+  /**
    * Tucks what a garment covers in under it (skin at hems, a shirt at the waistband, socks in
    * shoes), so it doesn't poke through in poses. Only work when the outfit changes; on by default.
    */
@@ -570,6 +576,7 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     faceAnimation: false,
     gaze: "camera",
     wrinkles: false,
+    skinDetail: true,
     clothTuck: true,
     clothMotion: true,
     detail: "high",

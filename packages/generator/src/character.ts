@@ -656,6 +656,15 @@ export class Character {
         const [l, r] = eyes;
         this.actor.skin.uFace.value.set((l[0] + r[0]) / 2, (l[1] + r[1]) / 2 + ground, -(l[2] + r[2]) / 2, Math.hypot(l[0] - r[0], l[1] - r[1], l[2] - r[2]));
       }
+      // Joints for the skin detail's flush (one side; the shader mirrors it). Same space as the patterns.
+      const s = this.actor.skin, bone = (n: string) => (sk ? sk.heads[sk.names.indexOf(n)] : undefined);
+      const at = (out: THREE.Vector4, p: number[] | undefined, radius: number) => (p ? out.set(Math.abs(p[0]), p[1] + ground, -p[2], radius) : out.set(0, 0, 0, 0));
+      const k = this.height / 1.7;
+      at(s.uKnee.value, bone("calf_l"), 0.065 * k);
+      at(s.uElbow.value, bone("lowerarm_l"), 0.05 * k);
+      const wrist = bone("hand_l"), elbow = bone("lowerarm_l");
+      // The hand's centre: past the wrist, along the forearm.
+      at(s.uHand.value, wrist && elbow ? wrist.map((v, i) => v + (v - elbow[i]) * 0.3) : undefined, 0.1 * k);
       this.applied.shape = shapeKey;
       for (const l of this.shapeListeners) l(this.height);
       this.lastUpdateMs = performance.now() - t0;
@@ -728,6 +737,7 @@ export class Character {
       this.applied.face = faceKey;
     }
     if (!c.wrinkles) this.actor.setWrinkles(0, 0, 0);
+    this.actor.skin.uDetail.value = c.skinDetail ? 1 : 0;
     this.actor.tuckCovered = c.clothTuck;
     this.actor.clothMotion = c.clothMotion;
     const living = c.faceAnimation && !c.robot && !c.skeletal;
