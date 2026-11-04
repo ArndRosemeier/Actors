@@ -44,6 +44,7 @@ import {
 } from "./materials";
 import { SkinComposer } from "./skincompose";
 import { type ColliderUniforms, MAX_COLLIDERS, createColliderUniforms, useColliders } from "./colliders";
+import { ClothSway } from "./sway";
 import { createPartMaterial, createPartMesh } from "./parts";
 import { addMorphAttributes, clearDeltas, morphArrays, morphsChanged, setDelta } from "./morphs";
 import { BASE_SPACE, type FaceRigUniforms, createFaceRigUniforms, faceSlotsFor, setFaceRigTexture, setFaceSlots, useFaceRig } from "./faceRig";
@@ -58,6 +59,7 @@ export * from "./dqs";
 export * from "./procedural";
 export * from "./skincompose";
 export * from "./colliders";
+export * from "./sway";
 export * from "./racepatterns";
 export * from "./parts";
 export * from "./morphs";
@@ -1129,16 +1131,46 @@ export class ThreeActor {
     }
   }
 
-  private updateColliders(): void {
+  /**
+   * Loose garments (skirts, dresses, robes, tunics: the ones hung between the legs) swing as the
+   * character moves and turns (see ClothSway). On by default; off, they hang as skinned. Costs one
+   * small spring per character on the CPU and a few instructions per loose-garment vertex.
+   */
+  get clothMotion(): boolean {
+    return this.swaying;
+  }
+  set clothMotion(on: boolean) {
+    this.swaying = on;
+    if (!on) {
+      this.clothSway.reset();
+      this.colliders.uSway.value.set(0, 0, 0);
+    }
+  }
+  private swaying = true;
+  readonly clothSway = new ClothSway();
+
+  private updateColliders(dt = 0): void {
     const { uCapA, uCapB } = this.colliders;
     this.object.updateMatrixWorld(true);
     const inv = new THREE.Matrix4().copy(this.object.matrixWorld).invert();
-    const pos = (name: string, out: THREE.Vector3) => {
+    const world = (name: string, out: THREE.Vector3) => {
       const bone = this.bones.find((b) => b.name === name);
-      return bone ? out.setFromMatrixPosition(bone.matrixWorld).applyMatrix4(inv) : null;
+      return bone ? out.setFromMatrixPosition(bone.matrixWorld) : null;
     };
+    const pos = (name: string, out: THREE.Vector3) => (world(name, out) ? out.applyMatrix4(inv) : null);
     const a = new THREE.Vector3(), b = new THREE.Vector3();
     pos("pelvis", this.colliders.uCenter.value);
+    if (this.swaying && world("thigh_l", a) && world("thigh_r", b)) {
+      // The cloth hangs from between the hip joints; their line gives the hips' heading.
+      const hips = a.clone().add(b).multiplyScalar(0.5);
+      const sway = this.clothSway;
+      sway.step(hips, Math.atan2(b.x - a.x, b.z - a.z), dt);
+      this.colliders.uPivot.value.copy(hips).applyMatrix4(inv);
+      // The tilt into model space (a direction: the actor's own rotation only).
+      const q = this.object.getWorldQuaternion(new THREE.Quaternion()).invert();
+      const t = new THREE.Vector3(sway.tilt.x, 0, sway.tilt.y).applyQuaternion(q);
+      this.colliders.uSway.value.set(t.x, sway.twist, t.z);
+    }
     ThreeActor.LEGS.slice(0, MAX_COLLIDERS).forEach(([bone, child], i) => {
       const r = this.legRadii.get(bone) ?? 0;
       if (!r || !pos(bone, a) || !pos(child, b)) {
@@ -1730,7 +1762,8 @@ export class ThreeActor {
     this.applyGrip();
     for (const mesh of this.meshes.values()) if (mesh.visible) updateScreen(mesh.material as THREE.Material, dt);
     // Leg colliders only matter while a skirt-skinned garment is drawn.
-    if ([...this.shown].some((n) => this.usesColliders(this.data.get(n)!))) this.updateColliders();
+    if ([...this.shown].some((n) => this.usesColliders(this.data.get(n)!))) this.updateColliders(dt);
+    else this.clothSway.reset();
   }
 
   /**

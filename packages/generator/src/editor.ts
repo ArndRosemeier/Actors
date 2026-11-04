@@ -332,6 +332,7 @@ export class CharacterEditor {
     }, (v) => v && character.wear(v).catch(() => {}), "outfit");
     presetSel.dataset.role = "outfit-preset";
     detailed(this.check(outfit, "Tuck covered layers in", (c) => c.clothTuck, (v) => set({ clothTuck: v }), "clothTuck"));
+    detailed(this.check(outfit, "Loose clothes swing", (c) => c.clothMotion, (v) => set({ clothMotion: v }), "clothMotion"));
     const pants = cat.garments.filter((g) => g.category === "Future · pants");
     if (pants.length) {
       const ids = new Set(pants.map((g) => g.id));

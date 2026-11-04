@@ -729,6 +729,7 @@ export class Character {
     }
     if (!c.wrinkles) this.actor.setWrinkles(0, 0, 0);
     this.actor.tuckCovered = c.clothTuck;
+    this.actor.clothMotion = c.clothMotion;
     const living = c.faceAnimation && !c.robot && !c.skeletal;
     if (living && !this.animator) this.animator = new FaceAnimator();
     else if (!living && this.animator) {
