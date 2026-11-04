@@ -48,7 +48,8 @@ import { ClothSway } from "./sway";
 import { createPartMaterial, createPartMesh } from "./parts";
 import { addMorphAttributes, clearDeltas, morphArrays, morphsChanged, setDelta } from "./morphs";
 import { BASE_SPACE, type FaceRigUniforms, createFaceRigUniforms, faceSlotsFor, setFaceRigTexture, setFaceSlots, useFaceRig } from "./faceRig";
-import { createCrowdMaterial } from "./crowd";
+import { createCrowdMaterial, createOutfitMaterial } from "./crowd";
+import { type TextureAtlas, textureAtlas } from "./atlas";
 import { garmentLayer } from "./layers";
 import { RootSkeleton, bindRoot } from "./rootSkeleton";
 import { ScreenTexturePool, setScreenTexturePool, setScreenColor, updateScreen } from "./screens";
@@ -65,6 +66,7 @@ export * from "./parts";
 export * from "./morphs";
 export * from "./faceRig";
 export * from "./crowd";
+export * from "./atlas";
 export * from "./fur";
 export { srgb } from "./color";
 export * from "./library";
@@ -153,6 +155,12 @@ export interface ActorMaterialKit {
    * `crowdClip` is below 0 (garment hems). Default: the WebGL one (`createCrowdMaterial`).
    */
   crowd?(actor: ThreeActor): THREE.Material;
+  /**
+   * Material of a merged outfit (see `ThreeActor.mergeOutfitFrom`): colour from `atlas`, per-vertex
+   * `outfitTint` (rgb, mix) and `outfitInfo` (texture mean brightness, hem cut, roughness, metalness).
+   * Default: the WebGL one (`createOutfitMaterial`).
+   */
+  outfit?(actor: ThreeActor, atlas: THREE.Texture): THREE.Material;
   /** Face morphs as plain attributes its materials blend themselves (see morphs.ts), not three's morph targets. */
   attributeMorphs?: boolean;
   /** Makes a material blend the actor's face rig (see faceRig.ts) before skinning. Default: the WebGL patch. */
@@ -186,6 +194,7 @@ export const webglMaterials: ActorMaterialKit = {
     return d;
   },
   crowd: (actor) => createCrowdMaterial(actor.skin, actor.crowdHairMaps),
+  outfit: (_actor, atlas) => createOutfitMaterial(atlas),
   blendSkins(actor, layers, renderer) {
     // Actors with (nearly) the same blend share one composed texture: a 2k render target each would add up fast.
     const key = layers.map((l) => `${l.texture.uuid}:${l.weight.toFixed(2)}`).join("|");
@@ -744,6 +753,7 @@ export class ThreeActor {
     for (const [n, mesh] of this.meshes) mesh.visible = this.shown.has(n);
     // Parts merged into the crowd mesh stay hidden (else a part shown and hidden again before the next frame drew twice).
     if (this.lods[level].merge) for (const n of this.shown) if (this.mergeable(this.data.get(n)!) && !this.crowdOverflow.has(n)) this.meshes.get(n)!.visible = false;
+    if (this.outfitLevel(level)) for (const n of this.shown) if (this.outfitPart(this.data.get(n)!)) this.meshes.get(n)!.visible = false;
     // Cutting the skin under garments is the slow part: only redo it when what is drawn changed.
     const key = `${level}|${this.data.size}|${[...this.shown].sort().join(",")}`;
     if (key === this.shownKey) return;
@@ -771,6 +781,7 @@ export class ThreeActor {
     this.wake();
     this.updateVisibility();
     if (this.crowdDirty) this.buildCrowd();
+    this.syncOutfit();
     if (this.lods[level].bones !== bonesBefore && this.clip) this.play(this.clip);
   }
 
@@ -803,6 +814,7 @@ export class ThreeActor {
 
   /** Frees what this actor holds besides its meshes (its share of a composed photo skin). */
   dispose(): void {
+    this.dropOutfit();
     this.kit.release?.(this);
   }
 
@@ -869,6 +881,7 @@ export class ThreeActor {
   setGarmentColor(name: string, color: THREE.ColorRepresentation | null): void {
     this.tints.set(name, color);
     if (this.crowd?.merged.parts.some((p) => p.data.def.name === name)) this.colorCrowd();
+    if (this.outfit?.parts.some((p) => p.name === name)) this.outfitColorDirty = true;
     const mat = this.meshes.get(name)?.material as THREE.Material | undefined;
     const u = mat?.userData.tint as ClothTintUniforms | undefined;
     if (mat) setScreenColor(mat, color);
@@ -927,6 +940,7 @@ export class ThreeActor {
     }
     pos.needsUpdate = true;
     nor.needsUpdate = true;
+    if (this.outfit?.parts.some((p) => p.name === data.def.name)) this.outfitFillDirty = true;
   }
 
   /** Shown garments cut from the body, as a key (fitted garments are lifted over them, see liftOf). */
@@ -1400,6 +1414,11 @@ export class ThreeActor {
       for (const data of this.rendered) if (this.mergeable(data) && this.shown.has(data.def.name)) this.meshes.get(data.def.name)!.visible = false;
       this.crowdDirty = true;
     } else if (this.crowd) this.dropCrowd();
+    if (this.outfitLevel(level)) {
+      // Garments merged into one outfit mesh: hide them now, build the outfit before the next frame.
+      for (const data of this.rendered) if (this.outfitPart(data) && this.shown.has(data.def.name)) this.meshes.get(data.def.name)!.visible = false;
+      this.outfitDirty = true;
+    } else if (this.outfit) this.dropOutfit();
   }
 
   private readonly indexCache = new WeakMap<Uint32Array, THREE.BufferAttribute>();
@@ -1567,6 +1586,208 @@ export class ThreeActor {
     return { mesh: this.crowd.mesh, parts: this.crowd.merged.parts.map((p) => ({ name: p.data.def.name, role: p.data.def.role, offset: p.offset, count: p.count })) };
   }
 
+  /**
+   * From this detail level on (up to a level that merges everything, such as the crowd level), all
+   * garments are drawn as one outfit mesh over a texture atlas: one draw and one shadow draw for the
+   * whole outfit instead of one of each per garment. Skirts (they need the leg colliders) and screen
+   * garments stay their own meshes. Merged garments keep their colours, tints, cut-outs and hems but
+   * lose their fabric weave and normal maps. Default 1 (the pack's second level, "Medium" for humans);
+   * Infinity never merges.
+   */
+  get mergeOutfitFrom(): number {
+    return this.outfitFrom;
+  }
+
+  set mergeOutfitFrom(level: number) {
+    if (level === this.outfitFrom) return;
+    this.outfitFrom = level;
+    this.shownKey = "";
+    this.updateVisibility();
+    this.syncOutfit();
+  }
+
+  private outfitFrom = 1;
+
+  /** Size in pixels of a merged outfit's texture atlas (square; outfits with the same garments share one). */
+  outfitAtlasSize = 1024;
+
+  private outfit?: { mesh: THREE.SkinnedMesh; atlas: TextureAtlas; parts: { name: string; offset: number; count: number; push: number }[] };
+  private outfitDirty = false;
+  private outfitFillDirty = false;
+  private outfitColorDirty = false;
+
+  /** Whether garments are merged into one outfit mesh at a level (see mergeOutfitFrom). */
+  private outfitLevel(level: number): boolean {
+    return level >= this.outfitFrom && !!this.lods[level] && !this.lods[level].merge;
+  }
+
+  /** Whether a mesh joins the merged outfit (when shown at an outfit level). */
+  private outfitPart(data: MeshData): boolean {
+    const { def } = data;
+    return def.role === "garment" && def.material.kind === "cloth" && !this.usesColliders(data) && !def.tags?.includes("fabric:screen");
+  }
+
+  /**
+   * The merged outfit mesh and which vertex range came from which garment, or null when the actor is
+   * not drawn at an outfit level (see mergeOutfitFrom).
+   */
+  outfitMesh(): { mesh: THREE.SkinnedMesh; parts: { name: string; offset: number; count: number }[] } | null {
+    this.flushVisibility();
+    this.syncOutfit();
+    return this.outfit ? { mesh: this.outfit.mesh, parts: this.outfit.parts.map(({ name, offset, count }) => ({ name, offset, count })) } : null;
+  }
+
+  private syncOutfit(): void {
+    if (this.outfitDirty) this.buildOutfit();
+    else if (this.outfit) {
+      if (this.outfitFillDirty) this.fillOutfit();
+      if (this.outfitColorDirty) this.colorOutfit();
+    }
+  }
+
+  /** Builds the merged outfit from the shown garments, with their current cuts, hems, lifts and tucks. */
+  private buildOutfit(): void {
+    this.outfitDirty = false;
+    if (!this.outfitLevel(this.level)) return this.dropOutfit();
+    const parts = this.rendered.filter((d) => this.outfitPart(d) && this.shown.has(d.def.name) && this.meshes.has(d.def.name));
+    if (!parts.length) return this.dropOutfit();
+    const meshes = parts.map((d) => this.meshes.get(d.def.name)!);
+    const maps = meshes.map((m) => ((m.material as THREE.MeshStandardMaterial).map as THREE.Texture | null) ?? null);
+    const atlas = textureAtlas(maps, this.outfitAtlasSize);
+    let n = 0, ni = 0;
+    for (const m of meshes) {
+      n += m.geometry.getAttribute("position").count;
+      ni += m.geometry.index!.count;
+    }
+    const uv = new Float32Array(n * 2), joints = new Uint16Array(n * 4), weights = new Float32Array(n * 4), index = new Uint32Array(ni);
+    const out: { name: string; offset: number; count: number; push: number }[] = [];
+    let offset = 0, at = 0;
+    meshes.forEach((m, k) => {
+      const g = m.geometry;
+      const count = g.getAttribute("position").count;
+      const cell = atlas.cells.get(maps[k])!;
+      const src = g.getAttribute("uv") as THREE.BufferAttribute;
+      for (let i = 0; i < count; i++) {
+        const u = Math.min(1, Math.max(0, src.getX(i))), v = Math.min(1, Math.max(0, src.getY(i)));
+        uv[(offset + i) * 2] = cell.offset[0] + u * cell.scale;
+        uv[(offset + i) * 2 + 1] = cell.offset[1] + v * cell.scale;
+      }
+      const j = g.getAttribute("skinIndex") as THREE.BufferAttribute | undefined, w = g.getAttribute("skinWeight") as THREE.BufferAttribute | undefined;
+      if (j && w) {
+        joints.set(j.array as Uint16Array, offset * 4);
+        weights.set(w.array as Float32Array, offset * 4);
+      } else for (let i = 0; i < count; i++) weights[(offset + i) * 4] = 1;
+      const idx = g.index!.array;
+      for (let t = 0; t < idx.length; t++) index[at++] = idx[t] + offset;
+      // Garments drawn over others are pushed out a little more (the merged mesh has no per-garment polygon offset).
+      out.push({ name: parts[k].def.name, offset, count, push: 0.001 * this.depthOrder(parts[k]) });
+      offset += count;
+    });
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    geometry.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(joints, 4));
+    geometry.setAttribute("skinWeight", new THREE.BufferAttribute(weights, 4));
+    // Tint and per-garment values in one interleaved buffer (WebGPU allows 8 vertex buffers).
+    const info = new THREE.InterleavedBuffer(new Float32Array(n * 8), 8);
+    geometry.setAttribute("outfitTint", new THREE.InterleavedBufferAttribute(info, 4, 0));
+    geometry.setAttribute("outfitInfo", new THREE.InterleavedBufferAttribute(info, 4, 4));
+    geometry.setIndex(new THREE.BufferAttribute(index, 1));
+    const old = this.outfit;
+    const material = old && old.atlas === atlas ? (old.mesh.material as THREE.Material) : (this.kit.outfit ?? webglMaterials.outfit!)(this, atlas.texture);
+    const mesh = new THREE.SkinnedMesh(geometry, material);
+    mesh.name = "outfit";
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    const depth = this.kit.depth(material, false);
+    if (depth) mesh.customDepthMaterial = depth;
+    mesh.frustumCulled = false;
+    this.culled = undefined;
+    // The same atlas again: textureAtlas counted this call as one more user, so give that back.
+    if (old) {
+      if (old.atlas === atlas) atlas.release();
+      this.dropOutfit(old.atlas !== atlas);
+    }
+    this.object.add(mesh);
+    if (this.skeleton) bindRoot(mesh, this.skeleton);
+    this.outfit = { mesh, atlas, parts: out };
+    this.fillOutfit();
+    this.colorOutfit();
+  }
+
+  /** Positions and normals of the merged outfit, from its garments' own buffers (fitted, lifted, tucked). */
+  private fillOutfit(): void {
+    this.outfitFillDirty = false;
+    if (!this.outfit) return;
+    const g = this.outfit.mesh.geometry;
+    const pos = g.getAttribute("position") as THREE.BufferAttribute, nor = g.getAttribute("normal") as THREE.BufferAttribute;
+    const p = pos.array as Float32Array, nn = nor.array as Float32Array;
+    for (const { name, offset, count, push } of this.outfit.parts) {
+      const m = this.meshes.get(name);
+      if (!m) continue;
+      const sp = m.geometry.getAttribute("position").array as Float32Array, sn = m.geometry.getAttribute("normal").array as Float32Array;
+      for (let i = 0; i < count * 3; i++) {
+        p[offset * 3 + i] = sp[i] + sn[i] * push;
+        nn[offset * 3 + i] = sn[i];
+      }
+    }
+    pos.needsUpdate = true;
+    nor.needsUpdate = true;
+  }
+
+  /** Per-vertex tint, texture mean brightness, hem cut, roughness and metalness, from each garment's own material. */
+  private colorOutfit(): void {
+    this.outfitColorDirty = false;
+    if (!this.outfit) return;
+    const attr = this.outfit.mesh.geometry.getAttribute("outfitTint") as THREE.InterleavedBufferAttribute;
+    const a = attr.data.array as Float32Array;
+    for (const { name, offset, count } of this.outfit.parts) {
+      const m = this.meshes.get(name);
+      if (!m) continue;
+      const mat = m.material as THREE.MeshStandardMaterial;
+      const tint = mat.userData.tint as ClothTintUniforms | undefined;
+      const tinted = !!tint && tint.uTintMix.value > 0;
+      let r: number, g: number, b: number, mix: number, mean: number;
+      if (mat.map) {
+        [r, g, b] = tinted ? tint!.uTint.value.toArray() : [1, 1, 1];
+        mix = tinted ? tint!.uTintMix.value : 0;
+        mean = tint?.uTintMeanLum.value ?? 0.2;
+      } else {
+        // No texture: its cell is white, so the tint (or its own colour) is the colour.
+        [r, g, b] = (tinted ? tint!.uTint.value : mat.color ?? new THREE.Color(0.5, 0.5, 0.5)).toArray();
+        mix = 1;
+        mean = 1;
+      }
+      const clip = m.geometry.getAttribute("clipValue") as THREE.BufferAttribute | undefined;
+      const rough = mat.roughness ?? 0.7, metal = mat.metalness ?? 0;
+      for (let i = 0; i < count; i++) {
+        const o = (offset + i) * 8;
+        a[o] = r;
+        a[o + 1] = g;
+        a[o + 2] = b;
+        a[o + 3] = mix;
+        a[o + 4] = mean;
+        a[o + 5] = clip ? clip.getX(i) : 1;
+        a[o + 6] = rough;
+        a[o + 7] = metal;
+      }
+    }
+    attr.data.needsUpdate = true;
+  }
+
+  private dropOutfit(releaseAtlas = true): void {
+    const o = this.outfit;
+    if (!o) return;
+    o.mesh.removeFromParent();
+    o.mesh.geometry.dispose();
+    if (releaseAtlas) {
+      (o.mesh.material as THREE.Material).dispose();
+      o.atlas.release();
+    }
+    this.outfit = undefined;
+  }
+
   private dropCrowd(disposeMaterial = true): void {
     if (!this.crowd) return;
     this.crowd.mesh.removeFromParent();
@@ -1627,6 +1848,7 @@ export class ThreeActor {
     for (const mesh of this.meshes.values()) bindSkeleton(mesh, this.skeleton!);
     for (const mesh of this.parts.values()) bindSkeleton(mesh, this.skeleton!);
     if (this.crowd) bindSkeleton(this.crowd.mesh, this.skeleton!);
+    if (this.outfit) bindSkeleton(this.outfit.mesh, this.skeleton!);
     // Joint positions moved, so rebuild the clip against the new bind pose.
     if (this.clip) this.play(this.clip);
   }
@@ -1903,6 +2125,7 @@ export class ThreeActor {
     this.culled = cull;
     const meshes = [...this.meshes.values(), ...this.parts.values()];
     if (this.crowd) meshes.push(this.crowd.mesh);
+    if (this.outfit) meshes.push(this.outfit.mesh);
     for (const mesh of meshes) {
       mesh.boundingSphere = (mesh.boundingSphere ?? new THREE.Sphere()).copy(sphere); // own copy: three may recompute it in place
       mesh.frustumCulled = cull;
@@ -1935,6 +2158,7 @@ export class ThreeActor {
   update(dt: number): void {
     this.flushVisibility();
     if (this.crowdDirty) this.buildCrowd();
+    this.syncOutfit();
     this.updateCulling();
     this.gathered += dt;
     const frozen = dt > 0 && ++this.tick < this.animationStep;

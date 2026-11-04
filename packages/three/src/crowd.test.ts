@@ -7,7 +7,7 @@ import { RootSkeleton, ThreeActor } from "./index";
  * A quad body on four base vertices with a full and a merging crowd level, a garment, textured
  * hair, eyes and teeth (one-triangle proxies or base meshes), on a two-bone rig.
  */
-async function crowdPack(): Promise<ActorRuntime> {
+async function crowdPack(medium = false): Promise<ActorRuntime> {
   const parts: ArrayBufferView[] = [];
   let offset = 0;
   const put = <T extends "f32" | "u32">(type: T, values: number[]) => {
@@ -40,7 +40,7 @@ async function crowdPack(): Promise<ActorRuntime> {
       { ...onProxy("eyes"), role: "eyes", lods: [0], material: { kind: "eye", color: [1, 1, 1] } },
       { name: "teeth", source: { kind: "base" }, role: "bodypart", lods: [0], material: { kind: "teeth", color: [1, 1, 1] }, ...tri() },
     ],
-    lods: [{ name: "Full", distance: 0 }, { name: "Crowd", distance: 20, merge: true }],
+    lods: [{ name: "Full", distance: 0 }, ...(medium ? [{ name: "Medium", distance: 8 }] : []), { name: "Crowd", distance: 20, merge: true }],
     skeleton: { name: "tiny", bones: [
       { name: "root", parent: -1, head: { vertices: [0, 1] }, tail: { vertices: [0, 1, 2, 3] }, roll: 0 },
       { name: "top", parent: 0, head: { vertices: [0, 1, 2, 3] }, tail: { vertices: [2, 3] }, roll: 0 },
@@ -58,13 +58,14 @@ async function crowdPack(): Promise<ActorRuntime> {
 }
 
 /** An actor wearing the shirt and the hair, shaped (textures are stubbed: no images in node). */
-async function dressed(): Promise<{ rt: ActorRuntime; actor: ThreeActor }> {
-  const rt = await crowdPack();
+async function dressed(medium = false): Promise<{ rt: ActorRuntime; actor: ThreeActor }> {
+  const rt = await crowdPack(medium);
   const hairMap = new THREE.Texture();
   vi.spyOn(ThreeActor.prototype, "texture").mockReturnValue(hairMap);
   const actor = new ThreeActor(rt);
   actor.setVisible("shirt", true);
   actor.setVisible("hair", true);
+  if (medium) actor.setVisible("cap", true);
   actor.applyShape(rt.evaluateLoaded(new Map(), undefined, undefined, actor.neededMeshes()));
   actor.update(0);
   return { rt, actor };
@@ -166,5 +167,37 @@ describe("frustum culling", () => {
     actor.inPlace = false;
     actor.update(0);
     expect(body.frustumCulled).toBe(false);
+  });
+});
+
+describe("merged outfit", () => {
+  it("draws every garment as one mesh from the medium level on, with each garment's colour", async () => {
+    const { actor } = await dressed(true);
+    actor.setGarmentColor("cap", "#ff0000");
+    actor.setLod(1);
+    actor.update(0);
+    expect(drawn(actor)).toEqual(["body", "hair", "outfit"]);
+    const outfit = actor.outfitMesh()!;
+    expect(outfit.parts.map((p) => p.name).sort()).toEqual(["cap", "shirt"]);
+    const tint = outfit.mesh.geometry.getAttribute("outfitTint") as THREE.InterleavedBufferAttribute;
+    const cap = outfit.parts.find((p) => p.name === "cap")!;
+    const red = new THREE.Color("#ff0000");
+    expect(tint.getX(cap.offset)).toBeCloseTo(red.r);
+    expect(tint.getY(cap.offset)).toBeCloseTo(0);
+    expect(tint.getW(cap.offset)).toBe(1);
+    // The cap is drawn over the shirt: pushed out a little further along its normal.
+    const pos = outfit.mesh.geometry.getAttribute("position");
+    expect(pos.count).toBe(6);
+    // Back to full detail: the garments are their own meshes again.
+    actor.setLod(0);
+    actor.update(0);
+    expect(actor.outfitMesh()).toBeNull();
+    expect(actor.meshes.get("cap")!.visible).toBe(true);
+    // Never merged when switched off.
+    actor.mergeOutfitFrom = Infinity;
+    actor.setLod(1);
+    actor.update(0);
+    expect(actor.outfitMesh()).toBeNull();
+    expect(actor.meshes.get("shirt")!.visible).toBe(true);
   });
 });
