@@ -187,7 +187,8 @@ export class FootGrounding {
       for (let i = 0; i < boneOf[m].length; i++) {
         const bone = boneOf[m][i], y = rests[m][i * 3 + 1];
         const foot = sole.has(bone) && y <= lowOf.get(bone)! + 0.05 * tall;
-        if (!foot && y > low + 0.06 * tall) continue;
+        // A leg's own skin above its sole (a calf swung back near the ground) is the leg's to lift with its foot, not the body's.
+        if (!foot && (y > low + 0.06 * tall || isFoot(bone))) continue;
         all.push({ mesh, index: i, bone: foot ? bone : -1, rest: new THREE.Vector3().fromArray(rests[m], i * 3), height: 0 });
       }
     });
@@ -354,7 +355,7 @@ export class FootGrounding {
         const s = seen[f];
         // A foot far above the ground is in a jump or a fall: it does not reach for it.
         if (s.need < -o.reach * height) continue;
-        const down = round === 0 || this.standing ? s.planted : 0;
+        const down = s.planted;
         if (s.need <= 1e-3 * height && !(down > 0 && s.need < -1e-3 * height)) continue;
         this.reach(this.feet[f], down, o.reach * height);
         again = true;
@@ -386,11 +387,15 @@ export class FootGrounding {
         r.copy(p.rest).applyMatrix4(m.matrixWorld);
         // How far the animation has raised this point above its rest place.
         lifted = Math.min(lifted, v.y - r.y);
-        const need = ground(v.x, v.z) + p.height * scale - v.y;
+        // Standing, the sole is laid on the ground as it lies at rest (each point its rest height above it); walking, the clip turns the foot
+        // (a heel lifted, the toes reaching), and the foot meets the ground with whichever point is lowest, as the clip holds it.
+        const need = ground(v.x, v.z) + (this.standing || foot.bone < 0 ? p.height * scale : 0) - v.y;
         (foot.at[k] ??= new THREE.Vector3()).copy(v);
         foot.need[k] = need;
         if (need > best) (best = need), (bx = v.x), (by = v.y), (bz = v.z);
       });
+      // Walking, the foot moves as one: every point by as much as brings its lowest to the ground.
+      if (!this.standing && foot.bone >= 0) foot.need.fill(best);
       lifts.push(lifted);
       out.push({ x: bx, y: by, z: bz, need: best, planted: 1, ground: ground(bx, bz) });
     }
