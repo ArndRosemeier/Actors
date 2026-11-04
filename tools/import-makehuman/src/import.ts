@@ -509,7 +509,7 @@ async function main() {
   };
   const garmentLabels: Record<string, string> = {};
   // Garments cut from the body already have the base mesh's density, which suits the medium level.
-  const BASE_GARMENT_LODS: LodSteps = [[2, 0.25, 0.03]];
+  const BASE_GARMENT_LODS: LodSteps = [[2, 0.25, 0.04, 1500]];
   for (const spec of GARMENTS) {
     const cut = garmentCut(tightsFaces, spec, garmentCtx);
     const faces = selectGarmentFaces(tightsFaces, cut, spec.minIsland);

@@ -40,6 +40,26 @@ describe("LOD simplification", () => {
     for (const list of lists) for (const v of list) expect(v).toBeLessThan(g.map.length);
   });
 
+  it("caps a level's triangles", async () => {
+    await ready;
+    const g = grid(32); // 2048 triangles
+    const writer = new BlobWriter();
+    const [level] = simplifyLevels(writer, g.positions, g, [[2, 0.5, 0.5, 100]])!;
+    expect(level.indices.count / 3).toBeLessThanOrEqual(100);
+  });
+
+  it("welds a triangle soup to get under a crowd cap", async () => {
+    await ready;
+    const g = grid(32);
+    // Every triangle with corners of its own.
+    const soup = { positions: g.positions, map: [...g.indices].map((i) => g.map[i]), indices: g.indices.map((_, k) => k) };
+    const writer = new BlobWriter();
+    const plain = simplifyLevels(writer, soup.positions, soup, [[2, 0.1, 0.05, 100]]);
+    expect(plain).toBeUndefined();
+    const [level] = simplifyLevels(writer, soup.positions, soup, [[2, 0.1, 0.05, 100, true]])!;
+    expect(level.indices.count / 3).toBeLessThanOrEqual(150);
+  });
+
   it("keeps fingers out of the crowd skeleton", () => {
     const [, , crowd] = humanLods(["pelvis", "hand_l", "index_01_l", "thumb_03_r"]);
     expect(crowd.bones).toEqual(["pelvis", "hand_l"]);
