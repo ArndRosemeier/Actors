@@ -37,9 +37,10 @@ import { type Gltf, parseGlb } from "./gltf";
 import { readZip } from "./zip";
 import { CMU_URL, importCmu } from "./cmu";
 import type { GarmentInfo, SkinTextureDef } from "@actors/human";
-import { WARDROBE } from "./wardrobe";
+import { SHOE_SNUG, WARDROBE } from "./wardrobe";
+import { snugMoves } from "./snug";
 import { buildMedieval } from "./medieval";
-import { type Vec3, closestOnTriangle } from "./geometry";
+import { type Vec3, closestOnTriangle, packTriangles, rayHitsAny } from "./geometry";
 import { HAIRSTYLES, PACK_LICENCE } from "./hairstyles";
 import { GARMENT_LODS, HAIR_LODS, type LodSteps, SMALL_LODS, humanLods, ready as meshoptReady, simplifyLevels } from "./lod";
 
@@ -271,15 +272,50 @@ async function main() {
    * only under garments on a higher layer, so underwear disappears under a
    * shirt but not the other way round.
    */
-  // Vertex normals of the tights helper (area-weighted), to tell "under a garment" from "beside its hem".
-  const tightsNormals = new Float32Array(P.length);
-  for (const f of facesOf("helper-tights"))
+  // Vertex normals of the tights helper and the skin (area-weighted), to tell "under a garment" from "beside its hem".
+  const vertexNormals = new Float32Array(P.length);
+  for (const f of facesOf("helper-tights", "body"))
     for (let i = 1; i + 1 < f.v.length; i++) {
       const [a, b, c] = [f.v[0], f.v[i], f.v[i + 1]];
       const u = [0, 1, 2].map((k) => P[b * 3 + k] - P[a * 3 + k]), w = [0, 1, 2].map((k) => P[c * 3 + k] - P[a * 3 + k]);
       const n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
-      for (const v of [a, b, c]) for (let k = 0; k < 3; k++) tightsNormals[v * 3 + k] += n[k];
+      for (const v of [a, b, c]) for (let k = 0; k < 3; k++) vertexNormals[v * 3 + k] += n[k];
     }
+  const skinNeighbours = new Map<number, number[]>();
+  for (const f of facesOf("body"))
+    f.v.forEach((a, i) => {
+      const b = f.v[(i + 1) % f.v.length];
+      for (const [x, y] of [[a, b], [b, a]]) {
+        if (!skinNeighbours.has(x)) skinNeighbours.set(x, []);
+        skinNeighbours.get(x)!.push(y);
+      }
+    });
+  /** Above this the skin is leg, not foot (meters, base mesh). */
+  const footTopY = Math.min(...groupVerts.get("body")!.map((v) => P[v * 3 + 1])) + 0.12;
+  /**
+   * How a garment lies over a skin vertex, by rays from it: "open" when nothing lies out along its normal
+   * (the skin pokes through the garment, or sits beside an opening, as on top of the foot in a flat),
+   * "seen" when the garment does but a ray tilted 50° or 70° from the normal escapes (inside a flared
+   * boot top), "covered" otherwise.
+   */
+  const skinUnder = (p: Vec3, v: number, packed: Float32Array): "open" | "seen" | "covered" => {
+    const n = [0, 1, 2].map((k) => vertexNormals[v * 3 + k]);
+    const len = Math.hypot(n[0], n[1], n[2]) || 1;
+    const N: Vec3 = [n[0] / len, n[1] / len, n[2] / len];
+    // Two tangents: across the normal and the vertical (or x, where the normal is vertical).
+    const ref: Vec3 = Math.abs(N[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0];
+    let t1: Vec3 = [N[1] * ref[2] - N[2] * ref[1], N[2] * ref[0] - N[0] * ref[2], N[0] * ref[1] - N[1] * ref[0]];
+    const l1 = Math.hypot(...t1);
+    t1 = [t1[0] / l1, t1[1] / l1, t1[2] / l1];
+    const t2: Vec3 = [N[1] * t1[2] - N[2] * t1[1], N[2] * t1[0] - N[0] * t1[2], N[0] * t1[1] - N[1] * t1[0]];
+    if (!rayHitsAny(p, N, packed, 0.3)) return "open";
+    const dirs: Vec3[] = [];
+    for (const deg of [50, 70]) {
+      const c = Math.cos((deg * Math.PI) / 180), s = Math.sin((deg * Math.PI) / 180);
+      for (const t of [t1, t2]) for (const sign of [1, -1]) dirs.push([0, 1, 2].map((k) => c * N[k] + sign * s * t[k]) as Vec3);
+    }
+    return dirs.some((d) => !rayHitsAny(p, d, packed, 0.3)) ? "seen" : "covered";
+  };
   const coveredBody = (gPos: number[], gFaces: number[][], radius = 0.015, margin = 0.035): number[] => {
     const edges = new Map<string, number>();
     for (const f of gFaces)
@@ -313,7 +349,10 @@ async function main() {
       if (!edgeGrid.has(k)) edgeGrid.set(k, []);
       edgeGrid.get(k)!.push(i);
     }
+    const packed = radius > 0.02 ? packTriangles(gPos, tris) : undefined;
     const out: number[] = [];
+    /** Leg skin kept visible by the opening test (see below). */
+    const shown = new Set<number>();
     // Body-cut garments (tights helper) need no edge margin: hiding them near a hem only shows the skin
     // under them, and MakeHuman clothes have many inner boundaries (pockets, collars) that a margin would spare.
     const tightsVerts = new Set(groupVerts.get("helper-tights") ?? []);
@@ -333,8 +372,8 @@ async function main() {
           near = hit.distance;
           const f = hit.feature.map((k) => t[k]);
           onRim = f.length === 1 ? boundary.has(f[0]) : f.length === 2 && edges.get(f[0] < f[1] ? `${f[0]}_${f[1]}` : `${f[1]}_${f[0]}`) === 1;
-          if (garmentLayer && near > 0.005) {
-            const n = [0, 1, 2].map((k) => tightsNormals[v * 3 + k]);
+          if ((garmentLayer || packed) && near > 0.005) {
+            const n = [0, 1, 2].map((k) => vertexNormals[v * 3 + k]);
             along = Math.abs(n.reduce((s, x, k) => s + x * (hit.point[k] - p[k]), 0)) / (near * (Math.hypot(n[0], n[1], n[2]) || 1));
           } else along = 1;
         }
@@ -346,6 +385,18 @@ async function main() {
         if (!onRim && along > 0.7) out.push(v);
         continue;
       }
+      // Wide hiding (shoes, boots, socks): skin seen through an opening stays and skin fully inside goes,
+      // whatever the edges. The edge margin alone missed a cuffed boot's fold (no open edge, so the leg inside
+      // it was cut away) and spared skin along seams between a shoe's pieces (which then poked through). On
+      // the leg, skin beside the garment (above a boot top) stays too. Skin with nothing over it is either
+      // beside an opening or poking through (riding boots model a raised heel, so the toes stand out): the
+      // edge margin below tells them apart.
+      if (packed) {
+        const under = p[1] > footTopY && along < 0.5 ? "seen" : skinUnder(p, v, packed);
+        if (under === "seen" && p[1] > footTopY) shown.add(v);
+        if (under === "covered") out.push(v);
+        if (under !== "open") continue;
+      }
       let nearEdge = Infinity;
       for (let dx = -1; dx <= 1; dx++)
         for (let dy = -1; dy <= 1; dy++)
@@ -353,7 +404,9 @@ async function main() {
             for (const i of edgeGrid.get(`${cx + dx},${cy + dy},${cz + dz}`) ?? []) nearEdge = Math.min(nearEdge, Math.hypot(gPos[i * 3] - p[0], gPos[i * 3 + 1] - p[1], gPos[i * 3 + 2] - p[2]));
       if (nearEdge > margin) out.push(v);
     }
-    return out;
+    // The skin is drawn subdivided, so a ring of hidden vertices next to shown leg skin still opens notches
+    // at a boot top: keep that ring too (not on the foot, where it lets toes poke through a riding boot).
+    return shown.size ? out.filter((v) => !(skinNeighbours.get(v) ?? []).some((n) => shown.has(n))) : out;
   };
 
   // --- Body, face parts, anatomy ----------------------------------------------
@@ -640,6 +693,11 @@ async function main() {
   // --- Wardrobe: CC0 and CC-BY garments from MakeHuman asset packs, each in its own file, loaded when worn ---
   mkdirSync(join(out, "garments"), { recursive: true });
   let wardrobeBytes = 0;
+  // Skin of the legs and feet (below the hips), for pulling shoes and boots closer to it.
+  const floorY = Math.min(...groupVerts.get("body")!.map((v) => P[v * 3 + 1]));
+  const legSkinTris: [number, number, number][] = [];
+  for (const f of facesOf("body"))
+    if (f.v.every((v) => P[v * 3 + 1] < floorY + 0.7)) for (let i = 1; i + 1 < f.v.length; i++) legSkinTris.push([f.v[0], f.v[i], f.v[i + 1]]);
   for (const item of WARDROBE) {
     const cc = item.license === "CC-BY" ? "cc-by" : "cc0";
     const pack = `${MH_PACKS}/${item.pack}/${item.pack}_${CCBY_UNDASHED.has(item.pack) ? "ccby" : cc}.zip`;
@@ -648,6 +706,12 @@ async function main() {
     // A few garments have no scale references; use the head box most MakeHuman clothes use.
     [[5399, 11998, 1.398], [791, 881, 2.2028], [962, 5320, 1.8441]].forEach((ref, k) => (clo.scale[k] ??= ref as [number, number, number]));
     const cloObj = parseObj(fetchZipText(CACHE, pack, `${dir}/${clo.objFile}`));
+    const snug = item.snug ?? (item.category === "Shoes" ? SHOE_SNUG : undefined);
+    if (snug !== undefined && snug < 1) {
+      const moves = snugMoves(fittedOnBase(clo), cloObj.faces.map((f) => f.v), P, legSkinTris, { keep: snug });
+      const axisScale = clo.scale.map(([a, b, l], c) => Math.abs(P[a * 3 + c] - P[b * 3 + c]) / (l * SCALE) || 1);
+      for (let i = 0; i < moves.length; i++) clo.offsets[i] += moves[i] / (SCALE * axisScale[i % 3]);
+    }
     let mhmat = "";
     try {
       mhmat = fetchZipText(CACHE, pack, `${dir}/${clo.material ?? `${item.id}.mhmat`}`);

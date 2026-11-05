@@ -34,3 +34,37 @@ export function closestOnTriangle(p: Vec3, [a, b, c]: [Vec3, Vec3, Vec3]): { dis
 }
 
 export const pointTriangleDistance = (p: Vec3, tri: [Vec3, Vec3, Vec3]) => closestOnTriangle(p, tri).distance;
+
+/** Triangles packed for ray tests: per triangle the corner a and the edges b - a, c - a (9 floats). */
+export function packTriangles(pos: ArrayLike<number>, tris: [number, number, number][]): Float32Array {
+  const out = new Float32Array(tris.length * 9);
+  tris.forEach(([a, b, c], t) => {
+    for (let k = 0; k < 3; k++) {
+      out[t * 9 + k] = pos[a * 3 + k];
+      out[t * 9 + 3 + k] = pos[b * 3 + k] - pos[a * 3 + k];
+      out[t * 9 + 6 + k] = pos[c * 3 + k] - pos[a * 3 + k];
+    }
+  });
+  return out;
+}
+
+/** Whether the ray o + t d (0 < t < maxT) hits any packed triangle, from either side (Möller–Trumbore). */
+export function rayHitsAny(o: Vec3, d: Vec3, packed: Float32Array, maxT = Infinity): boolean {
+  for (let i = 0; i < packed.length; i += 9) {
+    const e1x = packed[i + 3], e1y = packed[i + 4], e1z = packed[i + 5];
+    const e2x = packed[i + 6], e2y = packed[i + 7], e2z = packed[i + 8];
+    const px = d[1] * e2z - d[2] * e2y, py = d[2] * e2x - d[0] * e2z, pz = d[0] * e2y - d[1] * e2x;
+    const det = e1x * px + e1y * py + e1z * pz;
+    if (Math.abs(det) < 1e-12) continue;
+    const inv = 1 / det;
+    const tx = o[0] - packed[i], ty = o[1] - packed[i + 1], tz = o[2] - packed[i + 2];
+    const u = (tx * px + ty * py + tz * pz) * inv;
+    if (u < 0 || u > 1) continue;
+    const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+    const v = (d[0] * qx + d[1] * qy + d[2] * qz) * inv;
+    if (v < 0 || u + v > 1) continue;
+    const t = (e2x * qx + e2y * qy + e2z * qz) * inv;
+    if (t > 0 && t < maxT) return true;
+  }
+  return false;
+}

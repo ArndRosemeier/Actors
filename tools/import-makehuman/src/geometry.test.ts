@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Vec3, closestOnTriangle, pointTriangleDistance } from "./geometry";
+import { type Vec3, closestOnTriangle, pointTriangleDistance, packTriangles, rayHitsAny } from "./geometry";
 
 describe("pointTriangleDistance", () => {
   const tri: [Vec3, Vec3, Vec3] = [[0, 0, 0], [1, 0, 0], [0, 1, 0]];
@@ -31,5 +31,17 @@ describe("closestOnTriangle point", () => {
     expect(round(closestOnTriangle([0.2, 0.3, 1], tri).point)).toEqual([0.2, 0.3, 0]);
     expect(round(closestOnTriangle([0.5, -1, 0], tri).point)).toEqual([0.5, 0, 0]);
     expect(round(closestOnTriangle([2, 2, 0], tri).point)).toEqual([0.5, 0.5, 0]);
+  });
+});
+
+describe("rayHitsAny", () => {
+  // One triangle in the plane z = 1.
+  const packed = packTriangles([0, 0, 1, 1, 0, 1, 0, 1, 1], [[0, 1, 2]]);
+  it("hits from either side, misses beside it, behind the origin or past maxT", () => {
+    expect(rayHitsAny([0.2, 0.2, 0], [0, 0, 1], packed)).toBe(true);
+    expect(rayHitsAny([0.2, 0.2, 2], [0, 0, -1], packed)).toBe(true);
+    expect(rayHitsAny([0.8, 0.8, 0], [0, 0, 1], packed)).toBe(false);
+    expect(rayHitsAny([0.2, 0.2, 0], [0, 0, -1], packed)).toBe(false);
+    expect(rayHitsAny([0.2, 0.2, 0], [0, 0, 1], packed, 0.5)).toBe(false);
   });
 });

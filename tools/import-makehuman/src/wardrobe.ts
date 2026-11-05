@@ -41,6 +41,11 @@ export interface WardrobeItem {
   hidesHair?: boolean;
   /** How far from the garment the skin is hidden (meters); larger for shoes. */
   hideRadius?: number;
+  /**
+   * Pull the garment closer to the skin at import: the share of each gap beyond a few millimetres that
+   * is kept (see snugMoves). MakeHuman shoes are modelled loose; all shoes get SHOE_SNUG unless set here.
+   */
+  snug?: number;
   /** Open or sheer texture: keep the skin and underlying garments visible. */
   sheer?: boolean;
   /** Texture size (pixels). */
@@ -56,6 +61,8 @@ const TOP = ["top"];
 const BOTTOM = ["bottom"];
 const FULL = ["top", "bottom"];
 const SHOES = ["shoes"];
+/** How much of a shoe's gap to the foot (beyond a few mm) is kept at import; see WardrobeItem.snug. */
+export const SHOE_SNUG = 0.35;
 
 export const WARDROBE: WardrobeItem[] = [
   // --- Underwear ---
