@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PNG } from "pngjs";
 import { describe, expect, it } from "vitest";
-import { massHairPng, writeRgbaDownsampled } from "./image";
+import { massHairPng, opaqueFaces, writeRgbaDownsampled } from "./image";
 
 describe("a texture's mean colour", () => {
   it("is averaged in linear light, so a high-contrast texture's mean is not too dark", () => {
@@ -38,5 +38,17 @@ describe("hair masses", () => {
     expect(alpha(200)).toBe(0); // the lone strand
     // Gap texels take the hair's colour (a little darker), not black.
     expect(out.data[(128 * W + 62) * 4]).toBeGreaterThan(60);
+  });
+});
+
+describe("opaque faces", () => {
+  it("leaves out faces over a texture hole, so the skin behind them stays drawn", () => {
+    const dir = mkdtempSync(join(tmpdir(), "opaque-"));
+    const png = new PNG({ width: 8, height: 8 });
+    // Left half opaque, right half transparent (lace or a cut-out).
+    for (let i = 0; i < 64; i++) png.data.set([200, 200, 200, i % 8 < 4 ? 255 : 0], i * 4);
+    writeFileSync(join(dir, "t.png"), PNG.sync.write(png));
+    const uvs = [0, 0, 0.45, 0, 0.45, 1, 0, 1, 0.55, 0, 1, 0, 1, 1, 0.55, 1];
+    expect(opaqueFaces(join(dir, "t.png"), uvs, [{ vt: [0, 1, 2, 3] }, { vt: [4, 5, 6, 7] }])).toEqual([true, false]);
   });
 });

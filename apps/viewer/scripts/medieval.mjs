@@ -3,6 +3,7 @@
 // CHROMIUM_PATH=/path/to/chrome node apps/viewer/scripts/medieval.mjs [url] [outDir] [--only id,id]
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
+import { PNG } from "pngjs";
 import { chromium } from "playwright-core";
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
@@ -48,6 +49,35 @@ try {
       await view([0.9, 1.2, 3.6], [0, 0.95, 0]);
       await page.waitForTimeout(700);
       await page.screenshot({ path: `${out}/${tag}-front.png` });
+      if (gender < 0.5) {
+        // Upper chest up close: the gap between a mantle or collar and the neckline must show cloth or
+        // skin, never the background (a garment that hid the skin under a see-through lace band did).
+        const chest = await page.evaluate(() => {
+          const { character } = window.__actors;
+          const neck = character.object.getObjectByName("neck_01")?.getWorldPosition(new window.__actors.stage.camera.position.constructor());
+          return neck ? [neck.x, neck.y, neck.z] : null;
+        });
+        assert(chest, `${tag}: no neck bone`);
+        const y = chest[1] - 0.12;
+        await view([0, y, chest[2] + 0.75], [0, y, chest[2]]);
+        // A magenta backdrop for the check, so dark cloth isn't mistaken for the background.
+        const bg = await page.evaluate(() => { const b = window.__actors.stage.scene.background, old = b.getHex(); b.set(0xff00ff); return old; });
+        await page.waitForTimeout(700);
+        const shot = await page.screenshot();
+        await page.evaluate((bg) => window.__actors.stage.scene.background.set(bg), bg);
+        await page.screenshot({ path: `${out}/${tag}-chest.png` });
+        const a = PNG.sync.read(shot);
+        // Box over the sternum and the upper chest (between the collarbones and the bust), in the middle of the 3D view.
+        const r = await page.evaluate(() => { const c = window.__actors.stage.renderer.domElement.getBoundingClientRect(); return { x: c.x, y: c.y, w: c.width, h: c.height }; });
+        let holes = 0, total = 0;
+        for (let py = Math.round(r.y + r.h * 0.38); py < r.y + r.h * 0.62; py++)
+          for (let px = Math.round(r.x + r.w * 0.4); px < r.x + r.w * 0.6; px++) {
+            const i = (py * a.width + px) * 4;
+            total++;
+            if (a.data[i] > 235 && a.data[i + 1] < 20 && a.data[i + 2] > 235) holes++;
+          }
+        assert(holes < total * 0.002, `${tag}: see-through chest, ${holes} of ${total} pixels show the background (${out}/${tag}-chest.png)`);
+      }
       await view([-0.9, 1.3, -3.6], [0, 0.95, 0]);
       await page.waitForTimeout(500);
       await page.screenshot({ path: `${out}/${tag}-back.png` });

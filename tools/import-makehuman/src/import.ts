@@ -29,7 +29,7 @@ import { GARMENTS, garmentCut, insideFaces, selectGarmentFaces } from "./garment
 import { orbitalHalo } from "./future-accessories";
 import { shapedGarment } from "./shaped-garment";
 import { type FaceLandmarks, wrinkleMasks } from "./wrinkles";
-import { type Gray, blankGray, blurGray, loadGray, massHairPng, maxGray, meanColor, meanPngColor, rasterizeUV, resizeGray, writeJpeg, writeRgbaDownsampled, writeRgbaPng, tintPng } from "./image";
+import { type Gray, blankGray, blurGray, loadGray, massHairPng, maxGray, meanColor, meanPngColor, opaqueFaces, rasterizeUV, resizeGray, writeJpeg, writeRgbaDownsampled, writeRgbaPng, tintPng } from "./image";
 import { type Mhclo, parseMhclo } from "./mhclo";
 import { type ObjData, type ObjFace, buildRenderMesh, parseObj } from "./obj";
 import { CLIP_SPECS, UAL_ARCHIVES, type UalArchive, importClip } from "./clips";
@@ -664,7 +664,12 @@ async function main() {
     const size = item.texSize ?? 1024;
     const diffuse = mhmat.match(/^diffuseTexture\s+(\S+)/m)?.[1];
     let color: [number, number, number] = [0.45, 0.45, 0.47];
+    // Only opaque faces hide what is under them: lace and cut-outs (alpha holes) would show the background.
+    let covering = cloObj.faces;
     if (diffuse) {
+      const opaque = opaqueFaces(fetchZipEntry(CACHE, pack, `${dir}/${diffuse}`), cloObj.uvs, cloObj.faces);
+      covering = cloObj.faces.filter((_, i) => opaque[i]);
+      if (covering.length < cloObj.faces.length) console.log(`${item.name}: ${cloObj.faces.length - covering.length} see-through faces don't hide the skin`);
       textures.color = `textures/garment_${item.name}.png`;
       color = writeRgbaDownsampled(fetchZipEntry(CACHE, pack, `${dir}/${diffuse}`), join(out, textures.color), size, samples);
     }
@@ -691,7 +696,7 @@ async function main() {
       tags: [`fabric:${item.fabric ?? "smooth"}`, ...(item.sheer ? ["sheer"] : []), ...(item.coversAnatomy ? ["covers:anatomy"] : []), ...(item.hidesHair ? ["covers:hair"] : []), ...(item.tucked ? ["tucked"] : []), `license:${item.license ?? "CC0"}`],
       // A geometric coverage mask assumes an opaque surface. Texture holes need
       // the underlying skin (and lower clothing layers) to remain in the draw.
-      ...(item.sheer ? {} : { hidesBaseVertices: writer.add("u32", coveredBody(fittedOnBase(clo), cloObj.faces.map((f) => f.v), item.hideRadius ?? 0.015)) }),
+      ...(item.sheer ? {} : { hidesBaseVertices: writer.add("u32", coveredBody(fittedOnBase(clo), covering.map((f) => f.v), item.hideRadius ?? 0.015)) }),
     });
     const bin = writer.toBuffer();
     writeFileSync(join(out, file), bin);
