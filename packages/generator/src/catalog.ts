@@ -212,6 +212,13 @@ export interface CharacterCatalog {
   robot?: { heads: Choice[]; ears: Choice[]; plating: Choice[]; finishes: Choice[]; palettes: (Choice & { look: Partial<RobotLook> })[] };
   /** Skeleton options: colour schemes (absent: no skeletons offered). */
   skeletal?: { palettes: (Choice & { look: Partial<SkeletalLook> })[] };
+  /**
+   * False when the game offers no living people, only robots or skeletons (see `AllowOptions.races`):
+   * `races` then holds just the human body they are built on. Absent: people are offered.
+   */
+  people?: boolean;
+  /** Standing height range in meters the character is kept in (see `AllowOptions.height`). Absent: any. */
+  height?: { min?: number; max?: number };
 }
 
 /** The whole look and motion of a character, serialisable as JSON. */
@@ -540,8 +547,26 @@ export function outfitGarments(preset: OutfitPreset, body: Pick<HumanParams, "ge
   return [...preset.garments, ...(body.gender < 0.5 ? (preset.female ?? []) : [])];
 }
 
+/**
+ * `config` kept to what the catalog offers: a race it lists (else its first), robots and skeletons
+ * only when it has them, and a robot or skeleton when it offers no living people.
+ */
+export function fitConfig(catalog: Pick<CharacterCatalog, "races" | "robot" | "skeletal" | "people">, config: CharacterConfig): CharacterConfig {
+  const races = new Set<string>(catalog.races.map((r) => r.id));
+  const c = { ...config };
+  if (races.size && !races.has(c.race)) c.race = races.has("human") ? "human" : catalog.races[0].id;
+  if (c.race2 && !races.has(c.race2)) Object.assign(c, { race2: null, raceMix: 0 });
+  if (!catalog.robot) c.robot = false;
+  if (!catalog.skeletal) c.skeletal = false;
+  if (catalog.people === false && !c.robot && !c.skeletal) {
+    if (catalog.robot) c.robot = true;
+    else if (catalog.skeletal) c.skeletal = true;
+  }
+  return c;
+}
+
 export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
-  return {
+  return fitConfig(catalog, {
     race: "human",
     race2: null,
     raceMix: 0,
@@ -593,7 +618,7 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     robotLook: { ...DEFAULT_ROBOT_LOOK },
     skeletal: false,
     skeletalLook: { ...DEFAULT_SKELETAL_LOOK },
-  };
+  });
 }
 
 export interface RandomOptions {
@@ -633,7 +658,13 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
   const r = options.random ?? Math.random;
   const pick = <T>(list: T[]): T | undefined => list[Math.floor(r() * list.length)];
   const mid = (spread: number) => 0.5 + (r() - 0.5) * spread;
-  const skeletal = options.skeletal ?? (options.robot ? false : base.skeletal);
+  // Robots and skeletons only when the catalog offers them; one of them when it offers no living people.
+  let skeletal = !!catalog.skeletal && (options.skeletal ?? (options.robot ? false : base.skeletal));
+  let robot = !!catalog.robot && !skeletal && (options.robot ?? base.robot);
+  if (catalog.people === false && !robot && !skeletal) {
+    if (catalog.robot && (!catalog.skeletal || r() < 0.5)) robot = true;
+    else skeletal = !!catalog.skeletal;
+  }
   const female = options.gender === "female" ? true : options.gender === "male" ? false : r() < 0.5;
   const eth = [r(), r() * 0.6, r() * 0.6];
   const order = pick([[0, 1, 2], [1, 0, 2], [2, 1, 0]])!;
@@ -664,7 +695,9 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
   // About half the garments get a colour from the palette; the rest keep their own.
   const garmentColors: Record<string, string> = {};
   if (outfitPreset) for (const g of outfit) if (r() < 0.5) garmentColors[g] = pick(catalog.garmentColors)?.id ?? "#808080";
-  const race = options.race === "any" ? (pick(catalog.races)?.id ?? base.race) : (options.race ?? base.race);
+  const offered = (id: RaceId) => catalog.races.some((x) => x.id === id);
+  const wanted = options.race === "any" ? (pick(catalog.races)?.id ?? base.race) : (options.race ?? base.race);
+  const race = offered(wanted) || !catalog.races.length ? wanted : catalog.races[0].id;
   const race2 = options.race ? null : base.race2;
   const human = race === "human" && !race2;
   const look = human ? undefined : randomRaceLook(catalog, race, race2, base.raceMix, body, r);
@@ -676,7 +709,7 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
     brows: pick(catalog.brows)?.id ?? base.brows,
   };
   const parts = raceParts(race, race2, base.raceMix, body, r);
-  return {
+  return fitConfig(catalog, {
     ...base,
     race,
     race2,
@@ -699,9 +732,9 @@ export function randomConfig(catalog: CharacterCatalog, base: CharacterConfig, o
     garmentColors: outfitPreset ? { ...outfitPreset.colors, ...garmentColors } : base.garmentColors,
     animation: options.animation ? (pick(catalog.animations.filter((a) => !a.library))?.id ?? base.animation) : base.animation,
     // Robot and skeleton exclude each other; an explicit option wins over the base.
-    robot: !skeletal && (options.robot ?? base.robot),
-    robotLook: !skeletal && (options.robot ?? base.robot) ? randomRobotLook(r) : base.robotLook,
+    robot,
+    robotLook: robot ? randomRobotLook(r) : base.robotLook,
     skeletal,
     skeletalLook: skeletal ? randomSkeletalLook(r) : base.skeletalLook,
-  };
+  });
 }

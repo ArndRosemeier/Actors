@@ -12,7 +12,9 @@ const STYLE = `
 .actors-editor [hidden], .actors-editor .ae-off, .actors-editor .ae-robot-off, .actors-editor .ae-skel-off { display: none !important; }
 .actors-editor header { display: flex; align-items: baseline; justify-content: space-between; }
 .actors-editor h1 { font-size: 18px; margin: 0 0 8px; }
-.actors-editor h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ae-muted); margin: 16px 0 6px; }
+.actors-editor .ae-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 16px 0 6px; }
+.actors-editor h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ae-muted); margin: 0; }
+.actors-editor h3 { font-size: 11px; font-weight: 600; color: var(--ae-muted); margin: 10px 0 4px; }
 .actors-editor .ae-status { color: var(--ae-muted); font-size: 12px; }
 .actors-editor .ae-note { color: var(--ae-muted); font-size: 12px; margin: 2px 0 6px; }
 .actors-editor .ae-row { display: grid; grid-template-columns: 110px 1fr 40px; gap: 8px; align-items: center; margin: 3px 0; }
@@ -20,16 +22,14 @@ const STYLE = `
 .actors-editor .ae-row output { text-align: right; font-variant-numeric: tabular-nums; color: var(--ae-muted); }
 .actors-editor .ae-row select { grid-column: 2 / 4; }
 .actors-editor input[type="range"] { width: 100%; accent-color: var(--ae-accent); }
-.actors-editor input[type="color"] { width: 100%; height: 24px; padding: 0 2px; background: #272a31; border: 1px solid var(--ae-border); border-radius: 6px; }
 .actors-editor .ae-row button { padding: 1px 0; }
 .actors-editor details { border-top: 1px solid var(--ae-border); padding: 4px 0; }
 .actors-editor summary { cursor: pointer; padding: 3px 0; text-transform: capitalize; }
-.actors-editor .ae-check { display: flex; gap: 6px; align-items: center; margin: 3px 0; }
+.actors-editor .ae-check { display: flex; gap: 6px; align-items: center; margin: 3px 0; flex-wrap: wrap; }
 .actors-editor .ae-grid { display: grid; grid-template-columns: 1fr 1fr; }
-.actors-editor .ae-check { flex-wrap: wrap; }
 .actors-editor .ae-check > span { flex: 1; min-width: 0; }
 .actors-editor .ae-credit { flex-basis: 100%; margin: -2px 0 0 22px; color: var(--ae-muted); font-size: 10px; }
-.actors-editor input[type="search"] { background: #272a31; color: var(--ae-text); border: 1px solid var(--ae-border); border-radius: 6px; padding: 5px 9px; font: inherit; min-width: 0; }
+.actors-editor input[type="search"], .actors-editor input[type="text"] { background: #272a31; color: var(--ae-text); border: 1px solid var(--ae-border); border-radius: 6px; padding: 5px 9px; font: inherit; min-width: 0; }
 .actors-editor select, .actors-editor button { background: #272a31; color: var(--ae-text); border: 1px solid var(--ae-border); border-radius: 6px; padding: 5px 9px; font: inherit; }
 .actors-editor button { cursor: pointer; }
 .actors-editor button:hover { border-color: var(--ae-accent); }
@@ -42,20 +42,28 @@ const STYLE = `
 .actors-editor .ae-original { background: conic-gradient(#c33, #cc3, #3c3, #3cc, #33c, #c3c, #c33); }
 .actors-editor input[type="color"] { width: 26px; height: 20px; padding: 0; border: 1px solid var(--ae-border); border-radius: 4px; background: none; cursor: pointer; }
 .actors-editor footer { display: flex; gap: 6px; margin-top: 18px; flex-wrap: wrap; }
-.actors-editor .ae-modes { display: flex; gap: 0; margin: 2px 0 4px; }
-.actors-editor .ae-modes button { flex: 1; border-radius: 0; }
-.actors-editor .ae-modes button:first-child { border-radius: 6px 0 0 6px; }
-.actors-editor .ae-modes button:last-child { border-radius: 0 6px 6px 0; }
-.actors-editor .ae-modes button[aria-pressed="true"] { background: var(--ae-accent); border-color: var(--ae-accent); color: #1d1f24; }
-.actors-editor.ae-simple [data-level="detailed"], .actors-editor:not(.ae-simple) [data-level="simple"] { display: none !important; }
+.actors-editor .ae-tabs { display: flex; gap: 0; }
+.actors-editor .ae-tabs button { border-radius: 0; padding: 2px 9px; font-size: 11px; }
+.actors-editor .ae-tabs button:first-child { border-radius: 6px 0 0 6px; }
+.actors-editor .ae-tabs button:last-child { border-radius: 0 6px 6px 0; }
+.actors-editor .ae-tabs button[aria-selected="true"] { background: var(--ae-accent); border-color: var(--ae-accent); color: #1d1f24; }
+.actors-editor section.ae-simple [data-level="detailed"], .actors-editor section:not(.ae-simple) [data-level="simple"] { display: none !important; }
 `;
 
+/** A section's tab: the presets (simple) or every control, starting from what the presets set (detailed). */
 export type EditorMode = "simple" | "detailed";
 
-/** The editor's sections, in order. */
-export type EditorSection = "race" | "robot" | "skeleton" | "body" | "shape" | "look" | "outfit" | "animation" | "details";
+/**
+ * The editor's sections, in order: race (and kind: person, robot, skeleton), robot, skeleton, body
+ * (with skin), face (with hair), outfit (clothes), animation. Older names still work in `sections`:
+ * "look" is the face; "shape" and "details" are part of the Detailed tabs of body and face.
+ */
+export type EditorSection = "race" | "robot" | "skeleton" | "body" | "face" | "outfit" | "animation" | "look" | "shape" | "details";
 /** The footer's buttons. */
 export type EditorButton = "randomize" | "reset" | "save" | "load" | "export";
+
+/** Sections that have a Simple and a Detailed tab. */
+const TABBED: EditorSection[] = ["race", "robot", "skeleton", "body", "face", "outfit", "animation"];
 
 const ETHNICITIES: [string, string, [number, number, number]][] = [
   ["african", "African", [1, 0, 0]],
@@ -63,6 +71,11 @@ const ETHNICITIES: [string, string, [number, number, number]][] = [
   ["caucasian", "Caucasian", [0, 0, 1]],
   ["mixed", "Mixed", [1 / 3, 1 / 3, 1 / 3]],
 ];
+
+/** Simple presets for single body values: [id, label, value]. */
+const GENDERS: [string, string, number][] = [["female", "Female", 0], ["androgynous", "Androgynous", 0.5], ["male", "Male", 1]];
+const AGES: [string, string, number][] = [["young", "Young adult (22)", 22], ["adult", "Adult (35)", 35], ["middle", "Middle-aged (50)", 50], ["old", "Old (70)", 70]];
+const HEIGHTS: [string, string, number][] = [["short", "Short", 0.2], ["average", "Average", 0.5], ["tall", "Tall", 0.8]];
 
 type Slider = { key: keyof HumanParams; label: string; min: number; max: number; step: number; fmt: (v: number) => string };
 const pct = (v: number) => `${Math.round(v * 100)}`;
@@ -80,20 +93,22 @@ const BODY: Slider[] = [
   { key: "caucasian", label: "Caucasian", min: 0, max: 1, step: 0.01, fmt: pct },
 ];
 
+/** Detail slider groups that belong to the face (the rest go with the body). */
+const FACE_GROUPS = new Set(["head", "eyes", "eyebrows", "nose", "mouth", "ears", "chin", "cheek", "forehead", "asym"]);
+
 export interface EditorOptions {
   /** Heading text (default "Character"). */
   title?: string;
-  /** Show the detail sliders (default true). */
+  /** Show the raw detail sliders in the Detailed tabs of body and face (default true). */
   details?: boolean;
   /** Extra buttons for the footer. */
   actions?: { label: string; onClick: () => void }[];
   /**
-   * "simple": the main choices for everyday users (body basics, ethnicity, hair, eyes,
-   * outfit preset, animation, face). "detailed": every control. Default: the viewer's
-   * last choice, else "simple".
+   * The tab every section starts on: "simple" (presets) or "detailed" (every control). Default: the
+   * viewer's last choice per section, else "simple".
    */
   mode?: EditorMode;
-  /** Show the Simple/Detailed switch (default true). */
+  /** Show the Simple/Detailed tabs of each section (default true). Without them every section stays on `mode`. */
   modeSwitch?: boolean;
   /** Only these sections (default: all). For a game's own creator, e.g. without "race" or "animation". */
   sections?: EditorSection[];
@@ -108,23 +123,25 @@ export interface EditorOptions {
   randomize?: () => CharacterPatch | Promise<CharacterPatch>;
 }
 
-const SIMPLE_BODY = new Set<keyof HumanParams>(["gender", "ageYears", "muscle", "weight", "height", "cupSize"]);
-const MODE_KEY = "actors-editor-mode";
+const TABS_KEY = "actors-editor-tabs";
+const OLD_MODE_KEY = "actors-editor-mode";
 
 /**
- * A plain-DOM control panel for a Character: body sliders, look, outfit
- * (presets and single garments, including nude), animation, face, detail
- * sliders, randomize/reset, save/load as JSON and glTF export.
- * It only calls the public Character API, so it doubles as a usage example.
+ * A plain-DOM control panel for a Character. Each section (race, body, face, clothes, animation, and
+ * robot or skeleton when the character is one) has a Simple tab with presets and a Detailed tab with
+ * every control; both edit the same character, so Detailed always starts from what Simple picked.
+ * Also randomize/reset, save/load as JSON and glTF export. It only calls the public Character API, so
+ * it doubles as a usage example.
  */
 export class CharacterEditor {
   readonly element: HTMLElement;
   private readonly syncers: ((c: CharacterConfig) => void)[] = [];
   private readonly status: HTMLElement;
   private readonly unsubscribe: () => void;
-  private readonly modeButtons: HTMLButtonElement[] = [];
+  private readonly tabs = new Map<EditorSection, EditorMode>();
   private readonly onMode: (() => void)[] = [];
   private currentMode: EditorMode = "simple";
+  private readonly remember: boolean;
 
   constructor(
     readonly character: Character,
@@ -134,9 +151,10 @@ export class CharacterEditor {
     if (!document.getElementById("actors-editor-css")) {
       const style = document.createElement("style");
       style.id = "actors-editor-css";
-      style.textContent = STYLE;
       document.head.appendChild(style);
     }
+    // (Replaced on every editor, so a page with an older editor's CSS gets this one's.)
+    document.getElementById("actors-editor-css")!.textContent = STYLE;
     const el = (this.element = document.createElement("div"));
     el.className = "actors-editor";
     container.appendChild(el);
@@ -148,37 +166,53 @@ export class CharacterEditor {
         (e: Error) => (this.status.textContent = `Error: ${e.message}`),
       );
     };
+    const tabbed = options.modeSwitch !== false;
+    this.remember = tabbed;
 
     const header = document.createElement("header");
     header.innerHTML = `<h1></h1><span class="ae-status">Ready</span>`;
     header.querySelector("h1")!.textContent = options.title ?? "Character";
     this.status = header.querySelector(".ae-status")!;
     el.appendChild(header);
-    // Marks a control as shown only in one mode.
+    // Marks a control as shown only on one tab of its section.
     const only = (level: EditorMode, node: HTMLElement) => {
       ((node.closest(".ae-row, .ae-check") as HTMLElement | null) ?? node).dataset.level = level;
       return node;
     };
     const detailed = (node: HTMLElement) => only("detailed", node);
-    if (options.modeSwitch !== false) {
-      const modes = document.createElement("div");
-      modes.className = "ae-modes";
-      for (const [m, label] of [["simple", "Simple"], ["detailed", "Detailed"]] as const) {
-        const b = document.createElement("button");
-        b.textContent = label;
-        b.dataset.mode = m;
-        b.addEventListener("click", () => this.setMode(m));
-        modes.appendChild(b);
-        this.modeButtons.push(b);
-      }
-      el.appendChild(modes);
-    }
+    const simple = (node: HTMLElement) => only("simple", node);
+    const heading = (parent: HTMLElement, text: string) => {
+      const h = document.createElement("h3");
+      h.textContent = text;
+      parent.appendChild(h);
+      return detailed(h);
+    };
+    // A select of named values for one body number (Custom when it matches none).
+    const presetSelect = (parent: HTMLElement, label: string, key: keyof HumanParams, list: [string, string, number][], tol: number, role: string) => {
+      const sel = this.select(parent, label, [...list.map(([id, l]): [string, string] => [id, l]), ["", "Custom"]], (c) => list.find(([, , v]) => Math.abs((c.body[key] as number) - v) <= tol)?.[0] ?? "", (v) => {
+        const p = list.find(([id]) => id === v);
+        if (p) set({ body: { [key]: p[2] } });
+      });
+      sel.dataset.role = role;
+      return simple(sel);
+    };
+    const opts = (list: readonly string[]): [string, string][] => list.map((v) => [v, cap(v)]);
+    const pick = (list: { id: string; label: string }[]): [string, string][] => list.map((x) => [x.id, x.label]);
+    // Rows that only apply to living people (skin, hair...): hidden for robots and skeletons.
+    const fleshRows: HTMLElement[] = [];
+    const flesh = <T extends HTMLElement>(node: T) => {
+      fleshRows.push((node.closest(".ae-row, .ae-check") as HTMLElement | null) ?? node);
+      return node;
+    };
 
-    // Race
+    // Race, and what the character is: a person, a robot or a skeleton.
     const raceSec = this.section("Race", "race");
+    const kinds: [string, string][] = [...(cat.people !== false ? [["person", "Person"] as [string, string]] : []), ...(cat.robot ? [["robot", "Robot"] as [string, string]] : []), ...(cat.skeletal ? [["skeleton", "Skeleton"] as [string, string]] : [])];
+    const kindSel = this.select(raceSec, "Kind", kinds, (c) => (c.robot ? "robot" : c.skeletal ? "skeleton" : "person"), (v) => set({ robot: v === "robot", skeletal: v === "skeleton" }), "kind");
+    if (kinds.length < 2) (kindSel.parentElement as HTMLElement).hidden = true;
     const raceNames = cat.races.map((r): [string, string] => [r.id, r.label]);
     // Picking a race rolls a typical member of it (shape, skin, eyes, hair), keeping gender, outfit and animation.
-    this.select(raceSec, "Race", raceNames, (c) => c.race, (v) => {
+    const raceSel = this.select(raceSec, "Race", raceNames, (c) => c.race, (v) => {
       this.status.textContent = "…";
       character.setRace(v as CharacterConfig["race"]).then(() => (this.status.textContent = `${character.lastUpdateMs.toFixed(0)} ms`));
     }, "race");
@@ -186,44 +220,37 @@ export class CharacterEditor {
     raceInfo.className = "ae-note";
     raceSec.appendChild(raceInfo);
     this.syncers.push((c) => (raceInfo.textContent = cat.races.find((r) => r.id === c.race)?.description ?? ""));
-    detailed(this.select(raceSec, "Mixed with", [["", "None"], ...raceNames], (c) => c.race2 ?? "", (v) => set({ race2: (v || null) as CharacterConfig["race2"], raceMix: v ? character.config.raceMix || 0.5 : 0 }), "race2"));
+    const mixed = detailed(this.select(raceSec, "Mixed with", [["", "None"], ...raceNames], (c) => c.race2 ?? "", (v) => set({ race2: (v || null) as CharacterConfig["race2"], raceMix: v ? character.config.raceMix || 0.5 : 0 }), "race2"));
     const mixRow = detailed(this.slider(raceSec, "Mix", 0, 1, 0.01, pct, (c) => c.raceMix, (v) => set({ raceMix: v }), "raceMix"));
     this.syncers.push((c) => (mixRow.hidden = !c.race2));
     detailed(this.slider(raceSec, "Size", 0, 1, 0.01, pct, (c) => c.raceSize, (v) => set({ raceSize: v }), "raceSize"));
     // Child proportions on the adult body (no anatomy for children).
     detailed(this.slider(raceSec, "Youth", 0, 1, 0.01, pct, (c) => c.youth, (v) => set({ youth: v }), "youth"));
+    // A single race: nothing to pick or mix.
+    if (raceNames.length < 2) for (const n of [raceSel, mixed, raceInfo]) ((n.closest(".ae-row") as HTMLElement | null) ?? n).hidden = true;
+    if (raceNames.length < 2 && kinds.length < 2) raceSec.querySelector<HTMLElement>(".ae-head")!.hidden = true;
 
     // Robot: same skeleton and clips, shaped by the body and race sliders.
     const robotOpts = cat.robot;
     if (robotOpts) {
       const sec = this.section("Robot", "robot");
       const setRobot = (look: Partial<RobotLook>) => set({ robotLook: look });
-      this.check(sec, "Robot", (c) => c.robot, (v) => set({ robot: v }), "robot");
-      const rows: HTMLElement[] = [];
-      const add = <T extends HTMLElement>(node: T) => {
-        rows.push((node.closest(".ae-row, .ae-check") as HTMLElement | null) ?? node);
-        return node;
-      };
-      const pick = (list: { id: string; label: string }[]): [string, string][] => list.map((x) => [x.id, x.label]);
-      add(this.select(sec, "Colours", [["", "Custom"], ...pick(robotOpts.palettes)], (c) => robotOpts.palettes.find((p) => Object.entries(p.look).every(([k, v]) => c.robotLook[k as keyof RobotLook] === v))?.id ?? "", (v) => {
+      this.select(sec, "Colours", [["", "Custom"], ...pick(robotOpts.palettes)], (c) => robotOpts.palettes.find((p) => Object.entries(p.look).every(([k, v]) => c.robotLook[k as keyof RobotLook] === v))?.id ?? "", (v) => {
         const p = robotOpts.palettes.find((x) => x.id === v);
         if (p) setRobot(p.look);
-      }, "robotLook.palette"));
-      add(this.select(sec, "Head", pick(robotOpts.heads), (c) => c.robotLook.head, (v) => setRobot({ head: v as RobotLook["head"] }), "robotLook.head"));
-      add(this.select(sec, "Ears", pick(robotOpts.ears), (c) => c.robotLook.ears, (v) => setRobot({ ears: v as RobotLook["ears"] }), "robotLook.ears"));
-      add(this.select(sec, "Plating", pick(robotOpts.plating), (c) => c.robotLook.plating, (v) => setRobot({ plating: v as RobotLook["plating"] }), "robotLook.plating"));
-      add(detailed(this.slider(sec, "Plate thickness", 0, 1, 0.01, pct, (c) => c.robotLook.thickness, (v) => setRobot({ thickness: v }), "robotLook.thickness")));
-      add(this.select(sec, "Finish", pick(robotOpts.finishes), (c) => c.robotLook.finish, (v) => setRobot({ finish: v as RobotLook["finish"] }), "robotLook.finish"));
-      for (const [k, label] of [["paint", "Paint"], ["trim", "Trim"], ["frame", "Frame"], ["metal", "Metal"], ["glow", "Lights"]] as const) {
-        const row = add(this.color(sec, label, (c) => c.robotLook[k], (v) => setRobot({ [k]: v ?? undefined }), `robotLook.${k}`));
-        if (k === "frame" || k === "metal") detailed(row);
-      }
-      add(this.slider(sec, "Light strength", 0, 1, 0.01, pct, (c) => c.robotLook.glowStrength, (v) => setRobot({ glowStrength: v }), "robotLook.glowStrength"));
-      add(this.check(sec, "Chest light", (c) => c.robotLook.core, (v) => setRobot({ core: v }), "robotLook.core"));
-      // Robots wear no skin, hair or clothes: those sections hide, and the robot rows show.
+      }, "robotLook.palette");
+      this.select(sec, "Head", pick(robotOpts.heads), (c) => c.robotLook.head, (v) => setRobot({ head: v as RobotLook["head"] }), "robotLook.head");
+      detailed(this.select(sec, "Ears", pick(robotOpts.ears), (c) => c.robotLook.ears, (v) => setRobot({ ears: v as RobotLook["ears"] }), "robotLook.ears"));
+      detailed(this.select(sec, "Plating", pick(robotOpts.plating), (c) => c.robotLook.plating, (v) => setRobot({ plating: v as RobotLook["plating"] }), "robotLook.plating"));
+      detailed(this.slider(sec, "Plate thickness", 0, 1, 0.01, pct, (c) => c.robotLook.thickness, (v) => setRobot({ thickness: v }), "robotLook.thickness"));
+      detailed(this.select(sec, "Finish", pick(robotOpts.finishes), (c) => c.robotLook.finish, (v) => setRobot({ finish: v as RobotLook["finish"] }), "robotLook.finish"));
+      for (const [k, label] of [["paint", "Paint"], ["trim", "Trim"], ["frame", "Frame"], ["metal", "Metal"], ["glow", "Lights"]] as const) detailed(this.color(sec, label, (c) => c.robotLook[k], (v) => setRobot({ [k]: v ?? undefined }), `robotLook.${k}`));
+      detailed(this.slider(sec, "Light strength", 0, 1, 0.01, pct, (c) => c.robotLook.glowStrength, (v) => setRobot({ glowStrength: v }), "robotLook.glowStrength"));
+      detailed(this.check(sec, "Chest light", (c) => c.robotLook.core, (v) => setRobot({ core: v }), "robotLook.core"));
+      // Shown only for robots; robots wear no skin, hair or clothes.
       this.syncers.push((c) => {
-        for (const row of rows) row.classList.toggle("ae-robot-off", !c.robot);
-        for (const id of ["look", "outfit"]) el.querySelector<HTMLElement>(`section[data-section="${id}"]`)?.classList.toggle("ae-robot-off", c.robot);
+        sec.classList.toggle("ae-robot-off", !c.robot);
+        for (const id of ["face", "outfit"]) el.querySelector<HTMLElement>(`section[data-section="${id}"]`)?.classList.toggle("ae-robot-off", c.robot);
       });
     }
 
@@ -232,48 +259,31 @@ export class CharacterEditor {
     if (skelOpts) {
       const sec = this.section("Skeleton", "skeleton");
       const setSkel = (look: Partial<SkeletalLook>) => set({ skeletalLook: look });
-      this.check(sec, "Skeleton", (c) => c.skeletal, (v) => set({ skeletal: v }), "skeletal");
-      const rows: HTMLElement[] = [];
-      const add = <T extends HTMLElement>(node: T) => {
-        rows.push((node.closest(".ae-row, .ae-check") as HTMLElement | null) ?? node);
-        return node;
-      };
-      add(this.select(sec, "Colours", [["", "Custom"], ...skelOpts.palettes.map((p): [string, string] => [p.id, p.label])], (c) => skelOpts.palettes.find((p) => Object.entries(p.look).every(([k, v]) => c.skeletalLook[k as keyof SkeletalLook] === v))?.id ?? "", (v) => {
+      this.select(sec, "Colours", [["", "Custom"], ...pick(skelOpts.palettes)], (c) => skelOpts.palettes.find((p) => Object.entries(p.look).every(([k, v]) => c.skeletalLook[k as keyof SkeletalLook] === v))?.id ?? "", (v) => {
         const p = skelOpts.palettes.find((x) => x.id === v);
         if (p) setSkel(p.look);
-      }, "skeletalLook.palette"));
-      add(this.slider(sec, "Wear", 0, 1, 0.01, pct, (c) => c.skeletalLook.wear, (v) => setSkel({ wear: v }), "skeletalLook.wear"));
-      add(this.slider(sec, "Lost bones", 0, 1, 0.01, pct, (c) => c.skeletalLook.missing, (v) => setSkel({ missing: v }), "skeletalLook.missing"));
-      add(detailed(this.slider(sec, "Robust", 0, 1, 0.01, pct, (c) => c.skeletalLook.robust, (v) => setSkel({ robust: v }), "skeletalLook.robust")));
-      add(this.check(sec, "Lower jaw", (c) => c.skeletalLook.jaw, (v) => setSkel({ jaw: v }), "skeletalLook.jaw"));
-      add(this.color(sec, "Bone", (c) => c.skeletalLook.bone, (v) => setSkel({ bone: v ?? undefined }), "skeletalLook.bone"));
-      add(detailed(this.slider(sec, "Dryness", 0, 1, 0.01, pct, (c) => c.skeletalLook.dryness, (v) => setSkel({ dryness: v }), "skeletalLook.dryness")));
-      add(this.check(sec, "Eye lights", (c) => c.skeletalLook.eyes, (v) => setSkel({ eyes: v }), "skeletalLook.eyes"));
-      add(this.check(sec, "Heart light", (c) => c.skeletalLook.heart, (v) => setSkel({ heart: v }), "skeletalLook.heart"));
-      add(this.color(sec, "Lights", (c) => c.skeletalLook.glow, (v) => setSkel({ glow: v ?? undefined }), "skeletalLook.glow"));
-      add(this.slider(sec, "Light strength", 0, 1, 0.01, pct, (c) => c.skeletalLook.glowStrength, (v) => setSkel({ glowStrength: v }), "skeletalLook.glowStrength"));
-      // Skeletons have no skin or hair: the look section hides (clothes stay).
+      }, "skeletalLook.palette");
+      this.slider(sec, "Wear", 0, 1, 0.01, pct, (c) => c.skeletalLook.wear, (v) => setSkel({ wear: v }), "skeletalLook.wear");
+      detailed(this.slider(sec, "Lost bones", 0, 1, 0.01, pct, (c) => c.skeletalLook.missing, (v) => setSkel({ missing: v }), "skeletalLook.missing"));
+      detailed(this.slider(sec, "Robust", 0, 1, 0.01, pct, (c) => c.skeletalLook.robust, (v) => setSkel({ robust: v }), "skeletalLook.robust"));
+      detailed(this.check(sec, "Lower jaw", (c) => c.skeletalLook.jaw, (v) => setSkel({ jaw: v }), "skeletalLook.jaw"));
+      detailed(this.color(sec, "Bone", (c) => c.skeletalLook.bone, (v) => setSkel({ bone: v ?? undefined }), "skeletalLook.bone"));
+      detailed(this.slider(sec, "Dryness", 0, 1, 0.01, pct, (c) => c.skeletalLook.dryness, (v) => setSkel({ dryness: v }), "skeletalLook.dryness"));
+      detailed(this.check(sec, "Eye lights", (c) => c.skeletalLook.eyes, (v) => setSkel({ eyes: v }), "skeletalLook.eyes"));
+      detailed(this.check(sec, "Heart light", (c) => c.skeletalLook.heart, (v) => setSkel({ heart: v }), "skeletalLook.heart"));
+      detailed(this.color(sec, "Lights", (c) => c.skeletalLook.glow, (v) => setSkel({ glow: v ?? undefined }), "skeletalLook.glow"));
+      detailed(this.slider(sec, "Light strength", 0, 1, 0.01, pct, (c) => c.skeletalLook.glowStrength, (v) => setSkel({ glowStrength: v }), "skeletalLook.glowStrength"));
+      // Shown only for skeletons; they have no skin or hair (clothes stay).
       this.syncers.push((c) => {
-        for (const row of rows) row.classList.toggle("ae-skel-off", !c.skeletal);
-        el.querySelector<HTMLElement>(`section[data-section="look"]`)?.classList.toggle("ae-skel-off", c.skeletal);
+        sec.classList.toggle("ae-skel-off", !c.skeletal);
+        el.querySelector<HTMLElement>(`section[data-section="face"]`)?.classList.toggle("ae-skel-off", c.skeletal);
       });
     }
 
-    // Body
+    // Body: presets on Simple; every body slider, the shape sliders, the skin and raw sliders on Detailed.
     const body = this.section("Body", "body");
-    for (const s of BODY) {
-      const row = this.slider(body, s.label, s.min, s.max, s.step, s.fmt, (c) => c.body[s.key], (v) => set({ body: { [s.key]: v } }), `body.${s.key}`);
-      if (!SIMPLE_BODY.has(s.key)) detailed(row);
-    }
-    const eth = this.select(body, "Ethnicity", [...ETHNICITIES.map(([id, label]): [string, string] => [id, label]), ["", "Custom"]], (c) => {
-      const sum = c.body.african + c.body.asian + c.body.caucasian || 1;
-      const mix = [c.body.african / sum, c.body.asian / sum, c.body.caucasian / sum];
-      return ETHNICITIES.find(([, , w]) => w.every((v, i) => Math.abs(v - mix[i]) < 0.02))?.[0] ?? "";
-    }, (v) => {
-      const e = ETHNICITIES.find(([id]) => id === v);
-      if (e) set({ body: { african: e[2][0], asian: e[2][1], caucasian: e[2][2] } });
-    }, "ethnicity");
-    only("simple", eth);
+    presetSelect(body, "Gender", "gender", GENDERS, 0.15, "gender");
+    presetSelect(body, "Age", "ageYears", AGES, 0, "age");
     // Body types: a starting point that sets the macros and the shape sliders together.
     this.select(body, "Body type", [["", "Custom"], ...BODY_TYPES.map((t): [string, string] => [t.id, t.label])], (c) => {
       const same = (a: Record<string, number>, b: Record<string, number>) => [...new Set([...Object.keys(a), ...Object.keys(b)])].every((k) => Math.abs((a[k] ?? 0) - (b[k] ?? 0)) < 0.005);
@@ -282,52 +292,77 @@ export class CharacterEditor {
       const t = BODY_TYPES.find((b) => b.id === v);
       if (t) set({ body: { ...t.body }, shape: { ...t.shape } });
     }, "bodyType");
-
-    // Shape: named sliders that each move several raw modifiers together (on top of the raw ones in Details).
-    const shape = this.section("Shape", "shape");
+    presetSelect(body, "Height", "height", HEIGHTS, 0, "height");
+    flesh(simple(this.select(body, "Ethnicity", [...ETHNICITIES.map(([id, label]): [string, string] => [id, label]), ["", "Custom"]], (c) => {
+      const sum = c.body.african + c.body.asian + c.body.caucasian || 1;
+      const mix = [c.body.african / sum, c.body.asian / sum, c.body.caucasian / sum];
+      return ETHNICITIES.find(([, , w]) => w.every((v, i) => Math.abs(v - mix[i]) < 0.02))?.[0] ?? "";
+    }, (v) => {
+      const e = ETHNICITIES.find(([id]) => id === v);
+      if (e) set({ body: { african: e[2][0], asian: e[2][1], caucasian: e[2][2] } });
+    }, "ethnicity")));
+    // The standing height in meters, and the game's range when it sets one.
+    const tall = document.createElement("p");
+    tall.className = "ae-note";
+    tall.dataset.role = "standing-height";
+    body.appendChild(tall);
+    const showHeight = (h: number) => {
+      const r = character.heightRange;
+      const range = r && (r.min !== undefined || r.max !== undefined) ? ` (kept ${r.min !== undefined && r.max !== undefined ? `between ${r.min.toFixed(2)} and ${r.max.toFixed(2)}` : r.min !== undefined ? `above ${r.min.toFixed(2)}` : `below ${r.max!.toFixed(2)}`} m)` : "";
+      tall.textContent = h > 0 ? `Standing height ${h.toFixed(2)} m${range}` : "";
+    };
+    showHeight(character.height);
+    const stopHeight = character.onShape(showHeight);
+    for (const s of BODY) {
+      const row = detailed(this.slider(body, s.label, s.min, s.max, s.step, s.fmt, (c) => c.body[s.key], (v) => set({ body: { [s.key]: v } }), `body.${s.key}`));
+      if (s.key === "african" || s.key === "asian" || s.key === "caucasian") flesh(row);
+    }
+    // Shape: named sliders that each move several raw modifiers together (on top of the raw ones).
     const signed = (v: number) => (v === 0 ? "0" : `${v > 0 ? "+" : ""}${Math.round(v * 100)}`);
-    for (const group of ["Body", "Face"] as const) {
-      const note = document.createElement("div");
-      note.className = "ae-note";
-      note.textContent = group;
-      shape.appendChild(note);
-      if (group === "Face") detailed(note);
+    const shapeSliders = (parent: HTMLElement, group: "Body" | "Face") => {
+      heading(parent, "Shape");
       for (const sl of SHAPE_SLIDERS.filter((x) => x.group === group)) {
-        const row = this.slider(shape, sl.label, -1, 1, 0.01, signed, (c) => c.shape?.[sl.id] ?? 0, (v) => {
+        const row = detailed(this.slider(parent, sl.label, -1, 1, 0.01, signed, (c) => c.shape?.[sl.id] ?? 0, (v) => {
           const next = { ...character.config.shape };
           if (v === 0) delete next[sl.id];
           else next[sl.id] = v;
           set({ shape: next });
-        }, `shape.${sl.id}`);
+        }, `shape.${sl.id}`));
         row.title = `${sl.low} ↔ ${sl.high}`;
-        if (group === "Face") detailed(row);
       }
-    }
-
-    // Look
-    const look = this.section("Look", "look");
-    if (cat.photoSkin) detailed(this.select(look, "Skin", [["photo", "Photo (follows ethnicity)"], ["procedural", "Procedural"]], (c) => c.skin, (v) => set({ skin: v as CharacterConfig["skin"] }), "skin"));
-    detailed(this.check(look, "Skin detail", (c) => c.skinDetail, (v) => set({ skinDetail: v }), "skinDetail"));
-    detailed(this.slider(look, "Wet skin", 0, 1, 0.01, pct, (c) => c.skinWetness, (v) => set({ skinWetness: v }), "skinWetness"));
-    const tone = detailed(this.slider(look, "Skin tone", 0, 1, 0.01, pct, (c) => c.skinTone, (v) => set({ skinTone: v }), "skinTone"));
+    };
+    shapeSliders(body, "Body");
+    detailed(this.select(body, "Tail", opts(TAIL_STYLES), (c) => c.tail, (v) => set({ tail: v as CharacterConfig["tail"] }), "tail"));
+    const tailRow = detailed(this.slider(body, "Tail length", 0, 1, 0.01, pct, (c) => c.tailLength, (v) => set({ tailLength: v }), "tailLength"));
+    this.syncers.push((c) => (tailRow.hidden = c.tail === "none"));
+    // Skin
+    flesh(heading(body, "Skin"));
+    if (cat.photoSkin) flesh(detailed(this.select(body, "Skin", [["photo", "Photo (follows ethnicity)"], ["procedural", "Procedural"]], (c) => c.skin, (v) => set({ skin: v as CharacterConfig["skin"] }), "skin")));
+    const tone = flesh(detailed(this.slider(body, "Skin tone", 0, 1, 0.01, pct, (c) => c.skinTone, (v) => set({ skinTone: v }), "skinTone")));
     this.syncers.push((c) => (tone.hidden = c.skin === "photo"));
-    this.color(look, "Skin colour", (c) => c.skinColor, (v) => set({ skinColor: v }), "skinColor");
-    this.select(look, "Eyes", cat.eyes.map((e) => [e.id, e.label]), (c) => c.eyes, (v) => set({ eyes: v, eyeColor: null }), "eyes");
-    detailed(this.color(look, "Eye colour", (c) => c.eyeColor, (v) => set({ eyeColor: v }), "eyeColor"));
-    detailed(this.select(look, "Pupils", Object.keys(PUPILS).map((p): [string, string] => [p, cap(p)]), (c) => c.pupil, (v) => set({ pupil: v as CharacterConfig["pupil"] }), "pupil"));
-    detailed(this.slider(look, "Eye glow", 0, 1, 0.01, pct, (c) => c.eyeGlow, (v) => set({ eyeGlow: v }), "eyeGlow"));
-    detailed(this.select(look, "Skin pattern", Object.keys(SKIN_PATTERNS).map((p): [string, string] => [p, cap(p)]), (c) => c.skinPattern, (v) => set({ skinPattern: v as CharacterConfig["skinPattern"] }), "skinPattern"));
+    flesh(detailed(this.color(body, "Skin colour", (c) => c.skinColor, (v) => set({ skinColor: v }), "skinColor")));
+    flesh(detailed(this.check(body, "Skin detail", (c) => c.skinDetail, (v) => set({ skinDetail: v }), "skinDetail")));
+    flesh(detailed(this.slider(body, "Wet skin", 0, 1, 0.01, pct, (c) => c.skinWetness, (v) => set({ skinWetness: v }), "skinWetness")));
+    flesh(detailed(this.select(body, "Skin pattern", Object.keys(SKIN_PATTERNS).map((p): [string, string] => [p, cap(p)]), (c) => c.skinPattern, (v) => set({ skinPattern: v as CharacterConfig["skinPattern"] }), "skinPattern")));
     const patRows = [
-      detailed(this.slider(look, "Pattern strength", 0, 1, 0.01, pct, (c) => c.patternStrength, (v) => set({ patternStrength: v }), "patternStrength")),
-      detailed(this.color(look, "Pattern colour", (c) => c.patternColor, (v) => set({ patternColor: v }), "patternColor")),
+      flesh(detailed(this.slider(body, "Pattern strength", 0, 1, 0.01, pct, (c) => c.patternStrength, (v) => set({ patternStrength: v }), "patternStrength"))),
+      flesh(detailed(this.color(body, "Pattern colour", (c) => c.patternColor, (v) => set({ patternColor: v }), "patternColor"))),
     ];
     this.syncers.push((c) => patRows.forEach((row) => (row.hidden = c.skinPattern === "none")));
-    this.select(look, "Hair", [["", "None"], ...cat.hair.map((h): [string, string] => [h.id, h.label])], (c) => c.hair ?? "", (v) => set({ hair: v || null }), "hair");
+    flesh(this.check(body, "Anatomical detail", (c) => c.anatomy, (v) => set({ anatomy: v }), "anatomy"));
+    heading(body, "Mesh");
+    detailed(this.select(body, "Detail", [["high", "High (subdivided)"], ["low", "Low"]], (c) => c.detail, (v) => set({ detail: v as CharacterConfig["detail"] }), "detail"));
+    if (character.lods.length > 1)
+      detailed(this.select(body, "Level of detail", [["auto", "Auto (by distance)"], ...character.lods.map((l, i): [string, string] => [String(i), l.name])], () => String(character.lodMode), (v) => character.setLod(v === "auto" ? "auto" : +v), "lod"));
+
+    // Face and hair
+    const face = this.section("Face & hair", "face");
+    this.select(face, "Hair", [["", "None"], ...cat.hair.map((h): [string, string] => [h.id, h.label])], (c) => c.hair ?? "", (v) => set({ hair: v || null }), "hair");
     // CC-BY hairstyles name their author.
     const hairCredit = document.createElement("p");
     hairCredit.className = "ae-note";
     hairCredit.dataset.role = "hair-credit";
-    look.appendChild(hairCredit);
+    face.appendChild(hairCredit);
     this.syncers.push((c) => {
       const credit = cat.hair.find((h) => h.id === c.hair)?.credit;
       const author = credit?.match(/ by (.+?) \(/)?.[1];
@@ -335,43 +370,56 @@ export class CharacterEditor {
       hairCredit.textContent = credit ? `CC-BY${author ? ` · ${author}` : ""}` : "";
       hairCredit.title = credit ?? "";
     });
-    this.select(look, "Hair colour", [["", "Natural"], ...cat.hairColors.map((h): [string, string] => [h.id, h.label])], (c) => c.hairColor ?? "", (v) => set({ hairColor: v || null }), "hairColor");
-    const opts = (list: string[]): [string, string][] => list.map((v) => [v, cap(v)]);
-    this.select(look, "Beard", opts(BEARD_STYLES), (c) => c.beard, (v) => set({ beard: v as CharacterConfig["beard"] }), "beard");
-    this.slider(look, "Stubble", 0, 1, 0.01, pct, (c) => c.stubble, (v) => set({ stubble: v }), "stubble");
-    detailed(this.select(look, "Horns", opts(HORN_STYLES), (c) => c.horns, (v) => set({ horns: v as CharacterConfig["horns"] }), "horns"));
+    this.select(face, "Hair colour", [["", "Natural"], ...cat.hairColors.map((h): [string, string] => [h.id, h.label])], (c) => c.hairColor ?? "", (v) => set({ hairColor: v || null }), "hairColor");
+    this.select(face, "Beard", opts(BEARD_STYLES), (c) => c.beard, (v) => set({ beard: v as CharacterConfig["beard"] }), "beard");
+    detailed(this.slider(face, "Stubble", 0, 1, 0.01, pct, (c) => c.stubble, (v) => set({ stubble: v }), "stubble"));
+    detailed(this.select(face, "Eyebrows", [...cat.brows.map((b): [string, string] => [b.id, b.label]), [PAINTED_BROWS, "Painted"], ["", "None"]], (c) => c.brows ?? "", (v) => set({ brows: v || null }), "brows"));
+    this.select(face, "Eyes", cat.eyes.map((e) => [e.id, e.label]), (c) => c.eyes, (v) => set({ eyes: v, eyeColor: null }), "eyes");
+    detailed(this.color(face, "Eye colour", (c) => c.eyeColor, (v) => set({ eyeColor: v }), "eyeColor"));
+    detailed(this.select(face, "Pupils", Object.keys(PUPILS).map((p): [string, string] => [p, cap(p)]), (c) => c.pupil, (v) => set({ pupil: v as CharacterConfig["pupil"] }), "pupil"));
+    detailed(this.slider(face, "Eye glow", 0, 1, 0.01, pct, (c) => c.eyeGlow, (v) => set({ eyeGlow: v }), "eyeGlow"));
+    detailed(this.select(face, "Horns", opts(HORN_STYLES), (c) => c.horns, (v) => set({ horns: v as CharacterConfig["horns"] }), "horns"));
     const hornRows = [
-      detailed(this.slider(look, "Horn size", 0, 1, 0.01, pct, (c) => c.hornSize, (v) => set({ hornSize: v }), "hornSize")),
-      detailed(this.color(look, "Horn colour", (c) => c.hornColor, (v) => set({ hornColor: v }), "hornColor")),
+      detailed(this.slider(face, "Horn size", 0, 1, 0.01, pct, (c) => c.hornSize, (v) => set({ hornSize: v }), "hornSize")),
+      detailed(this.color(face, "Horn colour", (c) => c.hornColor, (v) => set({ hornColor: v }), "hornColor")),
     ];
     this.syncers.push((c) => hornRows.forEach((row) => (row.hidden = c.horns === "none")));
-    detailed(this.slider(look, "Tusks", 0, 1, 0.01, pct, (c) => c.tusks, (v) => set({ tusks: v }), "tusks"));
-    detailed(this.select(look, "Tail", opts(TAIL_STYLES), (c) => c.tail, (v) => set({ tail: v as CharacterConfig["tail"] }), "tail"));
-    const tailRow = detailed(this.slider(look, "Tail length", 0, 1, 0.01, pct, (c) => c.tailLength, (v) => set({ tailLength: v }), "tailLength"));
-    this.syncers.push((c) => (tailRow.hidden = c.tail === "none"));
-    detailed(this.select(look, "Eyebrows", [...cat.brows.map((b): [string, string] => [b.id, b.label]), [PAINTED_BROWS, "Painted"], ["", "None"]], (c) => c.brows ?? "", (v) => set({ brows: v || null }), "brows"));
-    detailed(this.select(look, "Detail", [["high", "High (subdivided)"], ["low", "Low"]], (c) => c.detail, (v) => set({ detail: v as CharacterConfig["detail"] }), "detail"));
-    if (character.lods.length > 1)
-      detailed(this.select(look, "Level of detail", [["auto", "Auto (by distance)"], ...character.lods.map((l, i): [string, string] => [String(i), l.name])], () => String(character.lodMode), (v) => character.setLod(v === "auto" ? "auto" : +v), "lod"));
-    this.check(look, "Anatomical detail", (c) => c.anatomy, (v) => set({ anatomy: v }), "anatomy");
+    detailed(this.slider(face, "Tusks", 0, 1, 0.01, pct, (c) => c.tusks, (v) => set({ tusks: v }), "tusks"));
+    shapeSliders(face, "Face");
 
-    // Outfit
-    const outfit = this.section("Outfit", "outfit");
-    const presetSel = this.select(outfit, "Preset", [["", "Custom"], ...cat.outfits.map((o): [string, string] => [o.id, o.label])], (c) => {
+    // Raw detail sliders, in the Detailed tabs of the face (head groups) and the body (the rest).
+    // (An older `sections` list, naming "look", leaves them out unless it names "details" too.)
+    const legacyNoDetails = !!options.sections?.includes("look") && !options.sections.includes("details");
+    if (options.details !== false && !legacyNoDetails && cat.details.length) {
+      const fine = { body: heading(body, "Fine detail"), face: heading(face, "Fine detail") };
+      fine.body.dataset.role = "details";
+      fine.face.dataset.role = "details";
+      const groups = new Map<string, HTMLElement>();
+      for (const d of cat.details) {
+        if (!groups.has(d.group)) {
+          const g = document.createElement("details");
+          g.innerHTML = `<summary></summary>`;
+          g.querySelector("summary")!.textContent = d.group === "asym" ? "Asymmetry" : d.group;
+          g.dataset.group = d.group;
+          detailed(g);
+          (FACE_GROUPS.has(d.group) ? face : body).appendChild(g);
+          groups.set(d.group, g);
+          // Genital shape sliders only matter with anatomical detail on (hidden with it).
+          if (d.group.toLowerCase() === "genitals") this.syncers.push((c) => (g.hidden = !c.anatomy));
+        }
+        const row = this.slider(groups.get(d.group)!, d.label, d.min, d.max, 0.01, (v) => v.toFixed(2), (c) => c.details[d.id] ?? 0, (v) => set({ details: { ...character.config.details, [d.id]: v } }), `details.${d.id}`);
+        // (The crotch bulge too.)
+        if (row && /(^|\/)bulge/.test(d.id)) this.syncers.push((c) => (row.hidden = !c.anatomy));
+      }
+    }
+
+    // Clothes: a preset on Simple; single garments, colours and cloth options on Detailed.
+    const outfit = this.section("Clothes", "outfit");
+    const presetSel = this.select(outfit, "Outfit", [["", "Custom"], ...cat.outfits.map((o): [string, string] => [o.id, o.label])], (c) => {
       const match = cat.outfits.find((o) => sameSet(outfitGarments(o, c.body), c.outfit));
       return match?.id ?? "";
     }, (v) => v && character.wear(v).catch(() => {}), "outfit");
     presetSel.dataset.role = "outfit-preset";
-    detailed(this.check(outfit, "Tuck covered layers in", (c) => c.clothTuck, (v) => set({ clothTuck: v }), "clothTuck"));
-    detailed(this.check(outfit, "Loose clothes swing", (c) => c.clothMotion, (v) => set({ clothMotion: v }), "clothMotion"));
-    const pants = cat.garments.filter((g) => g.category === "Future · pants");
-    if (pants.length) {
-      const ids = new Set(pants.map((g) => g.id));
-      const sel = this.select(outfit, "3026 pants", [["", "Other / none"], ...pants.map((g): [string, string] => [g.id, g.label])],
-        (c) => c.outfit.find((id) => ids.has(id)) ?? "",
-        (id) => set({ outfit: [...character.config.outfit.filter((g) => !ids.has(g)), ...(id ? [id] : [])] }), "future-pants");
-      sel.dataset.role = "future-pants";
-    }
     const outfitDescription = document.createElement("p");
     outfitDescription.className = "ae-note";
     outfitDescription.dataset.role = "outfit-description";
@@ -382,6 +430,8 @@ export class CharacterEditor {
       outfitDescription.textContent = preset?.description ?? "";
       outfitDescription.hidden = !preset?.description;
     });
+    detailed(this.check(outfit, "Tuck covered layers in", (c) => c.clothTuck, (v) => set({ clothTuck: v }), "clothTuck"));
+    detailed(this.check(outfit, "Loose clothes swing", (c) => c.clothMotion, (v) => set({ clothMotion: v }), "clothMotion"));
     // Single garments, grouped by category.
     const groups = new Map<string, HTMLElement>();
     for (const g of cat.garments) {
@@ -413,6 +463,7 @@ export class CharacterEditor {
     // Colours of the worn garments: palette swatches, a free colour picker and "original".
     const colors = document.createElement("div");
     colors.className = "ae-colors";
+    detailed(colors);
     outfit.appendChild(colors);
     let shownOutfit = "";
     const recolor = (id: string, color: string | null) => {
@@ -469,7 +520,7 @@ export class CharacterEditor {
       for (const [category, grid] of groups) if (c.outfit.some((id) => cat.garments.find((x) => x.id === id)?.category === category)) (grid.parentElement as HTMLDetailsElement).open = true;
     });
 
-    // Animation and face
+    // Animation and expression
     const motion = this.section("Animation", "animation");
     // Clip pickers: a library choice, a search box for big libraries, and the clip list grouped by category.
     const libSel = this.select(motion, "Library", cat.libraries.map((l) => [l.id, l.label]), (c) => cat.animations.find((a) => a.id === c.animation)?.library ?? libSel.value, () => fillClips(), "library");
@@ -482,9 +533,9 @@ export class CharacterEditor {
     search.dataset.key = "clip-search";
     motion.appendChild(searchRow);
     detailed(searchRow);
-    // Simple mode lists only the pack's own clips.
+    // The Simple tab lists only the pack's own clips.
     this.onMode.push(() => {
-      if (this.currentMode === "simple" && libSel.value !== "") {
+      if (this.sectionMode("animation") === "simple" && libSel.value !== "") {
         libSel.value = "";
         search.value = "";
         fillClips();
@@ -522,7 +573,7 @@ export class CharacterEditor {
     fillClips();
     const root = detailed(this.check(motion, "Root motion", () => character.rootMotion, (v) => (character.rootMotion = v))) as HTMLInputElement;
     root.dataset.role = "root-motion";
-    this.select(motion, "Face", cat.expressions.map((e) => [e.id, e.label]), (c) => c.expression, (v) => set({ expression: v }), "expression");
+    this.select(motion, "Expression", cat.expressions.map((e) => [e.id, e.label]), (c) => c.expression, (v) => set({ expression: v }), "expression");
     detailed(this.slider(motion, "Intensity", 0, 1, 0.01, pct, (c) => c.expressionIntensity, (v) => set({ expressionIntensity: v }), "expressionIntensity"));
     detailed(this.check(motion, "Blink", (c) => c.blink, (v) => set({ blink: v }), "blink"));
     detailed(this.check(motion, "Face rig", (c) => c.faceRig, (v) => set({ faceRig: v }), "faceRig"));
@@ -542,25 +593,10 @@ export class CharacterEditor {
     motion.appendChild(sayRow);
     detailed(sayRow);
 
-    // Detail sliders
-    if (options.details !== false && cat.details.length) {
-      const details = detailed(this.section("Details", "details"));
-      const groups = new Map<string, HTMLElement>();
-      for (const d of cat.details) {
-        if (!groups.has(d.group)) {
-          const g = document.createElement("details");
-          g.innerHTML = `<summary></summary>`;
-          g.querySelector("summary")!.textContent = d.group;
-          details.appendChild(g);
-          groups.set(d.group, g);
-          // Genital shape sliders only matter with anatomical detail on (hidden with it).
-          if (d.group.toLowerCase() === "genitals") this.syncers.push((c) => (g.hidden = !c.anatomy));
-        }
-        const row = this.slider(groups.get(d.group)!, d.label, d.min, d.max, 0.01, (v) => v.toFixed(2), (c) => c.details[d.id] ?? 0, (v) => set({ details: { ...character.config.details, [d.id]: v } }), `details.${d.id}`);
-        // (The crotch bulge too.)
-        if (row && /(^|\/)bulge/.test(d.id)) this.syncers.push((c) => (row.hidden = !c.anatomy));
-      }
-    }
+    // Robots and skeletons: no skin or hair rows in the body section.
+    this.syncers.push((c) => {
+      for (const row of fleshRows) row.classList.toggle("ae-robot-off", c.robot || c.skeletal);
+    });
 
     // Footer
     const footer = document.createElement("footer");
@@ -590,41 +626,80 @@ export class CharacterEditor {
     for (const a of options.actions ?? []) button(a.label, a.onClick);
     el.appendChild(footer);
 
-    // What the host leaves out.
-    if (options.sections) for (const sec of el.querySelectorAll<HTMLElement>("section[data-section]")) sec.classList.toggle("ae-off", !options.sections.includes(sec.dataset.section as EditorSection));
+    // What the host leaves out ("look" is the old name of the face section).
+    if (options.sections) {
+      const shown = new Set<EditorSection>(options.sections);
+      if (shown.has("look")) shown.add("face");
+      for (const sec of el.querySelectorAll<HTMLElement>("section[data-section]")) sec.classList.toggle("ae-off", !shown.has(sec.dataset.section as EditorSection));
+    }
     for (const key of options.hide ?? []) {
       for (const node of el.querySelectorAll<HTMLElement>(`[data-key="${CSS.escape(key)}"], [data-role="${CSS.escape(key)}"]`)) {
         ((node.closest(".ae-row, .ae-check") as HTMLElement | null) ?? node).classList.add("ae-off");
       }
     }
-
-    this.unsubscribe = character.onChange((c) => this.sync(c));
-    this.sync(character.config);
-    let saved: string | null = null;
-    try {
-      saved = localStorage.getItem(MODE_KEY);
-    } catch {
-      // storage unavailable (private mode, sandboxed frame)
+    // Sections whose Detailed tab adds nothing get no tabs.
+    for (const sec of el.querySelectorAll<HTMLElement>("section[data-section]")) {
+      if (!sec.querySelector('[data-level="detailed"]')) sec.querySelector<HTMLElement>(".ae-tabs")?.remove();
     }
-    this.setMode(options.mode ?? (saved === "detailed" ? "detailed" : "simple"), false);
+
+    const off = character.onChange((c) => this.sync(c));
+    this.unsubscribe = () => {
+      off();
+      stopHeight();
+    };
+    this.sync(character.config);
+    // Starting tabs: `mode` for every section, else what this viewer last had per section.
+    let saved: Partial<Record<EditorSection, EditorMode>> = {};
+    if (!options.mode && tabbed)
+      try {
+        saved = JSON.parse(localStorage.getItem(TABS_KEY) ?? "null") ?? (localStorage.getItem(OLD_MODE_KEY) === "detailed" ? Object.fromEntries(TABBED.map((s) => [s, "detailed"])) : {});
+      } catch {
+        // storage unavailable (private mode, sandboxed frame) or unreadable
+      }
+    this.currentMode = options.mode ?? "simple";
+    for (const id of TABBED) this.applyTab(id, saved[id] === "detailed" || saved[id] === "simple" ? saved[id]! : this.currentMode);
   }
 
+  /** The tab most sections are on: the last `setMode`, or the starting `mode`. */
   get mode(): EditorMode {
     return this.currentMode;
   }
 
-  /** Switches between the simple and the detailed panel. */
+  /** Puts every section on its Simple or its Detailed tab. */
   setMode(mode: EditorMode, remember = true): void {
     this.currentMode = mode;
-    this.element.classList.toggle("ae-simple", mode === "simple");
-    for (const b of this.modeButtons) b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
+    for (const id of TABBED) this.applyTab(id, mode);
+    if (remember) this.store();
+  }
+
+  /** Which tab a section is on. */
+  sectionMode(section: EditorSection): EditorMode {
+    return this.tabs.get(section === "look" ? "face" : section) ?? this.currentMode;
+  }
+
+  /** Puts one section on its Simple or its Detailed tab (e.g. `setSectionMode("face", "detailed")`). */
+  setSectionMode(section: EditorSection, mode: EditorMode, remember = true): void {
+    this.applyTab(section === "look" ? "face" : section, mode);
+    if (remember) this.store();
+  }
+
+  private applyTab(section: EditorSection, mode: EditorMode): void {
+    this.tabs.set(section, mode);
+    const sec = this.element.querySelector<HTMLElement>(`section[data-section="${section}"]`);
+    if (sec) {
+      sec.classList.toggle("ae-simple", mode === "simple");
+      for (const b of sec.querySelectorAll<HTMLElement>(".ae-tabs button")) b.setAttribute("aria-selected", String(b.dataset.tab === mode));
+    }
     for (const f of this.onMode) f();
-    if (remember)
-      try {
-        localStorage.setItem(MODE_KEY, mode);
-      } catch {
-        // ignore
-      }
+  }
+
+  private store(): void {
+    if (!this.remember) return;
+    try {
+      localStorage.setItem(TABS_KEY, JSON.stringify(Object.fromEntries(this.tabs)));
+    } catch {
+      // ignore
+    }
   }
 
   dispose(): void {
@@ -639,9 +714,26 @@ export class CharacterEditor {
   private section(title: string, id: EditorSection): HTMLElement {
     const s = document.createElement("section");
     s.dataset.section = id;
+    const head = document.createElement("div");
+    head.className = "ae-head";
     const h = document.createElement("h2");
     h.textContent = title;
-    s.appendChild(h);
+    head.appendChild(h);
+    if (this.remember) {
+      const tabs = document.createElement("div");
+      tabs.className = "ae-tabs";
+      tabs.setAttribute("role", "tablist");
+      for (const [m, label] of [["simple", "Simple"], ["detailed", "Detailed"]] as const) {
+        const b = document.createElement("button");
+        b.textContent = label;
+        b.dataset.tab = m;
+        b.setAttribute("role", "tab");
+        b.addEventListener("click", () => this.setSectionMode(id, m));
+        tabs.appendChild(b);
+      }
+      head.appendChild(tabs);
+    }
+    s.appendChild(head);
     this.element.appendChild(s);
     return s;
   }

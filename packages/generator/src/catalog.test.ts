@@ -25,6 +25,8 @@ const catalog: CharacterCatalog = {
   expressions: [{ id: "neutral", label: "Neutral" }],
   details: [{ id: "nose", label: "Nose", group: "nose", min: -1, max: 1 }],
   photoSkin: true,
+  robot: { heads: [], ears: [], plating: [], finishes: [], palettes: ROBOT_PALETTES },
+  skeletal: { palettes: SKELETAL_PALETTES },
 };
 
 describe("outfits", () => {

@@ -4,7 +4,8 @@ import { type ActorShape, type Clip, type Fetcher, type MessagePortLike, deform 
 import { ADULT_MIN_AGE, BEARD_REGION, BEARD_STYLES, beardPaint, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, type FaceFrame, FaceAnimator, Human, type VisemeKey, wrinkleWeights, shapeModifiers, type HumanParams, MAX_AGE, type PartsConfig, type RaceId, raceScale, sanitizeRace } from "@actors/human";
 import { type ActorMaterialKit, type ScreenTexturePool, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
 import { type ThemeFilter, filterCatalog } from "./themes";
-import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, type SkeletalLook, buildCatalog, defaultConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook, sanitizeSkeletalLook } from "./catalog";
+import { type AllowOptions, type HeightRange, allowCatalog, heightFit } from "./allow";
+import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, type SkeletalLook, buildCatalog, defaultConfig, fitConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook, sanitizeSkeletalLook } from "./catalog";
 
 /** A change to a character. `body`, `robotLook` and `skeletalLook` are merged into the current values; every other field replaces the current value. */
 export type CharacterPatch = Partial<Omit<CharacterConfig, "body" | "robotLook" | "skeletalLook">> & { body?: Partial<HumanParams>; robotLook?: Partial<RobotLook>; skeletalLook?: Partial<SkeletalLook> };
@@ -38,6 +39,11 @@ export interface CharacterOptions {
    * skeletons; see `THEMES` and `filterCatalog`), applied before `catalog`.
    */
   themes?: ThemeFilter;
+  /**
+   * What a game lets its players make: races (and robots, skeletons), clothing categories and a
+   * height range in meters (see `AllowOptions`, `ALLOW_PRESETS`). Applied after `themes`, before `catalog`.
+   */
+  allow?: AllowOptions;
   /** Also list the pack's large clip libraries (e.g. 2,548 CMU motions; default true). Only their index is loaded up front. */
   clipLibraries?: boolean;
   fetcher?: Fetcher;
@@ -114,6 +120,9 @@ export class Character {
   lastUpdateMs = 0;
   /** Standing height of the current shape in meters (0 before the first shape). */
   height = 0;
+  /** The height range the body is kept in (see `AllowOptions.height`), and the scale that does it now. */
+  private range?: HeightRange;
+  private fit = 1;
   private readonly shapeListeners = new Set<(height: number) => void>();
 
   private constructor(
@@ -123,13 +132,16 @@ export class Character {
     narrow?: (catalog: CharacterCatalog) => CharacterCatalog,
     screenTextures?: ScreenTexturePool | null,
     themes?: ThemeFilter,
+    allow?: AllowOptions,
   ) {
     // three's WebGPURenderer can draw with a reversed depth buffer (garment offsets then flip).
     const reversedDepth = (renderer as { reversedDepthBuffer?: boolean } | null)?.reversedDepthBuffer === true;
     this.actor = new ThreeActor(human.runtime, materials, { screenTextures, reversedDepth });
     const built = buildCatalog(human, Object.keys(IRIS_PRESETS));
-    const all = themes ? filterCatalog(built, themes) : built;
+    const themed = themes ? filterCatalog(built, themes) : built;
+    const all = allow ? allowCatalog(themed, allow) : themed;
     this.catalog = narrow ? narrow(all) : all;
+    this.range = this.catalog.height;
     this.cfg = defaultConfig(this.catalog);
   }
 
@@ -138,14 +150,14 @@ export class Character {
       const human = Human.share(options.shareWith.human);
       // Its own worker: the lead of a worker pool (crowd members then share with one of the leads).
       if (options.worker) await human.useWorker(options.worker);
-      const c = new Character(human, options.renderer, options.materials ?? options.shareWith.actor.kit, options.catalog, options.screenTextures === undefined ? options.shareWith.actor.screenTextures : options.screenTextures, options.themes);
+      const c = new Character(human, options.renderer, options.materials ?? options.shareWith.actor.kit, options.catalog, options.screenTextures === undefined ? options.shareWith.actor.screenTextures : options.screenTextures, options.themes, options.allow);
       await c.set(options.config ?? {});
       return c;
     }
     const human = await Human.load(options.pack, options.fetcher);
     if (options.clipLibraries !== false) await Promise.all((human.runtime.manifest.clipLibraries ?? []).map((l) => human.runtime.loadClipLibrary(l.name)));
     if (options.worker) await human.useWorker(options.worker);
-    const c = new Character(human, options.renderer, options.materials, options.catalog, options.screenTextures, options.themes);
+    const c = new Character(human, options.renderer, options.materials, options.catalog, options.screenTextures, options.themes, options.allow);
     await c.set(options.config ?? {});
     return c;
   }
@@ -166,6 +178,21 @@ export class Character {
     return () => this.listeners.delete(listener);
   }
 
+  /** The standing height range in meters the body is kept in (undefined: any height). */
+  get heightRange(): HeightRange | undefined {
+    return this.range && { ...this.range };
+  }
+
+  /**
+   * Keeps the body between `min` and `max` meters from now on: a body outside is scaled as a whole to
+   * the nearest limit (see `AllowOptions.height`). Undefined: any height.
+   */
+  setHeightRange(range: HeightRange | undefined): Promise<void> {
+    this.range = range && { ...range };
+    this.applied.shape = "";
+    return this.sync();
+  }
+
   /** Called after every new body shape, with the standing height in meters. Returns an unsubscribe function. */
   onShape(listener: (height: number) => void): () => void {
     this.shapeListeners.add(listener);
@@ -182,7 +209,8 @@ export class Character {
     // Robot and skeleton exclude each other: turning one on turns the other off.
     const robot = !!(patch.robot ?? (patch.skeletal ? false : this.cfg.robot));
     const skeletal = !robot && !!(patch.skeletal ?? this.cfg.skeletal);
-    this.cfg = { ...this.cfg, ...defined, body, robotLook, skeletalLook, robot, skeletal, outfit: this.normalizeOutfit(patch.outfit ?? this.cfg.outfit) };
+    // Only the races, robots and skeletons the catalog offers.
+    this.cfg = fitConfig(this.catalog, { ...this.cfg, ...defined, body, robotLook, skeletalLook, robot, skeletal, outfit: this.normalizeOutfit(patch.outfit ?? this.cfg.outfit) });
     const race = sanitizeRace({ race: this.cfg.race, race2: this.cfg.race2, mix: this.cfg.raceMix, size: this.cfg.raceSize, youth: this.cfg.youth });
     Object.assign(this.cfg, { race: race.race, race2: race.race2, raceMix: race.race2 ? race.mix : this.cfg.raceMix, raceSize: race.size, youth: race.youth ?? 0 });
     // A child never shows anatomy.
@@ -498,6 +526,19 @@ export class Character {
   }
 
   /** The generated parts this look wears (not for robots and skeletons, whose parts are their own). */
+  /** Standing height of a shape in meters (as `ThreeActor.height` measures it). */
+  private bodyHeight(shape: ActorShape): number {
+    const body = this.human.runtime.meshes.find((m) => m.def.role === "body" && !m.stencil);
+    if (!body) return 0;
+    let min = Infinity, max = -Infinity;
+    for (const v of body.map) {
+      const y = shape.positions[v * 3 + 1];
+      if (y < min) min = y;
+      if (y > max) max = y;
+    }
+    return max - min;
+  }
+
   private partsConfig(): Omit<PartsConfig, "scale"> {
     const c = this.cfg;
     const hair = (c.hair === "leaves" || c.hair === "crest") && !this.hidesHair() ? c.hair : "none";
@@ -641,7 +682,14 @@ export class Character {
       const units = EXPRESSIONS[c.expression] ?? {};
       const rig = c.faceRig && !c.robot && !c.skeletal;
       h.extras = c.robot || c.skeletal ? null : { parts: this.partsConfig(), faces: rig ? [] : [...(Object.keys(units).length ? [{ units }] : []), { units: BLINK }], rig };
+      h.fitScale = this.fit;
       this.shape = await h.evaluate(this.shape);
+      // Outside the height range: the whole body scaled to the nearest limit (once more, with the right scale).
+      const fit = this.range ? heightFit(this.bodyHeight(this.shape) / this.fit, this.range) : 1;
+      if (Math.abs(fit - this.fit) > 1e-4) {
+        h.fitScale = this.fit = fit;
+        this.shape = await h.evaluate(this.shape);
+      }
       const shape = this.shape;
       this.fittedNames = new Set(needed.filter((n) => {
         const m = h.runtime.meshes.find((x) => x.def.name === n);
@@ -656,7 +704,7 @@ export class Character {
       const sk = this.shape.skeleton;
       const head = sk ? sk.heads[sk.names.indexOf("head")] : undefined;
       const ground = this.actor.groundOffset();
-      this.actor.skin.uBind.value.set(ground, raceScale(h.race) * (h.deform?.scale ?? 1), head ? head[1] + ground : 1.55, head ? -head[2] : 0);
+      this.actor.skin.uBind.value.set(ground, raceScale(h.race) * (h.deform?.scale ?? 1) * this.fit, head ? head[1] + ground : 1.55, head ? -head[2] : 0);
       // Face frame for painted stubble (same space as the patterns).
       const eyes = eyeCentres(this.shape, h.runtime.meshes);
       if (eyes) {

@@ -54,7 +54,7 @@ npm run import:human -- --no-cmu
 npm run dev
 ```
 
-In the viewer, choose one of the **3026** Outfit presets, or open `http://localhost:5173/?outfit=future-orbit`. The description below the preset explains its place in the society. The **3026 pants** selector is available in both editor modes; **Detailed** offers all individual garments and colours. There are six future pants choices, including the original Transit trousers.
+In the viewer, choose one of the **3026** Outfit presets, or open `http://localhost:5173/?outfit=future-orbit`. The description below the preset explains its place in the society. The 3026 clothes are an ordinary clothing category (`future`): the Clothes section's **Detailed** tab lists every piece and colour, and a game can switch the category on or off with `allow: { clothing }`. There are six future pants choices, including the original Transit trousers.
 
 ```ts
 await character.wear("future-orbit");

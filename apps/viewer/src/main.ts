@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { Character, createCharacterGenerator, randomConfig, seededRandom } from "@actors/generator";
+import { ALLOW_PRESETS, type AllowOptions, Character, createCharacterGenerator, randomConfig, seededRandom } from "@actors/generator";
 import HumanWorker from "@actors/human/worker?worker";
 
 const params = new URLSearchParams(location.search);
@@ -15,7 +15,19 @@ const { character, stage } = await createCharacterGenerator({
   renderer: params.has("webgpu") ? "webgpu" : params.has("webgpu-gl") ? "webgpu-gl" : "webgl",
   // `?themes=medieval,fantasy&without=real-faith` offers only what a game in that setting would (see THEMES).
   themes: params.has("themes") || params.has("without") ? { themes: params.get("themes")?.split(","), without: params.get("without")?.split(",") } : undefined,
+  // `?allow=city` (or fantasy, scifi, vintage) restricts races, clothes and height like a game would (see ALLOW_PRESETS);
+  // `?races=human,robot&clothing=modern,future&minHeight=1.5&maxHeight=2` sets them one by one.
+  allow: allowFromParams(),
 });
+
+function allowFromParams(): AllowOptions | undefined {
+  const preset = ALLOW_PRESETS[params.get("allow") as keyof typeof ALLOW_PRESETS] as AllowOptions | undefined;
+  const list = (k: string) => params.get(k)?.split(",").filter(Boolean);
+  const num = (k: string) => (params.has(k) ? Number(params.get(k)) : undefined);
+  if (!preset && !["races", "clothing", "minHeight", "maxHeight"].some((k) => params.has(k))) return undefined;
+  const height = params.has("minHeight") || params.has("maxHeight") ? { min: num("minHeight"), max: num("maxHeight") } : preset?.height;
+  return { ...preset, ...(list("races") ? { races: list("races") as AllowOptions["races"] } : {}), ...(list("clothing") ? { clothing: list("clothing") as AllowOptions["clothing"] } : {}), height };
+}
 
 // Share a wardrobe preview, e.g. ?outfit=future-orbit. Older packs may not contain it yet.
 const outfit = params.get("outfit");
