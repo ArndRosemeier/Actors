@@ -103,7 +103,7 @@ describe("race features", () => {
   });
   it("offers humans no horns, tails, tusks, glowing eyes or scales", () => {
     const f = raceFeatures(allowCatalog(catalog, { races: ["human"] }).races, all);
-    expect(f).toEqual({ horns: ["none"], tails: ["none"], pupils: ["round"], patterns: ["none", "freckles"], tusks: false, eyeGlow: false });
+    expect(f).toEqual({ horns: ["none"], tails: ["none"], pupils: ["round"], patterns: ["none", "freckles"], tusks: false, eyeGlow: false, size: false });
   });
   it("takes them off a human-only character", () => {
     const c = allowCatalog(catalog, { races: ["human"] });

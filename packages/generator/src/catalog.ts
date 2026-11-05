@@ -553,7 +553,7 @@ export function outfitGarments(preset: OutfitPreset, body: Pick<HumanParams, "ge
  */
 /**
  * The race-only features the catalog's races grow: horns, tails, tusks, glowing eyes, pupils and
- * skin patterns. With every race on offer, everything; a game that allows only some races (only
+ * skin patterns, and whether the race size slider does anything. With every race on offer, everything; a game that allows only some races (only
  * humans, say) offers just what those races have, so its editor shows no horns, tails or scales
  * and `set` takes them off.
  */
@@ -564,11 +564,13 @@ export interface RaceFeatures {
   patterns: SkinPattern[];
   tusks: boolean;
   eyeGlow: boolean;
+  /** Whether the Size slider changes anything (humans all have the same scale). */
+  size: boolean;
 }
 
 export function raceFeatures(races: readonly { id: RaceId }[], all: { horns: readonly HornStyle[]; tails: readonly TailStyle[]; pupils: readonly PupilShape[]; patterns: readonly SkinPattern[] }): RaceFeatures {
   const ids = new Set(races.map((r) => r.id));
-  if (!ids.size || RACE_IDS.every((id) => ids.has(id))) return { horns: [...all.horns], tails: [...all.tails], pupils: [...all.pupils], patterns: [...all.patterns], tusks: true, eyeGlow: true };
+  if (!ids.size || RACE_IDS.every((id) => ids.has(id))) return { horns: [...all.horns], tails: [...all.tails], pupils: [...all.pupils], patterns: [...all.patterns], tusks: true, eyeGlow: true, size: true };
   const styles = [...ids].map((id) => RACE_STYLES[id]);
   const used = <T>(pick: (s: (typeof styles)[number]) => [T, number][], keep: T[], list: readonly T[]) => {
     const on = new Set<T>(keep);
@@ -582,6 +584,7 @@ export function raceFeatures(races: readonly { id: RaceId }[], all: { horns: rea
     patterns: used((s) => s.pattern, ["none"], all.patterns),
     tusks: styles.some((s) => s.tuskChance > 0 && s.tusks[1] > 0),
     eyeGlow: styles.some((s) => s.eyeGlow[1] > 0),
+    size: styles.some((s) => s.scale[0] !== s.scale[1]),
   };
 }
 

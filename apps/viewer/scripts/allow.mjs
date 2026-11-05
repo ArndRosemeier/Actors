@@ -34,7 +34,7 @@ assert(!c.robot && !c.skeletal && !c.future && !c.medieval);
 assert(!(await page.isVisible('select[data-key="race"]')));
 // Humans only: no horns, tails, tusks, glowing eyes or scales, even on the Detailed tabs.
 await page.$$eval('button[data-tab="detailed"]', (bs) => bs.forEach((b) => b.click()));
-for (const key of ["horns", "tail", "tusks", "eyeGlow", "pupil"]) assert(!(await page.isVisible(`[data-key="${key}"]`)), `${key} shown to humans only`);
+for (const key of ["horns", "tail", "tusks", "eyeGlow", "pupil", "raceSize"]) assert(!(await page.isVisible(`[data-key="${key}"]`)), `${key} shown to humans only`);
 assert.deepEqual(await page.$$eval('select[data-key="skinPattern"] option', (os) => os.map((o) => o.value)), ["none", "freckles"]);
 await page.evaluate(() => window.__actors.character.set({ race: "drakeborn", horns: "ram", tail: "reptile", tusks: 0.5, eyeGlow: 0.6 }));
 await page.waitForTimeout(1000);

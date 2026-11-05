@@ -229,7 +229,7 @@ export class CharacterEditor {
     const mixed = detailed(this.select(raceSec, "Mixed with", [["", "None"], ...raceNames], (c) => c.race2 ?? "", (v) => set({ race2: (v || null) as CharacterConfig["race2"], raceMix: v ? character.config.raceMix || 0.5 : 0 }), "race2"));
     const mixRow = detailed(this.slider(raceSec, "Mix", 0, 1, 0.01, pct, (c) => c.raceMix, (v) => set({ raceMix: v }), "raceMix"));
     this.syncers.push((c) => (mixRow.hidden = !c.race2));
-    detailed(this.slider(raceSec, "Size", 0, 1, 0.01, pct, (c) => c.raceSize, (v) => set({ raceSize: v }), "raceSize"));
+    notOffered(detailed(this.slider(raceSec, "Size", 0, 1, 0.01, pct, (c) => c.raceSize, (v) => set({ raceSize: v }), "raceSize")), feat.size);
     // Child proportions on the adult body (no anatomy for children).
     detailed(this.slider(raceSec, "Youth", 0, 1, 0.01, pct, (c) => c.youth, (v) => set({ youth: v }), "youth"));
     // A single race: nothing to pick or mix.
