@@ -1,5 +1,5 @@
 import { RACE_IDS, type RaceId } from "@actors/human";
-import type { CharacterCatalog } from "./catalog";
+import { type CharacterCatalog, PROCEDURAL_HAIR_RACE } from "./catalog";
 import { THEMES } from "./themes";
 
 /** What a character can be: one of the races, or a robot or a skeleton. */
@@ -85,8 +85,12 @@ export function allowCatalog(catalog: CharacterCatalog, allow: AllowOptions): Ch
   // No race at all: only robots or skeletons, built on the plain human body.
   const people = races.length > 0 && catalog.people !== false;
   const human = catalog.races.find((r) => r.id === "human");
+  const raceIds = new Set<string>(races.map((r) => r.id));
+  // Generated hairstyles of races left out (sylvan leaves, the drakeborn crest).
+  const hair = catalog.hair.filter((h) => !PROCEDURAL_HAIR_RACE[h.id] || raceIds.has(PROCEDURAL_HAIR_RACE[h.id]));
   return {
     ...catalog,
+    hair,
     races: people ? races : human && (robot || skeletal) ? [human] : races,
     people: people || !(robot || skeletal),
     garments,

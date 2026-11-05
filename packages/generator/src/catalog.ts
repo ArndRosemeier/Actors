@@ -363,6 +363,8 @@ export const PAINTED_BROWS = "painted";
 
 /** Generated hairstyles listed in `catalog.hair` next to the pack's hair meshes. */
 export const PROCEDURAL_HAIR: Record<string, string> = { leaves: "Leaves (sylvan)", crest: "Crest fins (drakeborn)" };
+/** The race each generated hairstyle belongs to: a game without that race offers no such hair. */
+export const PROCEDURAL_HAIR_RACE: Record<string, RaceId> = { leaves: "sylvan", crest: "drakeborn" };
 
 export const OUTFITS: OutfitPreset[] = [
   ...FUTURE_OUTFITS,
@@ -607,6 +609,8 @@ export function fitConfig(catalog: Pick<CharacterCatalog, "races" | "robot" | "s
   if (!f.patterns.includes(c.skinPattern)) c.skinPattern = "none";
   if (!f.tusks) c.tusks = 0;
   if (!f.eyeGlow) c.eyeGlow = 0;
+  const hairRace = c.hair ? PROCEDURAL_HAIR_RACE[c.hair] : undefined;
+  if (hairRace && races.size && !races.has(hairRace)) c.hair = null;
   return c;
 }
 

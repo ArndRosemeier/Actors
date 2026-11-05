@@ -15,7 +15,7 @@ const catalog = {
     { id: "future", label: "Future", garments: ["briefs", "future-wrap", "future-trousers"] },
     { id: "nude", label: "Nude", garments: [] },
   ],
-  hair: [],
+  hair: [{ id: "short01", label: "Short" }, { id: "leaves", label: "Leaves" }, { id: "crest", label: "Crest" }],
   hairColors: [],
   garmentColors: [],
   brows: [],
@@ -111,5 +111,14 @@ describe("race features", () => {
     expect([cfg.race, cfg.horns, cfg.tail, cfg.tusks, cfg.eyeGlow, cfg.pupil, cfg.skinPattern]).toEqual(["human", "none", "none", 0, 0, "round", "none"]);
     const free = fitConfig(catalog, { ...defaultConfig(catalog), horns: "ram", tail: "reptile" } as CharacterConfig);
     expect([free.horns, free.tail]).toEqual(["ram", "reptile"]);
+  });
+});
+
+describe("race hair", () => {
+  it("leaves out the sylvan leaves and the drakeborn crest for humans only", () => {
+    const c = allowCatalog(catalog, { races: ["human"] });
+    expect(c.hair.map((h) => h.id)).toEqual(["short01"]);
+    expect(fitConfig(c, { ...defaultConfig(catalog), hair: "leaves" } as CharacterConfig).hair).toBe(null);
+    expect(allowCatalog(catalog, { races: ["human", "sylvan"] }).hair.map((h) => h.id)).toEqual(["short01", "leaves"]);
   });
 });
