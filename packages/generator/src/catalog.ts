@@ -3,7 +3,7 @@ import { raceParts, randomRaceLook } from "./racelook";
 import { FUTURE_OUTFITS } from "./future-outfits";
 import { MEDIEVAL_OUTFITS } from "./medieval-outfits";
 import { GARMENT_THEMES, HAIR_THEMES, RACE_THEMES } from "./themes";
-import { ADULT_MIN_AGE, DEFAULT_PARAMS, DEFAULT_ROBOT, DEFAULT_SKELETAL, type SkeletalConfig, sanitizeSkeletal, ROBOT_EARS, ROBOT_HEADS, ROBOT_PLATING, type RobotConfig, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type BeardStyle, type HornStyle, type PupilShape, RACES, RACE_IDS, type RaceId, SHAPE_SLIDERS, type SkinPattern, type TailStyle } from "@actors/human";
+import { ADULT_MIN_AGE, DEFAULT_PARAMS, DEFAULT_ROBOT, DEFAULT_SKELETAL, type SkeletalConfig, sanitizeSkeletal, ROBOT_EARS, ROBOT_HEADS, ROBOT_PLATING, type RobotConfig, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type BeardStyle, type HornStyle, type PupilShape, RACES, RACE_IDS, RACE_STYLES, type RaceId, SHAPE_SLIDERS, type SkinPattern, type TailStyle } from "@actors/human";
 
 /** One choice in a list: the id the API takes and a display label. */
 export interface Choice {
@@ -551,6 +551,40 @@ export function outfitGarments(preset: OutfitPreset, body: Pick<HumanParams, "ge
  * `config` kept to what the catalog offers: a race it lists (else its first), robots and skeletons
  * only when it has them, and a robot or skeleton when it offers no living people.
  */
+/**
+ * The race-only features the catalog's races grow: horns, tails, tusks, glowing eyes, pupils and
+ * skin patterns. With every race on offer, everything; a game that allows only some races (only
+ * humans, say) offers just what those races have, so its editor shows no horns, tails or scales
+ * and `set` takes them off.
+ */
+export interface RaceFeatures {
+  horns: HornStyle[];
+  tails: TailStyle[];
+  pupils: PupilShape[];
+  patterns: SkinPattern[];
+  tusks: boolean;
+  eyeGlow: boolean;
+}
+
+export function raceFeatures(races: readonly { id: RaceId }[], all: { horns: readonly HornStyle[]; tails: readonly TailStyle[]; pupils: readonly PupilShape[]; patterns: readonly SkinPattern[] }): RaceFeatures {
+  const ids = new Set(races.map((r) => r.id));
+  if (!ids.size || RACE_IDS.every((id) => ids.has(id))) return { horns: [...all.horns], tails: [...all.tails], pupils: [...all.pupils], patterns: [...all.patterns], tusks: true, eyeGlow: true };
+  const styles = [...ids].map((id) => RACE_STYLES[id]);
+  const used = <T>(pick: (s: (typeof styles)[number]) => [T, number][], keep: T[], list: readonly T[]) => {
+    const on = new Set<T>(keep);
+    for (const s of styles) for (const [v, w] of pick(s)) if (w > 0) on.add(v);
+    return list.filter((v) => on.has(v));
+  };
+  return {
+    horns: used((s) => s.horns, ["none"], all.horns),
+    tails: used((s) => s.tail, ["none"], all.tails),
+    pupils: used((s) => s.pupil, ["round"], all.pupils),
+    patterns: used((s) => s.pattern, ["none"], all.patterns),
+    tusks: styles.some((s) => s.tuskChance > 0 && s.tusks[1] > 0),
+    eyeGlow: styles.some((s) => s.eyeGlow[1] > 0),
+  };
+}
+
 export function fitConfig(catalog: Pick<CharacterCatalog, "races" | "robot" | "skeletal" | "people">, config: CharacterConfig): CharacterConfig {
   const races = new Set<string>(catalog.races.map((r) => r.id));
   const c = { ...config };
@@ -562,6 +596,14 @@ export function fitConfig(catalog: Pick<CharacterCatalog, "races" | "robot" | "s
     if (catalog.robot) c.robot = true;
     else if (catalog.skeletal) c.skeletal = true;
   }
+  // Only the horns, tails, eyes and skin patterns the races on offer have.
+  const f = raceFeatures(catalog.races, { horns: [c.horns], tails: [c.tail], pupils: [c.pupil], patterns: [c.skinPattern] });
+  if (!f.horns.includes(c.horns)) Object.assign(c, { horns: "none", hornColor: null });
+  if (!f.tails.includes(c.tail)) c.tail = "none";
+  if (!f.pupils.includes(c.pupil)) c.pupil = "round";
+  if (!f.patterns.includes(c.skinPattern)) c.skinPattern = "none";
+  if (!f.tusks) c.tusks = 0;
+  if (!f.eyeGlow) c.eyeGlow = 0;
   return c;
 }
 

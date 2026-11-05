@@ -193,6 +193,7 @@ createCharacterGenerator({ pack, view, panel, allow: {
 ```
 
 * **Races** (`races`): every race id plus `robot` and `skeleton`. Races left out disappear from the picker and from random characters; robots and skeletons from the Kind picker. With no race at all (`["robot"]`) every character is a robot (or skeleton).
+  The race-only features go with them: with only humans the editor shows no horns, tails, tusks, eye glow, odd pupils or scales, and `set` takes them off (`raceFeatures` lists what is on offer).
 * **Clothing categories** (`clothing`): `modern`, `vintage`, `future` (the 3026 wardrobe), `antique`, `medieval`, `nordic`, `eastern`, `fantasy`, the same tags as the themes below. A garment stays when one of its categories is allowed; untagged ones (underwear, plain socks) always stay; outfit presets stay when all their garments do.
 * **Height** (`height`): a body outside the range (a giantkin, a goblin, the tallest roll of the dice) is scaled as a whole to the nearest limit, keeping its own proportions. `character.setHeightRange()` changes it later; the editor shows the standing height in meters and the range.
 * Each switch set is either a list (only these) or flags (all but the ones set to `false`). `ALLOW_PRESETS`: `city` (humans in today's clothes, 1.45 to 2.05 m), `vintage`, `fantasy` (every race and skeletons, medieval, nordic, antique, eastern and fantasy clothes), `scifi` (humans and robots in the 3026 wardrobe and today's clothes).

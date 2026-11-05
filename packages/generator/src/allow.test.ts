@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RACE_IDS } from "@actors/human";
-import { type CharacterCatalog, type CharacterConfig, defaultConfig, fitConfig, randomConfig, seededRandom } from "./catalog";
+import { type CharacterCatalog, type CharacterConfig, defaultConfig, fitConfig, raceFeatures, randomConfig, seededRandom } from "./catalog";
 import { ALLOW_PRESETS, allowCatalog, flagOn, heightFit } from "./allow";
 import { GARMENT_THEMES } from "./themes";
 
@@ -91,5 +91,25 @@ describe("heightFit", () => {
     expect(heightFit(3, { max: 2 })).toBeCloseTo(2 / 3, 6);
     expect(heightFit(1, { min: 1.5 })).toBeCloseTo(1.5, 6);
     expect(heightFit(1.8, undefined)).toBe(1);
+  });
+});
+
+describe("race features", () => {
+  const all = { horns: ["none", "ram", "antler"] as const, tails: ["none", "reptile"] as const, pupils: ["round", "slit"] as const, patterns: ["none", "freckles", "scales"] as const };
+  it("offers every feature with every race", () => {
+    const f = raceFeatures(catalog.races, all);
+    expect(f.horns).toEqual(["none", "ram", "antler"]);
+    expect(f.tusks && f.eyeGlow).toBe(true);
+  });
+  it("offers humans no horns, tails, tusks, glowing eyes or scales", () => {
+    const f = raceFeatures(allowCatalog(catalog, { races: ["human"] }).races, all);
+    expect(f).toEqual({ horns: ["none"], tails: ["none"], pupils: ["round"], patterns: ["none", "freckles"], tusks: false, eyeGlow: false });
+  });
+  it("takes them off a human-only character", () => {
+    const c = allowCatalog(catalog, { races: ["human"] });
+    const cfg = fitConfig(c, { ...defaultConfig(catalog), race: "drakeborn", horns: "ram", tail: "reptile", tusks: 0.6, eyeGlow: 0.5, pupil: "slit", skinPattern: "scales" } as CharacterConfig);
+    expect([cfg.race, cfg.horns, cfg.tail, cfg.tusks, cfg.eyeGlow, cfg.pupil, cfg.skinPattern]).toEqual(["human", "none", "none", 0, 0, "round", "none"]);
+    const free = fitConfig(catalog, { ...defaultConfig(catalog), horns: "ram", tail: "reptile" } as CharacterConfig);
+    expect([free.horns, free.tail]).toEqual(["ram", "reptile"]);
   });
 });
