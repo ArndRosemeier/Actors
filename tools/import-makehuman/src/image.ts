@@ -257,3 +257,37 @@ export function massHairPng(path: string, radius = 0.004): void {
   }
   writeFileSync(path, PNG.sync.write(img));
 }
+
+/**
+ * Which faces of a textured mesh are opaque: a face counts when the texture is
+ * at least half opaque at nearly all of a small grid of points across it
+ * (`minCover`). Faces over cut-outs or lace (alpha holes) don't, so the skin
+ * behind them can stay drawn. Without an alpha channel every face is opaque.
+ */
+export function opaqueFaces(srcPath: string, uvs: ArrayLike<number>, faces: { vt: number[] }[], minCover = 0.9): boolean[] {
+  const buf = readFileSync(srcPath);
+  if (!srcPath.endsWith(".png")) return faces.map(() => true);
+  const img = PNG.sync.read(buf);
+  const wrap = (t: number) => t - Math.floor(t);
+  const alphaAt = (u: number, v: number) => {
+    const x = Math.min(img.width - 1, Math.floor(wrap(u) * img.width));
+    const y = Math.min(img.height - 1, Math.floor((1 - wrap(v)) * img.height));
+    return img.data[(y * img.width + x) * 4 + 3];
+  };
+  const N = 6;
+  return faces.map((f) => {
+    if (f.vt.some((t) => t < 0)) return true;
+    let total = 0, solid = 0;
+    // Fan triangles, sampled on a barycentric grid (corners, edges, inside).
+    for (let i = 1; i + 1 < f.vt.length; i++) {
+      const [a, b, c] = [f.vt[0], f.vt[i], f.vt[i + 1]];
+      for (let p = 0; p <= N; p++)
+        for (let q = 0; p + q <= N; q++) {
+          const wa = (N - p - q) / N, wb = p / N, wc = q / N;
+          total++;
+          if (alphaAt(uvs[a * 2] * wa + uvs[b * 2] * wb + uvs[c * 2] * wc, uvs[a * 2 + 1] * wa + uvs[b * 2 + 1] * wb + uvs[c * 2 + 1] * wc) >= 128) solid++;
+        }
+    }
+    return solid >= total * minCover;
+  });
+}
