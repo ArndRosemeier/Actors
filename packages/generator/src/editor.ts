@@ -1,5 +1,5 @@
 import { ADULT_MIN_AGE, BEARD_STYLES, BODY_TYPES, HORN_STYLES, SHAPE_SLIDERS, type HumanParams, MAX_AGE, TAIL_STYLES } from "@actors/human";
-import { type CharacterConfig, PAINTED_BROWS, type RobotLook, type SkeletalLook, outfitGarments } from "./catalog";
+import { type CharacterConfig, PAINTED_BROWS, type RobotLook, type SkeletalLook, outfitGarments, raceFeatures } from "./catalog";
 import type { Character, CharacterPatch } from "./character";
 import { PUPILS, SKIN_PATTERNS } from "@actors/three";
 
@@ -205,6 +205,12 @@ export class CharacterEditor {
       return node;
     };
 
+    // Race-only features (horns, tails, tusks, eye glow, pupils, skin patterns): only what the races on offer have.
+    const feat = raceFeatures(cat.races, { horns: HORN_STYLES, tails: TAIL_STYLES, pupils: Object.keys(PUPILS) as CharacterConfig["pupil"][], patterns: Object.keys(SKIN_PATTERNS) as CharacterConfig["skinPattern"][] });
+    const notOffered = (node: HTMLElement, offered: boolean) => {
+      if (!offered) ((node.closest(".ae-row, .ae-check") as HTMLElement | null) ?? node).classList.add("ae-off");
+      return node;
+    };
     // Race, and what the character is: a person, a robot or a skeleton.
     const raceSec = this.section("Race", "race");
     const kinds: [string, string][] = [...(cat.people !== false ? [["person", "Person"] as [string, string]] : []), ...(cat.robot ? [["robot", "Robot"] as [string, string]] : []), ...(cat.skeletal ? [["skeleton", "Skeleton"] as [string, string]] : [])];
@@ -223,7 +229,7 @@ export class CharacterEditor {
     const mixed = detailed(this.select(raceSec, "Mixed with", [["", "None"], ...raceNames], (c) => c.race2 ?? "", (v) => set({ race2: (v || null) as CharacterConfig["race2"], raceMix: v ? character.config.raceMix || 0.5 : 0 }), "race2"));
     const mixRow = detailed(this.slider(raceSec, "Mix", 0, 1, 0.01, pct, (c) => c.raceMix, (v) => set({ raceMix: v }), "raceMix"));
     this.syncers.push((c) => (mixRow.hidden = !c.race2));
-    detailed(this.slider(raceSec, "Size", 0, 1, 0.01, pct, (c) => c.raceSize, (v) => set({ raceSize: v }), "raceSize"));
+    notOffered(detailed(this.slider(raceSec, "Size", 0, 1, 0.01, pct, (c) => c.raceSize, (v) => set({ raceSize: v }), "raceSize")), feat.size);
     // Child proportions on the adult body (no anatomy for children).
     detailed(this.slider(raceSec, "Youth", 0, 1, 0.01, pct, (c) => c.youth, (v) => set({ youth: v }), "youth"));
     // A single race: nothing to pick or mix.
@@ -332,8 +338,8 @@ export class CharacterEditor {
       }
     };
     shapeSliders(body, "Body");
-    detailed(this.select(body, "Tail", opts(TAIL_STYLES), (c) => c.tail, (v) => set({ tail: v as CharacterConfig["tail"] }), "tail"));
-    const tailRow = detailed(this.slider(body, "Tail length", 0, 1, 0.01, pct, (c) => c.tailLength, (v) => set({ tailLength: v }), "tailLength"));
+    notOffered(detailed(this.select(body, "Tail", opts(feat.tails), (c) => c.tail, (v) => set({ tail: v as CharacterConfig["tail"] }), "tail")), feat.tails.length > 1);
+    const tailRow = notOffered(detailed(this.slider(body, "Tail length", 0, 1, 0.01, pct, (c) => c.tailLength, (v) => set({ tailLength: v }), "tailLength")), feat.tails.length > 1);
     this.syncers.push((c) => (tailRow.hidden = c.tail === "none"));
     // Skin
     flesh(heading(body, "Skin"));
@@ -343,7 +349,7 @@ export class CharacterEditor {
     flesh(detailed(this.color(body, "Skin colour", (c) => c.skinColor, (v) => set({ skinColor: v }), "skinColor")));
     flesh(detailed(this.check(body, "Skin detail", (c) => c.skinDetail, (v) => set({ skinDetail: v }), "skinDetail")));
     flesh(detailed(this.slider(body, "Wet skin", 0, 1, 0.01, pct, (c) => c.skinWetness, (v) => set({ skinWetness: v }), "skinWetness")));
-    flesh(detailed(this.select(body, "Skin pattern", Object.keys(SKIN_PATTERNS).map((p): [string, string] => [p, cap(p)]), (c) => c.skinPattern, (v) => set({ skinPattern: v as CharacterConfig["skinPattern"] }), "skinPattern")));
+    notOffered(flesh(detailed(this.select(body, "Skin pattern", feat.patterns.map((p): [string, string] => [p, cap(p)]), (c) => c.skinPattern, (v) => set({ skinPattern: v as CharacterConfig["skinPattern"] }), "skinPattern"))), feat.patterns.length > 1);
     const patRows = [
       flesh(detailed(this.slider(body, "Pattern strength", 0, 1, 0.01, pct, (c) => c.patternStrength, (v) => set({ patternStrength: v }), "patternStrength"))),
       flesh(detailed(this.color(body, "Pattern colour", (c) => c.patternColor, (v) => set({ patternColor: v }), "patternColor"))),
@@ -376,15 +382,16 @@ export class CharacterEditor {
     detailed(this.select(face, "Eyebrows", [...cat.brows.map((b): [string, string] => [b.id, b.label]), [PAINTED_BROWS, "Painted"], ["", "None"]], (c) => c.brows ?? "", (v) => set({ brows: v || null }), "brows"));
     this.select(face, "Eyes", cat.eyes.map((e) => [e.id, e.label]), (c) => c.eyes, (v) => set({ eyes: v, eyeColor: null }), "eyes");
     detailed(this.color(face, "Eye colour", (c) => c.eyeColor, (v) => set({ eyeColor: v }), "eyeColor"));
-    detailed(this.select(face, "Pupils", Object.keys(PUPILS).map((p): [string, string] => [p, cap(p)]), (c) => c.pupil, (v) => set({ pupil: v as CharacterConfig["pupil"] }), "pupil"));
-    detailed(this.slider(face, "Eye glow", 0, 1, 0.01, pct, (c) => c.eyeGlow, (v) => set({ eyeGlow: v }), "eyeGlow"));
-    detailed(this.select(face, "Horns", opts(HORN_STYLES), (c) => c.horns, (v) => set({ horns: v as CharacterConfig["horns"] }), "horns"));
+    notOffered(detailed(this.select(face, "Pupils", feat.pupils.map((p): [string, string] => [p, cap(p)]), (c) => c.pupil, (v) => set({ pupil: v as CharacterConfig["pupil"] }), "pupil")), feat.pupils.length > 1);
+    notOffered(detailed(this.slider(face, "Eye glow", 0, 1, 0.01, pct, (c) => c.eyeGlow, (v) => set({ eyeGlow: v }), "eyeGlow")), feat.eyeGlow);
+    const horned = feat.horns.length > 1;
+    notOffered(detailed(this.select(face, "Horns", opts(feat.horns), (c) => c.horns, (v) => set({ horns: v as CharacterConfig["horns"] }), "horns")), horned);
     const hornRows = [
-      detailed(this.slider(face, "Horn size", 0, 1, 0.01, pct, (c) => c.hornSize, (v) => set({ hornSize: v }), "hornSize")),
-      detailed(this.color(face, "Horn colour", (c) => c.hornColor, (v) => set({ hornColor: v }), "hornColor")),
+      notOffered(detailed(this.slider(face, "Horn size", 0, 1, 0.01, pct, (c) => c.hornSize, (v) => set({ hornSize: v }), "hornSize")), horned),
+      notOffered(detailed(this.color(face, "Horn colour", (c) => c.hornColor, (v) => set({ hornColor: v }), "hornColor")), horned),
     ];
     this.syncers.push((c) => hornRows.forEach((row) => (row.hidden = c.horns === "none")));
-    detailed(this.slider(face, "Tusks", 0, 1, 0.01, pct, (c) => c.tusks, (v) => set({ tusks: v }), "tusks"));
+    notOffered(detailed(this.slider(face, "Tusks", 0, 1, 0.01, pct, (c) => c.tusks, (v) => set({ tusks: v }), "tusks")), feat.tusks);
     shapeSliders(face, "Face");
 
     // Raw detail sliders, in the Detailed tabs of the face (head groups) and the body (the rest).
