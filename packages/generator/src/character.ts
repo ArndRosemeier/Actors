@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { type ActorShape, type Clip, type Fetcher, type MessagePortLike, deform } from "@actors/core";
 import { ADULT_MIN_AGE, BEARD_REGION, BEARD_STYLES, beardPaint, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, type FaceFrame, FaceAnimator, Human, type VisemeKey, wrinkleWeights, shapeModifiers, type HumanParams, MAX_AGE, type PartsConfig, type RaceId, raceScale, sanitizeRace } from "@actors/human";
-import { type ActorMaterialKit, type ScreenTexturePool, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor } from "@actors/three";
+import { type ActorMaterialKit, type ScreenTexturePool, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor, bakeLookForExport, cutHemsForExport } from "@actors/three";
 import { type ThemeFilter, filterCatalog } from "./themes";
 import { type AllowOptions, type HeightRange, allowCatalog, heightFit } from "./allow";
 import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, type SkeletalLook, buildCatalog, defaultConfig, fitConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook, sanitizeSkeletalLook } from "./catalog";
@@ -493,9 +493,17 @@ export class Character {
         m.normalMap = copy;
       }
     });
+    // Skin tone, tints, iris colour and lash alpha are computed in shader code glTF can't carry: bake them into
+    // base colour textures (WebGL materials only; the node materials of the WebGPU kit aren't baked yet).
+    const gl = this.renderer as THREE.WebGLRenderer | null;
+    const restoreLook = gl && (gl as { isWebGLRenderer?: boolean }).isWebGLRenderer && typeof document !== "undefined" ? bakeLookForExport(this.actor.object, gl) : null;
+    // Garment hems are cut per pixel by a clip attribute: cut the triangles instead.
+    const restoreHems = cutHemsForExport(this.actor.object);
     try {
       return (await new GLTFExporter().parseAsync(this.actor.object, { binary: true, animations: clips, onlyVisible: true })) as ArrayBuffer;
     } finally {
+      restoreHems();
+      restoreLook?.();
       for (const [m, t] of swapped) m.normalMap = t;
     }
   }
