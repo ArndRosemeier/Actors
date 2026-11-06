@@ -464,12 +464,25 @@ export class Character {
 
   /**
    * The visible character as binary glTF (mesh, rig, garments, hair) with
-   * animations baked for its current shape: "all" clips (default), "current", or a list of names.
+   * animations baked for its current shape: "all" clips of the pack (default; plus the playing
+   * clip if it comes from a clip library such as CMU, whose thousands of motions stay out),
+   * "current", or a list of names.
    */
   async exportGlb(animations: "all" | "current" | string[] = "all"): Promise<ArrayBuffer> {
     await this.running;
-    const names = animations === "all" ? this.catalog.animations.map((a) => a.id) : animations === "current" ? (this.cfg.animation ? [this.cfg.animation] : []) : animations;
-    const clips = await Promise.all(names.map(async (n) => this.actor.toThreeClip(await this.loadClip(n))));
+    const current = this.cfg.animation ? [this.cfg.animation] : [];
+    const own = this.catalog.animations.filter((a) => !a.library).map((a) => a.id);
+    const names = animations === "all" ? [...new Set([...own, ...current])] : animations === "current" ? current : animations;
+    // A few downloads at a time: thousands at once fail with ERR_INSUFFICIENT_RESOURCES.
+    const clips: THREE.AnimationClip[] = new Array(names.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < names.length) {
+        const i = next++;
+        clips[i] = this.actor.toThreeClip(await this.loadClip(names[i]));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(8, names.length) }, worker));
     // The exporter redraws normal maps through a canvas, which raw-data textures (the generated fabric and frame maps) can't do: swap in canvas copies.
     const swapped: [THREE.MeshStandardMaterial, THREE.Texture][] = [];
     this.actor.object.traverse((o) => {
