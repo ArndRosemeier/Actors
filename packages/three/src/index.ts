@@ -71,6 +71,7 @@ export * from "./library";
 export * from "./footing";
 export * from "./footingRig";
 export * from "./drone";
+export * from "./exportBake";
 export * from "./mount";
 export { RootSkeleton, bindRoot } from "./rootSkeleton";
 export { screenPixels, SCREEN_TEXTURE_SIZE, ScreenTexturePool } from "./screens";
