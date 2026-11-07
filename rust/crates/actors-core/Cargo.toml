@@ -1,0 +1,21 @@
+[package]
+name = "actors-core"
+description = "Renderer-free runtime for Actors packs: morph targets, skeleton and garment fitting, subdivision, LOD, clip retargeting and pose blending."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+indexmap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+indexmap.workspace = true
+serde.workspace = true
+serde_json.workspace = true

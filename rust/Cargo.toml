@@ -1,0 +1,33 @@
+# Rust port of Actors. The crates read the same actor packs as the TypeScript packages
+# (built by tools/import-*, or downloaded with the release's actors-packs archive).
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+repository = "https://github.com/ArndRosemeier/Actors"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.dependencies]
+actors-core = { path = "crates/actors-core" }
+indexmap = { version = "2", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+
+# The runtime crunches large vertex arrays; keep dev builds usable.
+[profile.dev]
+opt-level = 1
+[profile.dev.package."*"]
+opt-level = 3
+[profile.test]
+opt-level = 2
+
+[workspace.lints.clippy]
+# Index loops mirror the TypeScript runtime's flat-array code, which keeps the port easy to check.
+needless_range_loop = "allow"

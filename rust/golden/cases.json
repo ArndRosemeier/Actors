@@ -1,0 +1,38 @@
+[
+  {
+    "name": "human-plain",
+    "pack": "human",
+    "weights": {
+      "macro/caucasian-female-young": 0.6,
+      "macro/caucasian-male-young": 0.4,
+      "breast/breast-volume-vert-up": 0.5,
+      "nose/nose-scale-horiz-incr": 0.8,
+      "stomach/stomach-pregnant-incr": 0.3
+    },
+    "fit": ["body", "body-low", "eyes", "tshirt", "jeans", "skirt", "teeth", "hair-bob01", "body-crowd"],
+    "load": ["hair-bob01"],
+    "skins": ["body-low", "body", "skirt", "tshirt", "body-crowd"],
+    "clips": { "walk": [0, 0.37, 1.9], "idle": [0.5] },
+    "surfaceDelta": { "expression/caucasian/mouth-upward-retraction": 0.8, "expression/caucasian/eye-left-slit": 0.5 },
+    "merge": ["body-crowd", "tshirt", "jeans"]
+  },
+  {
+    "name": "human-options",
+    "pack": "human",
+    "weights": { "macro/african-male-young": 1.0, "ears/l-ear-lobe-decr": 1.0 },
+    "options": {
+      "bones": { "thigh_l": { "len": 1.2, "girth": 0.9 }, "spine_02": { "len": 0.8 }, "head": { "girth": 1.1 } },
+      "tips": [{ "mask": "ears/l-ear-lobe-decr", "amount": 0.03, "direction": [0.3, 1, -0.2] }],
+      "scale": 1.15
+    },
+    "fit": ["body", "jeans"]
+  },
+  {
+    "name": "dog",
+    "pack": "dog",
+    "weights": {},
+    "options": { "bones": { "Front_Leg_Upper_L": { "len": 1.3 } } },
+    "skins": ["body"],
+    "clips": { "run": [0.21] }
+  }
+]

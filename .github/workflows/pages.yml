@@ -57,6 +57,14 @@ jobs:
       # Dog, squirrel and deer packs: CC0 rigs and clips (Mesh2Motion quadruped, Quaternius Deer) plus generated bodies.
       - if: steps.packs.outputs.cache-hit != 'true'
         run: npm run import:animals
+      # Rust port: the runtime must give the same shapes, skins and poses as the TypeScript one.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Rust golden test
+        run: |
+          npx tsx rust/golden/dump.ts apps/viewer/public/packs "$RUNNER_TEMP/golden"
+          ACTORS_PACKS=apps/viewer/public/packs ACTORS_GOLDEN="$RUNNER_TEMP/golden" cargo test --manifest-path rust/Cargo.toml --test golden -- --nocapture
       - run: npm run build
       # A fresh Vite + TypeScript app installs the package tarballs, typechecks and builds.
       - run: npm run check:consumer
