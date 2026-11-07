@@ -21,6 +21,7 @@
 pub mod animation;
 mod blob;
 pub mod deform;
+pub mod deform_recipe;
 mod error;
 pub mod format;
 pub mod hands;

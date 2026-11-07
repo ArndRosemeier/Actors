@@ -19,6 +19,7 @@ indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = "2"
+regex = { version = "1", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }
 
 # The runtime crunches large vertex arrays; keep dev builds usable.
 [profile.dev]

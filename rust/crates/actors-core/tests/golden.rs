@@ -132,8 +132,14 @@ impl Golden {
     }
 }
 
+/// A folder named by an environment variable; a relative path is read from the repository root
+/// (cargo runs tests in the crate folder). Panics when the variable names a missing folder, so a
+/// typo can't skip the test unnoticed.
 fn env_dir(var: &str) -> Option<PathBuf> {
-    std::env::var_os(var).map(PathBuf::from).filter(|p| p.exists())
+    let p = PathBuf::from(std::env::var_os(var)?);
+    let p = if p.is_absolute() { p } else { Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").join(p) };
+    assert!(p.is_dir(), "{var} names a missing folder: {}", p.display());
+    Some(p)
 }
 
 #[test]

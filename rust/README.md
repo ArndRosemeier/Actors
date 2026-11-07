@@ -7,7 +7,7 @@ release's `actors-packs-<version>.tar.gz`) works in both.
 | Crate | What it is | Status |
 |---|---|---|
 | `actors-core` | Renderer-free runtime: pack loading, morph targets, shape passes (bone proportions, tips, scale), normals, skeleton fitting, garment fitting, subdivision, LOD, clip retargeting, pose blending. Port of `@actors/core`. | done |
-| `actors-human` | Human sliders, races, body shapes, expressions → target weights. Port of `@actors/human`. | planned |
+| `actors-human` | Human sliders, races, body shapes, expressions → target weights. Port of `@actors/human`. | done |
 | `actors-generator` | The same `CharacterConfig` JSON as `@actors/generator` (outfits, themes, allow rules). | planned |
 | `actors-engine` | Adapter for [Engine](https://github.com/ArndRosemeier/Engine): skinned meshes, clips, LOD, live slider updates. | planned |
 
@@ -37,6 +37,23 @@ player.sample_into(0.5, &mut pose); // bone-local rotations + root position
 # Ok::<(), actors_core::Error>(())
 ```
 
+A human with sliders and a race (`actors-human`, same parameters as `@actors/human`):
+
+```rust
+use actors_human::{Human, RaceId};
+
+let mut human = Human::for_runtime(&rt)?;
+human.params.gender = 1.0;
+human.params.muscle = 0.7;
+human.race.race = RaceId::Dwarf;
+human.modifier_values.insert("nose/nose-scale-horiz-decr-incr".into(), 0.3);
+let shape = human.evaluate(&mut rt, Some(&["body", "eyes"]))?;
+```
+
+The human tables (races, modifiers, expressions, body types) are exported from the TypeScript
+sources into `crates/actors-human/data/human.json` by `npx tsx rust/golden/export-data.ts`; don't
+edit that file by hand, CI checks it is current.
+
 Pack files come through the `PackSource` trait (`DirSource` for a folder, `MemSource` for
 embedded data); implement it to read from an archive or the network. Loading takes `&mut self`;
 evaluation only reads, so a loaded runtime can be shared between threads (behind an `Arc`, or
@@ -53,6 +70,7 @@ retargeted poses, LOD merges; cases in `golden/cases.json`):
 ```bash
 npm run import:human && npm run import:animals        # or unpack actors-packs into apps/viewer/public/packs
 npx tsx rust/golden/dump.ts apps/viewer/public/packs /tmp/golden
+npx tsx rust/golden/dump-human.ts apps/viewer/public/packs /tmp/golden   # human sliders, races, deform plans
 ACTORS_PACKS=apps/viewer/public/packs ACTORS_GOLDEN=/tmp/golden cargo test --manifest-path rust/Cargo.toml
 ```
 

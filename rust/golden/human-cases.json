@@ -1,0 +1,32 @@
+[
+  { "name": "default" },
+  {
+    "name": "dwarf-man",
+    "params": { "gender": 1, "ageYears": 52, "muscle": 0.85, "weight": 0.7, "height": 0.1, "proportions": 0.3, "cupSize": 0.5, "firmness": 0.4, "african": 0.1, "asian": 0.2, "caucasian": 0.9 },
+    "modifiers": { "nose/nose-scale-horiz-decr-incr": 0.6, "head/head-fat-decr-incr": -0.4 },
+    "race": { "race": "dwarf", "race2": null, "mix": 0, "size": 0.3 }
+  },
+  {
+    "name": "half-elf-woman",
+    "params": { "gender": 0.1, "ageYears": 19, "muscle": 0.3, "weight": 0.35, "height": 0.7, "proportions": 0.8, "cupSize": 0.7, "firmness": 0.6, "african": 0.5, "asian": 0.5, "caucasian": 0 },
+    "race": { "race": "elf", "race2": "human", "mix": 0.4, "size": 0.8 },
+    "shape": { "shoulders": 0.4, "jaw": -0.3, "lips": 0.5 }
+  },
+  {
+    "name": "goblin-child",
+    "params": { "gender": 0.6, "ageYears": 10, "muscle": 0.2, "weight": 0.9 },
+    "race": { "race": "goblin", "race2": "orc", "mix": 0.3, "size": 0.5, "youth": 0.7 }
+  },
+  {
+    "name": "giant",
+    "params": { "gender": 0.9, "ageYears": 70, "muscle": 0.6 },
+    "race": { "race": "giantkin", "race2": null, "mix": 0, "size": 1 },
+    "deform": { "recipe": "giant", "seed": 1234.7, "strength": 0.65 },
+    "fitScale": 0.9
+  },
+  {
+    "name": "huge-orc",
+    "race": { "race": "orc", "race2": "drakeborn", "mix": 0.5, "size": 0.2 },
+    "deform": { "recipe": "giant", "seed": -77, "strength": 1, "size": 8 }
+  }
+]
