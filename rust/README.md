@@ -8,7 +8,7 @@ release's `actors-packs-<version>.tar.gz`) works in both.
 |---|---|---|
 | `actors-core` | Renderer-free runtime: pack loading, morph targets, shape passes (bone proportions, tips, scale), normals, skeleton fitting, garment fitting, subdivision, LOD, clip retargeting, pose blending. Port of `@actors/core`. | done |
 | `actors-human` | Human sliders, races, body shapes, expressions → target weights. Port of `@actors/human`. | done |
-| `actors-generator` | The same `CharacterConfig` JSON as `@actors/generator` (outfits, themes, allow rules). | planned |
+| `actors-generator` | The same `CharacterConfig` JSON as `@actors/generator`: catalog, outfits, random characters (same seed, same character), themes, allow rules. Port of `@actors/generator` without the renderer. | done |
 | `actors-engine` | Adapter for [Engine](https://github.com/ArndRosemeier/Engine): skinned meshes, clips, LOD, live slider updates. | planned |
 
 Later: animals, drones, robots and skeletons, the GPU face rig.
@@ -50,8 +50,21 @@ human.modifier_values.insert("nose/nose-scale-horiz-decr-incr".into(), 0.3);
 let shape = human.evaluate(&mut rt, Some(&["body", "eyes"]))?;
 ```
 
-The human tables (races, modifiers, expressions, body types) are exported from the TypeScript
-sources into `crates/actors-human/data/human.json` by `npx tsx rust/golden/export-data.ts`; don't
+Characters made in the web editor (or by `randomConfig` in TypeScript) are `CharacterConfig`
+JSON, which `actors-generator` reads, checks and makes:
+
+```rust
+use actors_generator::*;
+
+let pack = actors_human::HumanPack::new(rt.manifest())?;
+let catalog = allow_catalog(&build_catalog(rt.manifest(), &pack, rt.clip_defs(), None), &AllowOptions::preset("fantasy").unwrap());
+let stored: CharacterConfig = serde_json::from_str(&json).unwrap();
+let hero = sanitize_config(&catalog, &stored); // adult age, wearable outfit, allowed race
+let npc = random_config(&catalog, &default_config(&catalog), &RandomOptions::default(), &mut SeededRandom::new(7.0));
+```
+
+The human and generator tables (races, modifiers, expressions, body types, outfits, themes) are
+exported from the TypeScript sources into `crates/*/data/*.json` by `npx tsx rust/golden/export-data.ts`; don't
 edit that file by hand, CI checks it is current.
 
 Pack files come through the `PackSource` trait (`DirSource` for a folder, `MemSource` for
@@ -71,6 +84,7 @@ retargeted poses, LOD merges; cases in `golden/cases.json`):
 npm run import:human && npm run import:animals        # or unpack actors-packs into apps/viewer/public/packs
 npx tsx rust/golden/dump.ts apps/viewer/public/packs /tmp/golden
 npx tsx rust/golden/dump-human.ts apps/viewer/public/packs /tmp/golden   # human sliders, races, deform plans
+npx tsx rust/golden/dump-generator.ts apps/viewer/public/packs /tmp/golden   # catalog, random configs, allow rules
 ACTORS_PACKS=apps/viewer/public/packs ACTORS_GOLDEN=/tmp/golden cargo test --manifest-path rust/Cargo.toml
 ```
 

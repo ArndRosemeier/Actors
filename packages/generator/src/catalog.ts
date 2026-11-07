@@ -451,7 +451,7 @@ const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 /** `{ themes }` from a tag table, or nothing for an untagged id. */
 const themed = (table: Record<string, string[]>, id: string) => (table[id] ? { themes: [...table[id]] } : {});
 
-const ROBOT_HEAD_LABELS: Record<string, string> = { visor: "Visor", optics: "Twin optics", mono: "Mono-eye", android: "Android face" };
+export const ROBOT_HEAD_LABELS: Record<string, string> = { visor: "Visor", optics: "Twin optics", mono: "Mono-eye", android: "Android face" };
 
 export function buildCatalog(human: Human, irisPresets: string[]): CharacterCatalog {
   const m = human.runtime.manifest;
