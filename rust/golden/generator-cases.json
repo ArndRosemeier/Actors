@@ -1,0 +1,42 @@
+{
+  "random": [
+    { "name": "any", "seed": 1, "options": {} },
+    { "name": "female", "seed": 2, "options": { "gender": "female" } },
+    { "name": "male-anim", "seed": 3, "options": { "gender": "male", "animation": true } },
+    { "name": "race-any", "seed": 4, "options": { "race": "any" } },
+    { "name": "dwarf", "seed": 5, "options": { "race": "dwarf", "outfit": false } },
+    { "name": "drakeborn", "seed": 6, "options": { "race": "drakeborn" } },
+    { "name": "robot", "seed": 7, "options": { "robot": true } },
+    { "name": "skeleton", "seed": 8, "options": { "skeletal": true } },
+    { "name": "back-to-human", "seed": 9, "options": { "robot": false, "skeletal": false, "race": "human" } },
+    { "name": "fantasy", "seed": 10, "options": { "race": "any" }, "allow": "fantasy" },
+    { "name": "city", "seed": 11, "options": { "race": "any" }, "allow": "city" },
+    { "name": "scifi", "seed": 12, "options": {}, "allow": "scifi" },
+    { "name": "robots-only", "seed": 13, "options": {}, "allow": "robotsOnly" }
+  ],
+  "randomCount": 60,
+  "allows": {
+    "robotsOnly": { "races": ["robot"] },
+    "undeadOnly": { "races": ["skeleton", "robot"], "clothing": ["medieval"] },
+    "noFantasy": { "races": { "goblin": false, "orc": false }, "clothing": { "fantasy": false }, "height": { "min": 1.6 } },
+    "elves": { "races": ["elf", "sylvan"] }
+  },
+  "themes": {
+    "modern": { "themes": ["modern"] },
+    "medievalNoFaith": { "themes": ["medieval"], "without": ["real-faith"] },
+    "future": { "themes": ["future"] }
+  },
+  "outfits": [
+    ["tshirt", "jeans", "gown"],
+    ["briefs", "bra", "tshirt", "jeans", "socks", "sneakers"],
+    ["skirt", "skirt-mini", "unknown", "tshirt", "tshirt"],
+    ["briefs", "suit-tie", "kimono"]
+  ],
+  "heights": [
+    [1.8, null],
+    [1.2, { "min": 1.45, "max": 2.05 }],
+    [2.4, { "min": 1.45, "max": 2.05 }],
+    [1.7, { "min": 1.9, "max": 1.6 }],
+    [1.7, { "max": 1.5 }]
+  ]
+}
