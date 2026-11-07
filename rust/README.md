@@ -9,9 +9,10 @@ release's `actors-packs-<version>.tar.gz`) works in both.
 | `actors-core` | Renderer-free runtime: pack loading, morph targets, shape passes (bone proportions, tips, scale), normals, skeleton fitting, garment fitting, subdivision, LOD, clip retargeting, pose blending. Port of `@actors/core`. | done |
 | `actors-human` | Human sliders, races, body shapes, expressions → target weights. Port of `@actors/human`. | done |
 | `actors-generator` | The same `CharacterConfig` JSON as `@actors/generator`: catalog, outfits, random characters (same seed, same character), themes, allow rules. Port of `@actors/generator` without the renderer. | done |
-| `actors-engine` | Adapter for [Engine](https://github.com/ArndRosemeier/Engine): skinned meshes, clips, LOD, live slider updates. | planned |
+| `actors-engine` | Adapter for [Engine](https://github.com/ArndRosemeier/Engine): a `CharacterConfig` becomes an `AnimatedModel` (shaped body, photo skin, hair, clothes in layers, fitted skeleton, baked clips). | done (humans) |
 
-Later: animals, drones, robots and skeletons, the GPU face rig.
+Later: animals, drones, robots and skeletons, race add-ons (horns, tails, tusks, beards), skin
+patterns, iris colours, the GPU face rig.
 
 ## Using it
 
@@ -62,6 +63,32 @@ let stored: CharacterConfig = serde_json::from_str(&json).unwrap();
 let hero = sanitize_config(&catalog, &stored); // adult age, wearable outfit, allowed race
 let npc = random_config(&catalog, &default_config(&catalog), &RandomOptions::default(), &mut SeededRandom::new(7.0));
 ```
+
+A character in [Engine](https://github.com/ArndRosemeier/Engine) (`actors-engine`):
+
+```rust
+use actors_engine::{BuildOptions, CharacterBuilder};
+use actors_generator::{AllowOptions, RandomOptions};
+
+let mut builder = CharacterBuilder::load("assets/packs")?;
+builder.allow(&AllowOptions::preset("fantasy").unwrap());
+let config = builder.random(7, &RandomOptions::default()); // or a stored CharacterConfig
+let character = builder.build(&config, &BuildOptions::default())?;
+let id = world.spawn_animated(character.model, Place::at(0.0, 0.0, 0.0)?)?;
+world.play_animation(id, "idle")?;
+```
+
+The demo puts five random characters in a row (Space: new ones, W: walk):
+
+```bash
+cargo run --release -p actors-engine --example characters -- apps/viewer/public/packs fantasy 1
+```
+
+`actors-engine` is not a default workspace member (it pulls in wgpu, winit and audio; on Linux
+install `libasound2-dev libudev-dev`), so build and test it with `-p actors-engine`. Its tests
+build real characters when `ACTORS_PACKS` points at the packs. Without a display, a screenshot:
+`ENGINE_SCREENSHOT=out.png ENGINE_SCREENSHOT_FRAME=20 xvfb-run -a cargo run ...` (with
+`mesa-vulkan-drivers` and `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json`).
 
 The human and generator tables (races, modifiers, expressions, body types, outfits, themes) are
 exported from the TypeScript sources into `crates/*/data/*.json` by `npx tsx rust/golden/export-data.ts`; don't

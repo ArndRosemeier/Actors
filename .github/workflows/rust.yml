@@ -25,3 +25,20 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+
+  # The Engine adapter is outside default-members (wgpu, winit, ALSA): its own job with the system libraries.
+  engine:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
+      - run: rustup toolchain install stable --profile minimal -c rustfmt,clippy && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: engine
+      - run: cargo clippy -p actors-engine --all-targets -- -D warnings
+      - run: cargo test -p actors-engine
