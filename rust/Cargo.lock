@@ -744,23 +744,29 @@ dependencies = [
 [[package]]
 name = "engine"
 version = "0.1.0"
-source = "git+https://github.com/ArndRosemeier/Engine?rev=d87ef1af8e6708e90051b6616c119fbf75687a76#d87ef1af8e6708e90051b6616c119fbf75687a76"
+source = "git+https://github.com/ArndRosemeier/Engine?branch=main#c51053106dd1bba830bea0aae82bc2d1c18e7269"
 dependencies = [
  "bytemuck",
  "egui",
  "egui-wgpu",
  "egui-winit",
+ "flate2",
  "glam 0.33.12",
  "gltf",
  "image",
+ "libc",
+ "meshopt",
  "noise",
  "pollster",
  "rapier3d",
  "rayon",
  "rodio",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "tiny-skia",
  "wgpu",
+ "windows-sys 0.59.0",
  "winit",
 ]
 
@@ -846,6 +852,15 @@ dependencies = [
  "crc32fast",
  "miniz_oxide 0.9.1",
  "zlib-rs",
+]
+
+[[package]]
+name = "float-cmp"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b09cf3155332e944990140d967ff5eceb70df778b34f77d8075db46e4704e6d8"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]
@@ -1571,6 +1586,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b0ca1155a9ecc25aa12e8313a119f32edf0255fea2f44839c4ac0a12b2ac157"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "meshopt"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a403c16e3ca5752600e1d4c5ba3ba2a6496f407ded66e767f05279514363f461"
+dependencies = [
+ "bitflags 2.13.2",
+ "cc",
+ "float-cmp",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
