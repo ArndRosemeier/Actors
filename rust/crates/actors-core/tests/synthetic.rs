@@ -25,7 +25,7 @@ fn cube_pack() -> MemSource {
 
     let mut blob = Vec::new();
     let put = |bytes: Vec<u8>, count: usize, ty: ScalarType, blob: &mut Vec<u8>| {
-        while blob.len() % 4 != 0 {
+        while !blob.len().is_multiple_of(4) {
             blob.push(0);
         }
         let r = BufferRef { offset: blob.len(), count, ty };

@@ -181,7 +181,7 @@ pub fn apply_bone_scales(
             }
         };
     }
-    for (v, p) in positions.chunks_exact_mut(3).enumerate() {
+    for (v, p) in positions.as_chunks_mut::<3>().0.iter_mut().enumerate() {
         let (x, y, z) = (p[0] as f64, p[1] as f64, p[2] as f64);
         let (mut ox, mut oy, mut oz, mut sw) = (0.0, 0.0, 0.0, 0.0);
         for k in 0..4 {

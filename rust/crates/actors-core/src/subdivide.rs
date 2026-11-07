@@ -227,7 +227,7 @@ pub struct SubdividedMesh {
 /// (a, b, c), (a, c, d). Done at load time instead of shipping the result.
 pub fn subdivide_quad_mesh(map: &[u32], uv: &[f32], indices: &[u32]) -> Result<SubdividedMesh> {
     let mut faces = Vec::with_capacity(indices.len() / 6);
-    for t in indices.chunks_exact(6) {
+    for t in indices.as_chunks::<6>().0.iter() {
         let [a, b, c, a2, c2, d] = [t[0], t[1], t[2], t[3], t[4], t[5]];
         if a != a2 || c != c2 {
             return Err(Error::format("subdivide: triangles are not quad pairs"));

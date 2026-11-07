@@ -12,15 +12,15 @@ fn bytes<'a>(blob: &'a [u8], r: &BufferRef, size: usize, what: &str) -> Result<&
 }
 
 pub fn read_f32(blob: &[u8], r: &BufferRef, what: &str) -> Result<Vec<f32>> {
-    Ok(bytes(blob, r, 4, what)?.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
+    Ok(bytes(blob, r, 4, what)?.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
 }
 
 pub fn read_u32(blob: &[u8], r: &BufferRef, what: &str) -> Result<Vec<u32>> {
-    Ok(bytes(blob, r, 4, what)?.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
+    Ok(bytes(blob, r, 4, what)?.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
 }
 
 pub fn read_u16(blob: &[u8], r: &BufferRef, what: &str) -> Result<Vec<u16>> {
-    Ok(bytes(blob, r, 2, what)?.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect())
+    Ok(bytes(blob, r, 2, what)?.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes([c[0], c[1]])).collect())
 }
 
 /// `count` little-endian f32 values starting at byte `offset`.
@@ -30,7 +30,7 @@ pub fn f32s_at(buf: &[u8], offset: usize, count: usize, what: &str) -> Result<Ve
 
 pub fn i16s_at(buf: &[u8], offset: usize, count: usize, what: &str) -> Result<Vec<i16>> {
     let r = BufferRef { offset, count, ty: crate::format::ScalarType::I16 };
-    Ok(bytes(buf, &r, 2, what)?.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect())
+    Ok(bytes(buf, &r, 2, what)?.as_chunks::<2>().0.iter().map(|c| i16::from_le_bytes([c[0], c[1]])).collect())
 }
 
 pub fn u32s_at(buf: &[u8], offset: usize, count: usize, what: &str) -> Result<Vec<u32>> {

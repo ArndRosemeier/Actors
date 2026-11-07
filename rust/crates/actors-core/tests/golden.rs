@@ -60,7 +60,7 @@ impl Golden {
     fn get(&self, name: &str) -> Vec<f32> {
         let e = self.index.get(name).unwrap_or_else(|| panic!("golden has no {name}"));
         let bytes = std::fs::read(self.dir.join(&e.file)).unwrap();
-        let v: Vec<f32> = bytes.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+        let v: Vec<f32> = bytes.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
         assert_eq!(v.len(), e.length);
         v
     }
@@ -95,7 +95,7 @@ impl Golden {
             self.failures.push(format!("{name}: length {} != {}", actual.len(), expected.len()));
             return;
         }
-        for (i, (a, b)) in actual.chunks_exact(4).zip(expected.chunks_exact(4)).enumerate() {
+        for (i, (a, b)) in actual.as_chunks::<4>().0.iter().zip(expected.as_chunks::<4>().0.iter()).enumerate() {
             let d: f64 = a.iter().zip(b).map(|(x, y)| *x as f64 * *y as f64).sum();
             if 1.0 - d.abs() > tol {
                 self.failures.push(format!("{name}: quaternion {i} differs ({a:?} vs {b:?})"));

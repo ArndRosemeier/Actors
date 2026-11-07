@@ -19,7 +19,7 @@ pub fn compute_normals<'a, T: TriangleList + 'a>(
     let p = |i: usize| positions[i] as f64;
     for list in lists {
         let (indices, map) = (list.indices(), list.map());
-        for t in indices.chunks_exact(3) {
+        for t in indices.as_chunks::<3>().0.iter() {
             let a = map[t[0] as usize] as usize * 3;
             let b = map[t[1] as usize] as usize * 3;
             let c = map[t[2] as usize] as usize * 3;
@@ -39,7 +39,7 @@ pub fn compute_normals<'a, T: TriangleList + 'a>(
 }
 
 pub(crate) fn normalize_all(out: &mut [f32]) {
-    for n in out.chunks_exact_mut(3) {
+    for n in out.as_chunks_mut::<3>().0.iter_mut() {
         let (x, y, z) = (n[0] as f64, n[1] as f64, n[2] as f64);
         let l = (x * x + y * y + z * z).sqrt();
         let l = if l == 0.0 { 1.0 } else { l };
@@ -54,7 +54,7 @@ pub(crate) fn normalize_all(out: &mut [f32]) {
 /// with that outward direction by `k`, so cards light as one mass. Renderers should not flip
 /// these normals on back faces.
 pub fn hair_shell_normals(positions: &[f32], normals: &mut [f32], centre: [f64; 3], k: f64) {
-    for (p, n) in positions.chunks_exact(3).zip(normals.chunks_exact_mut(3)) {
+    for (p, n) in positions.as_chunks::<3>().0.iter().zip(normals.as_chunks_mut::<3>().0.iter_mut()) {
         let mut rx = p[0] as f64 - centre[0];
         let mut ry = p[1] as f64 - centre[1];
         let mut rz = p[2] as f64 - centre[2];

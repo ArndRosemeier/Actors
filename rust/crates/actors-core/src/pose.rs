@@ -17,7 +17,7 @@ impl Pose {
     /// Identity rotations for `bone_count` bones.
     pub fn new(bone_count: usize, root_index: usize) -> Self {
         let mut rotations = vec![0f32; bone_count * 4];
-        for q in rotations.chunks_exact_mut(4) {
+        for q in rotations.as_chunks_mut::<4>().0.iter_mut() {
             q[3] = 1.0;
         }
         Self { rotations, root: [0.0; 3], root_index }
