@@ -11,8 +11,8 @@ release's `actors-packs-<version>.tar.gz`) works in both.
 | `actors-generator` | The same `CharacterConfig` JSON as `@actors/generator`: catalog, outfits, random characters (same seed, same character), themes, allow rules. Port of `@actors/generator` without the renderer. | done |
 | `actors-engine` | Adapter for [Engine](https://github.com/ArndRosemeier/Engine): a `CharacterConfig` becomes an `AnimatedModel` (shaped body, photo skin, hair, clothes in layers, fitted skeleton, baked clips). | done (humans) |
 
-Later: animals, drones, robots and skeletons, race add-ons (horns, tails, tusks, beards), skin
-patterns, iris colours, the GPU face rig.
+Later: animals, drones, robots and skeletons, race add-ons (horns, tails, tusks, beards),
+stubble, fabric shaders, the GPU face rig.
 
 ## Using it
 
