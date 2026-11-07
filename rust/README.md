@@ -83,7 +83,7 @@ The demo puts five random characters in a row (Space: new ones, W: walk):
 cargo run --release -p actors-engine --example characters -- apps/viewer/public/packs fantasy 1
 ```
 
-`actors-engine` is not a default workspace member (it pulls in wgpu, winit and audio; on Linux
+`actors-engine` follows Engine's `main` branch (the lock file pins the commit), so a game on Engine `main` builds one Engine for both; run `cargo update -p engine` to follow it. It is not a default workspace member (it pulls in wgpu, winit and audio; on Linux
 install `libasound2-dev libudev-dev`), so build and test it with `-p actors-engine`. Its tests
 build real characters when `ACTORS_PACKS` points at the packs. Without a display, a screenshot:
 `ENGINE_SCREENSHOT=out.png ENGINE_SCREENSHOT_FRAME=20 xvfb-run -a cargo run ...` (with
