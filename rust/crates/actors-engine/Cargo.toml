@@ -1,0 +1,23 @@
+[package]
+name = "actors-engine"
+description = "Actors characters for ArndRosemeier/Engine: a CharacterConfig becomes an engine AnimatedModel (skinned meshes, textures, clips)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+actors-core.workspace = true
+actors-human.workspace = true
+actors-generator.workspace = true
+indexmap.workspace = true
+# Pinned: the engine has no releases yet. Bump the rev to follow it.
+engine = { git = "https://github.com/ArndRosemeier/Engine", rev = "d87ef1af8e6708e90051b6616c119fbf75687a76" }
+glam = "0.33"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -3,6 +3,8 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+# The Engine adapter pulls in wgpu, winit and audio (ALSA on Linux): build it with -p actors-engine.
+default-members = ["crates/actors-core", "crates/actors-human", "crates/actors-generator"]
 
 [workspace.package]
 edition = "2021"
@@ -16,6 +18,7 @@ unsafe_code = "forbid"
 [workspace.dependencies]
 actors-core = { path = "crates/actors-core" }
 actors-human = { path = "crates/actors-human" }
+actors-generator = { path = "crates/actors-generator" }
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
