@@ -24,14 +24,17 @@
 //!
 //! What the three.js shaders do per pixel is baked into textures here: iris colour, pupil shape
 //! and glowing eyes into the eye texture, and race skin patterns (scales, bark, veins, ...) into
-//! a 1024² skin texture (see [`pattern`]). Not yet carried over from the three.js adapter: robots
-//! and skeletons, generated race add-ons (horns, tails, tusks, beards, leaves), stubble, skin
-//! detail, the patterns' bump and roughness, fabric shaders, and face animation.
+//! a 1024² skin texture (see [`pattern`]). Race add-ons (horns, tusks, tails, beards, leaf hair,
+//! crest) come from `actors_human::parts`; a tail adds six bones (`tail_01`..`tail_06`) that the
+//! clips leave at rest. Not yet carried over from the three.js adapter: robots and skeletons,
+//! stubble, skin detail, the patterns' bump and roughness, fabric shaders, tail sway and face
+//! animation.
 
 pub mod pattern;
 pub mod texture;
 
 use actors_core::format::{MaterialKind, MeshRole};
+use actors_core::parts::{PartBone, PartKind, PartMesh};
 use actors_core::{
     ActorRuntime, ActorShape, DirSource, Error, FittedSkeleton, InPlace, MeshData, Result, RetargetOptions, Retargeter, Weights,
 };
@@ -39,7 +42,7 @@ use actors_generator::{
     allow_catalog, build_catalog, concealed_garments, default_config, height_fit, random_config, sanitize_config, AllowOptions,
     CharacterCatalog, CharacterConfig, Detail, RandomOptions, SeededRandom, SkinKind,
 };
-use actors_human::{expression, shape_modifiers, Human, HumanPack};
+use actors_human::{expression, shape_modifiers, Human, HumanPack, PartsConfig};
 use engine::anim::{AnimatedModel, AnimationClip, JointChannels, QuatTrack, Skeleton, SkinMesh, Vec3Track, MAX_JOINTS};
 use engine::mesh::{AlbedoMap, MaterialMaps};
 use glam::{Mat4, Quat, Vec3, Vec4};
@@ -76,7 +79,8 @@ pub struct CharacterModel {
     pub config: CharacterConfig,
     /// Standing height in meters (after the catalog's height range).
     pub height: f32,
-    /// The meshes drawn, by pack name, in the order of `model.meshes`.
+    /// The meshes drawn, by pack name (then the generated parts: "beard", "horns", "tail", ...),
+    /// in the order of `model.meshes`.
     pub meshes: Vec<String>,
 }
 
@@ -179,6 +183,11 @@ impl CharacterBuilder {
         // Pack shapes are centred on the body; the engine's characters stand on y = 0.
         let lift = -range(&shape).0;
         let patterned = self.patterned_skin(&c, &human, &sk, &shape, &names, lift, skin.as_deref())?;
+        let parts = self.parts(&c, &human, &shape)?;
+        let extra: Vec<PartBone> = parts.iter().flat_map(|p| p.bones.iter().cloned()).collect();
+        if sk.len() + extra.len() > MAX_JOINTS {
+            return Err(Error::Format(format!("{} bones, the engine takes {MAX_JOINTS}", sk.len() + extra.len())));
+        }
         let mut meshes = Vec::with_capacity(names.len());
         for (i, n) in names.iter().enumerate() {
             let md = self.rt.mesh(n).ok_or_else(|| Error::Unknown { kind: "mesh", name: n.clone() })?.clone();
@@ -193,9 +202,31 @@ impl CharacterBuilder {
             meshes.push(skin_mesh(&md, &shape, &hides[i], material, lift, offset)?);
         }
 
-        let clips = self.clips(&sk, &c, options)?;
-        let (skeleton, bind_local) = engine_skeleton(&sk, lift);
-        Ok(CharacterModel { model: AnimatedModel { skeleton, meshes, clips, bind_local }, config: c, height, meshes: names })
+        if !parts.is_empty() {
+            let body = self.rt.mesh(&names[0]).ok_or_else(|| Error::NotLoaded(names[0].clone()))?.clone();
+            let mut skin_mat = self.material(&body, &c, &human, skin.as_deref())?;
+            if let Some((albedo, emit)) = &patterned {
+                skin_mat.albedo = Some(albedo.clone());
+                skin_mat.color = [1.0; 3];
+                skin_mat.emissive = emit.clone().map(|e| (e, PATTERN_EMIT));
+            }
+            let hair_color = self.beard_color(&c);
+            for p in &parts {
+                meshes.push(part_mesh(p, part_material(p, &c, &skin_mat, hair_color), lift));
+            }
+        }
+
+        let mut clips = self.clips(&sk, &c, options)?;
+        for clip in &mut clips {
+            clip.channels.resize_with(sk.len() + extra.len(), Default::default);
+        }
+        let (skeleton, bind_local) = engine_skeleton(&sk, lift, &extra);
+        Ok(CharacterModel {
+            model: AnimatedModel { skeleton, meshes, clips, bind_local },
+            config: c,
+            height,
+            meshes: names.into_iter().chain(parts.into_iter().map(|p| p.name)).collect(),
+        })
     }
 
     /// The skin texture with the race pattern baked in (and its glow), or None without a pattern.
@@ -336,6 +367,39 @@ impl CharacterBuilder {
         }
         out.extend(worn.into_iter().cloned());
         out
+    }
+
+    /// Whether a worn garment hides the hair (hats, hoods, helmets).
+    fn hides_hair(&self, c: &CharacterConfig) -> bool {
+        c.outfit.iter().any(|g| self.catalog.garment(g).is_some_and(|g| g.hides_hair))
+    }
+
+    /// The race add-ons: horns, tusks, tail, beard, leaf hair or crest (see actors_human::parts).
+    fn parts(&mut self, c: &CharacterConfig, human: &Human, shape: &ActorShape) -> Result<Vec<PartMesh>> {
+        let hair = c.hair.as_deref().filter(|h| matches!(*h, "leaves" | "crest") && !self.hides_hair(c)).unwrap_or("none");
+        let horn = texture::parse_hex(c.horn_color.as_deref().unwrap_or("#d9cfb4")).unwrap_or([0.85, 0.81, 0.71]);
+        let cfg = PartsConfig {
+            seed: c.seed,
+            scale: 1.0,
+            horns: c.horns.clone(),
+            horn_size: c.horn_size,
+            horn_color: horn.map(|v| v as f64),
+            tusks: c.tusks,
+            tail: c.tail.clone(),
+            tail_length: c.tail_length,
+            beard: c.beard.clone(),
+            hair: hair.into(),
+        };
+        human.parts(&mut self.rt, shape, &cfg)
+    }
+
+    /// Colour of beards, leaves and furred tails (linear): the hair colour, else the hairstyle's own.
+    fn beard_color(&self, c: &CharacterConfig) -> [f32; 3] {
+        let own = c.hair.as_deref().and_then(|h| self.rt.manifest().meshes.iter().find(|m| m.name == h)).and_then(|m| m.material.color);
+        match c.hair_color.as_deref().and_then(hex_linear) {
+            Some(col) => col,
+            None => own.map(|col| col.map(srgb_to_linear)).or_else(|| hex_linear("#3b2a1e")).unwrap_or([0.04, 0.02, 0.01]),
+        }
     }
 
     fn texture(&mut self, file: &str) -> Result<Arc<AlbedoMap>> {
@@ -535,6 +599,7 @@ pub fn skin_tone_color(tone: f64) -> [f32; 3] {
     })
 }
 
+#[derive(Clone)]
 struct Material {
     /// Linear colour multiplied with the albedo.
     color: [f32; 3],
@@ -660,9 +725,9 @@ fn skin_mesh(md: &MeshData, shape: &ActorShape, hidden: &HashSet<u32>, m: Materi
 
 /// The engine's skeleton and bind pose from a fitted skeleton (bind matrices composed the way the
 /// engine composes them, so the bind pose skins to exactly the shaped mesh).
-fn engine_skeleton(sk: &FittedSkeleton, lift: f32) -> (Skeleton, Vec<(Vec3, Quat, Vec3)>) {
+fn engine_skeleton(sk: &FittedSkeleton, lift: f32, extra: &[PartBone]) -> (Skeleton, Vec<(Vec3, Quat, Vec3)>) {
     let n = sk.len();
-    let bind_local: Vec<(Vec3, Quat, Vec3)> = (0..n)
+    let mut bind_local: Vec<(Vec3, Quat, Vec3)> = (0..n)
         .map(|i| {
             let p = sk.local_positions[i];
             let q = sk.local_rotations[i];
@@ -683,12 +748,69 @@ fn engine_skeleton(sk: &FittedSkeleton, lift: f32) -> (Skeleton, Vec<(Vec3, Quat
             None => local,
         };
     }
+    let mut names = sk.names.clone();
+    let mut parents: Vec<Option<usize>> = (0..n).map(|i| sk.parent(i)).collect();
+    // Part bones (a tail chain): unrotated, at their heads, under their parent.
+    for b in extra {
+        let parent = names.iter().position(|x| *x == b.parent);
+        let world = Mat4::from_translation(Vec3::new(b.head[0], b.head[1] + lift, b.head[2]));
+        let local = parent.map_or(world, |p| global[p].inverse() * world);
+        let (s, r, t) = local.to_scale_rotation_translation();
+        bind_local.push((t, r, s));
+        global.push(world);
+        names.push(b.name.clone());
+        parents.push(parent);
+    }
+    let count = names.len();
     let skeleton = Skeleton {
-        joint_names: sk.names.clone(),
-        parents: (0..n).map(|i| sk.parent(i)).collect(),
+        joint_names: names,
+        parents,
         inverse_bind: global.iter().map(|g| g.inverse()).collect(),
-        joint_node_indices: (0..n).collect(),
-        root_transforms: vec![Mat4::IDENTITY; n],
+        joint_node_indices: (0..count).collect(),
+        root_transforms: vec![Mat4::IDENTITY; count],
     };
     (skeleton, bind_local)
+}
+
+/// The material of a generated part, as the three.js adapter gives each kind.
+fn part_material(p: &PartMesh, c: &CharacterConfig, skin: &Material, hair: [f32; 3]) -> Material {
+    let plain =
+        |color: [f32; 3], roughness: f32| Material { color, albedo: None, normal: None, roughness, double_sided: false, emissive: None };
+    let own = p.color.map(|col| col.map(srgb_to_linear)).unwrap_or([0.3, 0.2, 0.12].map(srgb_to_linear));
+    match p.kind {
+        PartKind::Skin => Material { normal: None, ..skin.clone() },
+        PartKind::Fin => Material { normal: None, double_sided: true, ..skin.clone() },
+        PartKind::Hair => Material { albedo: Some(texture::beard_texture().clone()), double_sided: true, ..plain(hair, 0.55) },
+        PartKind::Leaf => Material { albedo: Some(texture::leaf_texture().clone()), double_sided: true, ..plain(hair, 0.6) },
+        PartKind::Fur => plain(hair, 0.9),
+        PartKind::Tusk => plain(own, 0.35),
+        PartKind::Horn => plain(c.horn_color.as_deref().and_then(hex_linear).unwrap_or(own), 0.45),
+        _ => plain(own, 0.45),
+    }
+}
+
+/// A generated part as an engine mesh. Skin-coloured parts read the body's UVs (v up, like the
+/// pack's); the part textures are laid out with row 0 at v = 0, as Engine reads them.
+fn part_mesh(p: &PartMesh, m: Material, lift: f32) -> SkinMesh {
+    let n = p.positions.len() / 3;
+    let skin = matches!(p.kind, PartKind::Skin | PartKind::Fin);
+    let v3 = |a: &[f32], i: usize| Vec3::new(a[i * 3], a[i * 3 + 1], a[i * 3 + 2]);
+    let shade = |i: usize| if skin { 1.0 } else { p.shade.get(i).copied().unwrap_or(1.0) };
+    let mut maps = MaterialMaps { roughness: m.roughness, metallic: 0.0, ..MaterialMaps::default() };
+    if let Some((e, k)) = m.emissive {
+        maps.emissive = Some(e);
+        maps.emissive_factor = [k; 3];
+    }
+    SkinMesh {
+        positions: (0..n).map(|i| v3(&p.positions, i) + Vec3::Y * lift).collect(),
+        normals: (0..n).map(|i| v3(&p.normals, i).normalize_or_zero()).collect(),
+        colors: (0..n).map(|i| Vec4::new(m.color[0] * shade(i), m.color[1] * shade(i), m.color[2] * shade(i), 1.0)).collect(),
+        uvs: (0..n).map(|i| [p.uvs[i * 2], if skin { 1.0 - p.uvs[i * 2 + 1] } else { p.uvs[i * 2 + 1] }]).collect(),
+        joints: p.joints.as_chunks::<4>().0.to_vec(),
+        weights: p.weights.as_chunks::<4>().0.to_vec(),
+        indices: p.indices.clone(),
+        double_sided: m.double_sided,
+        albedo: m.albedo,
+        maps,
+    }
 }

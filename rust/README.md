@@ -7,12 +7,11 @@ release's `actors-packs-<version>.tar.gz`) works in both.
 | Crate | What it is | Status |
 |---|---|---|
 | `actors-core` | Renderer-free runtime: pack loading, morph targets, shape passes (bone proportions, tips, scale), normals, skeleton fitting, garment fitting, subdivision, LOD, clip retargeting, pose blending. Port of `@actors/core`. | done |
-| `actors-human` | Human sliders, races, body shapes, expressions → target weights. Port of `@actors/human`. | done |
+| `actors-human` | Human sliders, races, body shapes, expressions → target weights; race add-ons (horns, tusks, tails, beards, leaf hair, crest). Port of `@actors/human`. | done |
 | `actors-generator` | The same `CharacterConfig` JSON as `@actors/generator`: catalog, outfits, random characters (same seed, same character), themes, allow rules. Port of `@actors/generator` without the renderer. | done |
 | `actors-engine` | Adapter for [Engine](https://github.com/ArndRosemeier/Engine): a `CharacterConfig` becomes an `AnimatedModel` (shaped body, photo skin, hair, clothes in layers, fitted skeleton, baked clips). | done (humans) |
 
-Later: animals, drones, robots and skeletons, race add-ons (horns, tails, tusks, beards),
-stubble, fabric shaders, the GPU face rig.
+Later: animals, drones, robots and skeletons, stubble, fabric shaders, the GPU face rig.
 
 ## Using it
 
@@ -112,6 +111,7 @@ npm run import:human && npm run import:animals        # or unpack actors-packs i
 npx tsx rust/golden/dump.ts apps/viewer/public/packs /tmp/golden
 npx tsx rust/golden/dump-human.ts apps/viewer/public/packs /tmp/golden   # human sliders, races, deform plans
 npx tsx rust/golden/dump-generator.ts apps/viewer/public/packs /tmp/golden   # catalog, random configs, allow rules
+npx tsx rust/golden/dump-parts.ts apps/viewer/public/packs /tmp/golden       # horns, tusks, tails, beards
 ACTORS_PACKS=apps/viewer/public/packs ACTORS_GOLDEN=/tmp/golden cargo test --manifest-path rust/Cargo.toml
 ```
 

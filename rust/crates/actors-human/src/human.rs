@@ -195,6 +195,38 @@ impl Human {
         rt.evaluate(&self.target_weights()?, Some(&self.shape_options()), fit)
     }
 
+    /// Horns, tusks, tail, beard and procedural hair for a shape from [`Human::evaluate`] (see
+    /// [`crate::parts`]): skinned to the pack skeleton, in the shape's model space. `config.scale`
+    /// is set from the race. Needs the body and eye meshes loaded.
+    pub fn parts(
+        &self,
+        rt: &mut ActorRuntime,
+        shape: &ActorShape,
+        config: &crate::parts::PartsConfig,
+    ) -> Result<Vec<actors_core::parts::PartMesh>> {
+        use crate::parts::{build_parts, has_parts, parts_body};
+        let cfg = crate::parts::PartsConfig { scale: race_scale(&self.race), ..config.clone() };
+        if !has_parts(&cfg) {
+            return Ok(Vec::new());
+        }
+        let masks = &crate::data::data().ear_masks;
+        let resolve = |bare: &str| self.pack.resolver.resolve(bare).map(str::to_string);
+        let (l, r, lip) = (resolve(&masks.l), resolve(&masks.r), resolve("mouth-upperlip-volume-incr"));
+        rt.ensure_targets([&l, &r, &lip].into_iter().flatten())?;
+        let mask = |n: &Option<String>| n.as_deref().map(|n| rt.target_mask(n).map(|m| m.into_owned())).transpose();
+        let (ml, mr, mlip) = (mask(&l)?, mask(&r)?, mask(&lip)?);
+        let ears = match (&ml, &mr) {
+            (Some(a), Some(b)) => Some([a.as_slice(), b.as_slice()]),
+            _ => None,
+        };
+        let body = rt.meshes().iter().find(|m| {
+            m.def.role == actors_core::format::MeshRole::Body && m.stencil.is_none() && m.joints.is_some() && m.weights.is_some()
+        });
+        let eyes = rt.meshes().iter().find(|m| m.def.material.kind == actors_core::format::MaterialKind::Eye && m.stencil.is_none());
+        let (Some(body), Some(eyes)) = (body, eyes) else { return Ok(Vec::new()) };
+        Ok(parts_body(shape, body, eyes, ears, mlip.as_deref()).map_or_else(Vec::new, |b| build_parts(&b, &cfg)))
+    }
+
     /// Surface deltas for face units on top of a shape (an expression, a blink), for GPU morphs.
     pub fn face_delta(&self, rt: &mut ActorRuntime, shape: &ActorShape, units: &UnitWeights, scale: f64) -> Result<SurfaceDelta> {
         let weights = self.face_weights(units, scale);
