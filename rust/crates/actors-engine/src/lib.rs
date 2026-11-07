@@ -23,11 +23,11 @@
 //! offset, so outer garments sit a millimetre or two further out per layer instead.
 //!
 //! What the three.js shaders do per pixel is baked into textures here: iris colour, pupil shape
-//! and glowing eyes into the eye texture, and race skin patterns (scales, bark, veins, ...) into
-//! a 1024² skin texture (see [`pattern`]). Race add-ons (horns, tusks, tails, beards, leaf hair,
-//! crest) come from `actors_human::parts`; a tail adds six bones (`tail_01`..`tail_06`) that the
-//! clips leave at rest. Not yet carried over from the three.js adapter: robots and skeletons,
-//! stubble, skin detail, the patterns' bump and roughness, fabric shaders, tail sway and face
+//! and glowing eyes into the eye texture, race skin patterns (scales, bark, veins, ...) and
+//! painted stubble into a 1024² skin texture (see [`pattern`]). Race add-ons (horns, tusks, tails,
+//! beards, leaf hair, crest) come from `actors_human::parts`; a tail adds six bones
+//! (`tail_01`..`tail_06`) that sway in every clip. Not yet carried over from the three.js adapter:
+//! robots and skeletons, skin detail, the patterns' bump and roughness, fabric shaders and face
 //! animation.
 
 pub mod pattern;
@@ -216,11 +216,12 @@ impl CharacterBuilder {
             }
         }
 
+        let (skeleton, bind_local) = engine_skeleton(&sk, lift, &extra);
         let mut clips = self.clips(&sk, &c, options)?;
         for clip in &mut clips {
             clip.channels.resize_with(sk.len() + extra.len(), Default::default);
+            tail_sway(clip, &extra, sk.len(), &bind_local);
         }
-        let (skeleton, bind_local) = engine_skeleton(&sk, lift, &extra);
         Ok(CharacterModel {
             model: AnimatedModel { skeleton, meshes, clips, bind_local },
             config: c,
@@ -229,7 +230,8 @@ impl CharacterBuilder {
         })
     }
 
-    /// The skin texture with the race pattern baked in (and its glow), or None without a pattern.
+    /// The skin texture with the race pattern and painted stubble baked in (and the pattern's
+    /// glow), or None when there is neither.
     #[allow(clippy::too_many_arguments)]
     fn patterned_skin(
         &mut self,
@@ -241,14 +243,16 @@ impl CharacterBuilder {
         lift: f32,
         photo: Option<&AlbedoMap>,
     ) -> Result<Option<(AlbedoMap, Option<AlbedoMap>)>> {
-        let id = pattern::pattern_id(&c.skin_pattern);
-        if id == 0 || c.pattern_strength <= 0.0 {
+        let id = if c.pattern_strength > 0.0 { pattern::pattern_id(&c.skin_pattern) } else { 0 };
+        let stubble = self.stubble(c, shape, lift);
+        if id == 0 && stubble.is_none() {
             return Ok(None);
         }
         let tone = skin_tone(c);
         let head = sk.names.iter().position(|n| n == "head").map(|i| sk.heads[i]);
         let scale = actors_human::race_scale(&human.race) * human.deform.as_ref().map_or(1.0, |d| d.scale) * human.fit_scale;
         let glow = match c.skin_pattern.as_str() {
+            _ if id == 0 => 0.0,
             "veins" => 0.6 + c.eye_glow as f32 * 0.6,
             "crystals" => 0.4,
             _ => 0.0,
@@ -295,7 +299,7 @@ impl CharacterBuilder {
         let rows = size.div_ceil(threads);
         std::thread::scope(|scope| {
             for ((a, e), r0) in albedo.chunks_mut(rows * size * 4).zip(emit.chunks_mut(rows * size * 4)).zip((0..).step_by(rows)) {
-                let (bind, mask, p) = (&bind, mask.as_deref(), &p);
+                let (bind, mask, p, stubble) = (&bind, mask.as_deref(), &p, &stubble);
                 scope.spawn(move || {
                     for (k, (ap, ep)) in a.as_chunks_mut::<4>().0.iter_mut().zip(e.as_chunks_mut::<4>().0.iter_mut()).enumerate() {
                         let (x, y) = (k % size, r0 + k / size);
@@ -313,7 +317,9 @@ impl CharacterBuilder {
                         let (col, glow) = match bind[y * size + x] {
                             Some(b) => {
                                 let m = mask.map_or([0; 3], |m| sample(m, x, y));
-                                p.apply(base, b, m[0] as f32 / 255.0, m[2] as f32 / 255.0)
+                                let lips = m[0] as f32 / 255.0;
+                                let c = stubble.as_ref().map_or(base, |s| s.apply(base, b, lips));
+                                p.apply(c, b, lips, m[2] as f32 / 255.0)
                             }
                             None => (base, Vec3::ZERO),
                         };
@@ -326,6 +332,32 @@ impl CharacterBuilder {
         });
         let map = |rgba| AlbedoMap { width: size as u32, height: size as u32, rgba };
         Ok(Some((map(albedo), (glow > 0.0).then(|| map(emit)))))
+    }
+
+    /// Painted stubble: the config's, or dense stubble in the region of a generated beard so its
+    /// ragged edge never shows bare skin. None without stubble or eyes to place it.
+    fn stubble(&self, c: &CharacterConfig, shape: &ActorShape, lift: f32) -> Option<pattern::Stubble> {
+        let paint = actors_human::parts::beard_paint(&c.beard);
+        let (amount, region, blur) = match paint {
+            Some((amount, blur)) => (amount.max(c.stubble), actors_human::parts::beard_region(&c.beard), blur),
+            None => (c.stubble, 0, 0.0),
+        };
+        if amount <= 0.0 {
+            return None;
+        }
+        let eyes = self.rt.meshes().iter().find(|m| m.def.material.kind == MaterialKind::Eye && m.stencil.is_none())?;
+        let [l, r] = actors_human::parts::eye_centres(shape, eyes)?;
+        let face = Vec3::new(((l[0] + r[0]) / 2.0) as f32, ((l[1] + r[1]) / 2.0) as f32 + lift, -((l[2] + r[2]) / 2.0) as f32);
+        let eyes = actors_core::math::hypot3(l[0] - r[0], l[1] - r[1], l[2] - r[2]) as f32;
+        Some(pattern::Stubble {
+            amount: amount as f32,
+            region,
+            seed: (c.seed * 31.0) as f32,
+            blur: blur as f32,
+            color: Vec3::from(self.beard_color(c)) * 0.55,
+            face,
+            eyes,
+        })
     }
 
     fn evaluate(&mut self, human: &Human, c: &CharacterConfig, fit: &[&str]) -> Result<ActorShape> {
@@ -770,6 +802,41 @@ fn engine_skeleton(sk: &FittedSkeleton, lift: f32, extra: &[PartBone]) -> (Skele
         root_transforms: vec![Mat4::IDENTITY; count],
     };
     (skeleton, bind_local)
+}
+
+/// Idle sway for tail chains (part bones from index `first`), as in the three.js adapter: a wave
+/// travelling to the tip, stronger toward it, with a slight lift and fall, in whole cycles so
+/// looping clips stay seamless. The chains are unrotated at bind, so the sway turns about the
+/// body's up and side axes.
+fn tail_sway(clip: &mut AnimationClip, extra: &[PartBone], first: usize, bind_local: &[(Vec3, Quat, Vec3)]) {
+    let duration = clip.duration;
+    if duration <= 0.0 {
+        return;
+    }
+    let is_extra = |name: &str| extra.iter().any(|b| b.name == name);
+    for (root, _) in extra.iter().enumerate().filter(|(_, b)| !is_extra(&b.parent)) {
+        let mut chain = vec![root];
+        while let Some(next) = extra.iter().position(|b| b.parent == extra[*chain.last().unwrap()].name) {
+            chain.push(next);
+        }
+        let cycles = (duration / 1.8).round().max(1.0);
+        let steps = (cycles as usize * 24).max(12);
+        let times: Vec<f32> = (0..=steps).map(|i| i as f32 / steps as f32 * duration).collect();
+        for (k, &b) in chain.iter().enumerate() {
+            let k = k as f32;
+            let rest = bind_local[first + b].1;
+            let values = times
+                .iter()
+                .map(|t| {
+                    let ph = t / duration * cycles * std::f32::consts::TAU;
+                    let yaw = Quat::from_axis_angle(Vec3::Y, 0.09 * (0.4 + k * 0.25) * (ph - k * 0.7).sin());
+                    let pitch = Quat::from_axis_angle(Vec3::X, 0.03 * (ph * 2.0 - k * 0.5).sin());
+                    rest * yaw * pitch
+                })
+                .collect();
+            clip.channels[first + b].rotation = Some(QuatTrack { times: times.clone(), values });
+        }
+    }
 }
 
 /// The material of a generated part, as the three.js adapter gives each kind.
