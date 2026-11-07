@@ -1,0 +1,20 @@
+[package]
+name = "actors-human"
+description = "Human sliders, races, body shapes and expressions for Actors packs (Rust port of @actors/human)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+actors-core.workspace = true
+indexmap.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true
