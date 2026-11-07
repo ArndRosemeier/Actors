@@ -230,3 +230,64 @@ pub fn bind_map(size: usize, triangles: impl Iterator<Item = ([[f32; 2]; 3], [Ve
     }
     out
 }
+
+/// Painted stubble on the beard region, as the three.js skin uniforms `uFace`, `uStubble` and
+/// `uStubbleColor` (`GLSL_STUBBLE` in @actors/three).
+#[derive(Clone, Copy, Debug)]
+pub struct Stubble {
+    /// Density: 0..1 stubble, above 1 a painted short beard.
+    pub amount: f32,
+    /// Beard region (see `actors_human::parts::beard_coverage`).
+    pub region: i32,
+    pub seed: f32,
+    /// Outline blur in face units (under a generated beard, so its edge fades out softly).
+    pub blur: f32,
+    /// Hair colour, linear.
+    pub color: Vec3,
+    /// Eye midpoint in pattern space (feet at 0, +Z back).
+    pub face: Vec3,
+    /// Eye distance.
+    pub eyes: f32,
+}
+
+impl Stubble {
+    fn coverage(&self, f: Vec3) -> f32 {
+        actors_human::parts::beard_coverage(self.region, f.x as f64, f.y as f64, f.z as f64) as f32
+    }
+
+    /// The colour (linear) at bind position `bind` with stubble painted on; `lips` is the lip mask.
+    pub fn apply(&self, c: Vec3, bind: Vec3, lips: f32) -> Vec3 {
+        if self.amount <= 0.0 || self.eyes <= 0.0 {
+            return c;
+        }
+        let mut f = (bind - self.face) / self.eyes;
+        f.z = -f.z; // pattern space has +Z back, face coordinates +Z forward
+                    // Cheap reject: the beard never reaches above the eyes or far behind the face.
+        if f.y > 0.3 || f.y < -2.8 || f.x.abs() > 2.0 {
+            return c;
+        }
+        let mut cov = self.coverage(f);
+        if self.blur > 0.0 {
+            let mut acc = cov;
+            for i in 0..8 {
+                let a = i as f32 * std::f32::consts::FRAC_PI_4;
+                acc += self.coverage(f + Vec3::new(a.cos(), a.sin(), 0.0) * self.blur);
+            }
+            cov = acc / 9.0;
+        }
+        cov *= 1.0 - lips;
+        if cov <= 0.0 {
+            return c;
+        }
+        let col = self.color;
+        // Short hairs: fine dots (cut hair ends) over a soft shadow of the hair under the skin.
+        let dots = smoothstep(0.42, 0.68, noise3(f * 160.0 + self.seed * 17.0)) * 0.7 + smoothstep(0.6, 0.8, noise3(f * 310.0 + 3.1)) * 0.3;
+        let shade = cov * self.amount.min(1.0);
+        let mut c = mix3(c, c * mix3(Vec3::ONE, col * 3.0 + 0.25, 0.6), shade * 0.65);
+        c = mix3(c, col, (shade * dots * 1.1).min(1.0));
+        // Above 1: a painted short beard, the skin filled with the hair colour in soft streaks.
+        let fill = cov * (self.amount - 1.0).clamp(0.0, 1.0);
+        let streaks = 0.75 + 0.35 * noise3(f * Vec3::new(30.0, 7.0, 30.0) + self.seed) + 0.2 * noise3(f * Vec3::new(90.0, 20.0, 90.0));
+        mix3(c, col * 2.0 * streaks, fill * (0.85 + 0.15 * dots))
+    }
+}

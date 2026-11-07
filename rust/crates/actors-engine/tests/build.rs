@@ -115,6 +115,33 @@ fn race_patterns_and_eyes_are_baked() {
 }
 
 #[test]
+fn stubble_is_painted_on_the_face() {
+    let Some(packs) = packs() else { return };
+    let mut b = CharacterBuilder::load(&packs).unwrap();
+    let opts = BuildOptions { clips: vec!["idle".into()], ..Default::default() };
+    let mut config = b.default_config();
+    config.body.gender = 1.0;
+    config.stubble = 1.0;
+    let light = b.build(&config, &opts).unwrap();
+    config.beard = "short".into();
+    let painted = b.build(&config, &opts).unwrap();
+    let (a, p) = (light.model.meshes[0].albedo.as_ref().unwrap(), painted.model.meshes[0].albedo.as_ref().unwrap());
+    assert_eq!(a.width, 1024, "baked skin");
+    assert!(light.model.meshes[0].maps.emissive.is_none());
+    // The painted short beard is darker than plain stubble, on the face only.
+    let (mut changed, mut darker) = (0usize, 0usize);
+    for (x, y) in a.rgba.as_chunks::<4>().0.iter().zip(p.rgba.as_chunks::<4>().0) {
+        if x != y {
+            changed += 1;
+            darker += usize::from(y[0] as u32 + y[1] as u32 + y[2] as u32 + 6 < x[0] as u32 + x[1] as u32 + x[2] as u32);
+        }
+    }
+    let total = a.rgba.len() / 4;
+    assert!(changed > 1000 && changed < total / 10, "{changed} of {total} texels changed");
+    assert!(darker * 2 > changed, "{darker} of {changed} darker");
+}
+
+#[test]
 fn race_add_ons_are_built() {
     let Some(packs) = packs() else { return };
     let mut b = CharacterBuilder::load(&packs).unwrap();
@@ -133,5 +160,12 @@ fn race_add_ons_are_built() {
     assert_eq!(joints, plain.model.skeleton.joint_names.len() + 6);
     assert!(c.model.skeleton.joint_names.iter().any(|n| n == "tail_06"));
     assert!(c.model.clips.iter().all(|clip| clip.channels.len() == joints));
+    // The tail sways: its bones have rotation tracks that move.
+    let tip = c.model.skeleton.joint_names.iter().position(|n| n == "tail_06").unwrap();
+    for clip in &c.model.clips {
+        let track = clip.channels[tip].rotation.as_ref().expect("tail sway track");
+        let (first, mid) = (track.values[0], track.values[track.values.len() / 4]);
+        assert!(first.angle_between(mid) > 0.02, "tail moves in {}", clip.name);
+    }
     assert!(c.model.meshes.iter().flat_map(|m| m.joints.iter()).flatten().all(|&j| (j as usize) < joints));
 }
