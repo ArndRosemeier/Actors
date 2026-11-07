@@ -1,0 +1,48 @@
+[
+  {
+    "name": "dwarf-braided",
+    "params": { "gender": 1, "ageYears": 52, "muscle": 0.85, "weight": 0.7 },
+    "race": { "race": "dwarf", "race2": null, "mix": 0, "size": 0.3 },
+    "parts": { "seed": 0.37, "beard": "braided" }
+  },
+  {
+    "name": "orc-tusks-forked",
+    "params": { "gender": 0.9, "ageYears": 30, "muscle": 0.7 },
+    "race": { "race": "orc", "race2": null, "mix": 0, "size": 0.6 },
+    "parts": { "seed": 0.81, "tusks": 0.8, "beard": "forked" }
+  },
+  {
+    "name": "tiefling-ram-tail",
+    "params": { "gender": 0.2, "ageYears": 25 },
+    "race": { "race": "human", "race2": null, "mix": 0, "size": 0.5 },
+    "parts": { "seed": 0.12, "horns": "ram", "hornSize": 0.7, "hornColor": [0.3, 0.2, 0.15], "tail": "thin", "tailLength": 0.8 }
+  },
+  {
+    "name": "drake-crest-reptile",
+    "params": { "gender": 0.7, "ageYears": 40 },
+    "race": { "race": "drakeborn", "race2": null, "mix": 0, "size": 0.5 },
+    "parts": { "seed": 0.55, "hair": "crest", "horns": "swept", "hornSize": 0.5, "tail": "reptile", "tailLength": 0.6 }
+  },
+  {
+    "name": "sylvan-leaves-antler",
+    "params": { "gender": 0.3, "ageYears": 33 },
+    "race": { "race": "elf", "race2": null, "mix": 0, "size": 0.5 },
+    "parts": { "seed": 0.93, "hair": "leaves", "horns": "antler", "hornSize": 0.6, "beard": "mustache" }
+  },
+  {
+    "name": "giant-crown-long",
+    "params": { "gender": 1, "ageYears": 60 },
+    "race": { "race": "giantkin", "race2": null, "mix": 0, "size": 1 },
+    "parts": { "seed": 0.21, "horns": "crown", "hornSize": 0.9, "beard": "long", "tail": "furred", "tailLength": 0.5 }
+  },
+  {
+    "name": "goatee-straight",
+    "params": { "gender": 0.8, "ageYears": 45 },
+    "parts": { "seed": 0.66, "horns": "straight", "hornSize": 0.4, "beard": "goatee" }
+  },
+  {
+    "name": "mutton",
+    "params": { "gender": 1, "ageYears": 35 },
+    "parts": { "seed": 0.05, "beard": "mutton" }
+  }
+]

@@ -68,7 +68,8 @@ jobs:
           npx tsx rust/golden/dump.ts apps/viewer/public/packs "$RUNNER_TEMP/golden"
           npx tsx rust/golden/dump-human.ts apps/viewer/public/packs "$RUNNER_TEMP/golden"
           npx tsx rust/golden/dump-generator.ts apps/viewer/public/packs "$RUNNER_TEMP/golden"
-          ACTORS_PACKS=apps/viewer/public/packs ACTORS_GOLDEN="$RUNNER_TEMP/golden" cargo test --manifest-path rust/Cargo.toml --test golden -- --nocapture
+          npx tsx rust/golden/dump-parts.ts apps/viewer/public/packs "$RUNNER_TEMP/golden"
+          ACTORS_PACKS=apps/viewer/public/packs ACTORS_GOLDEN="$RUNNER_TEMP/golden" cargo test --manifest-path rust/Cargo.toml --test golden --test parts -- --nocapture
       - run: npm run build
       # A fresh Vite + TypeScript app installs the package tarballs, typechecks and builds.
       - run: npm run check:consumer

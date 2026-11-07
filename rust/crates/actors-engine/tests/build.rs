@@ -113,3 +113,25 @@ fn race_patterns_and_eyes_are_baked() {
     let plain = b.build(&b.default_config(), &BuildOptions { clips: vec!["idle".into()], ..Default::default() }).unwrap();
     assert!(plain.model.meshes[0].maps.emissive.is_none());
 }
+
+#[test]
+fn race_add_ons_are_built() {
+    let Some(packs) = packs() else { return };
+    let mut b = CharacterBuilder::load(&packs).unwrap();
+    let mut config = b.default_config();
+    config.horns = "ram".into();
+    config.horn_size = 0.8;
+    config.tusks = 0.6;
+    config.beard = "full".into();
+    config.tail = "reptile".into();
+    config.tail_length = 0.7;
+    let plain = b.build(&b.default_config(), &BuildOptions { clips: vec!["idle".into()], ..Default::default() }).unwrap();
+    let c = b.build(&config, &BuildOptions { clips: vec!["idle".into()], ..Default::default() }).unwrap();
+    // Beard, horns, tusks and tail are four more meshes, the tail six more bones.
+    assert_eq!(c.model.meshes.len(), plain.model.meshes.len() + 4);
+    let joints = c.model.skeleton.joint_names.len();
+    assert_eq!(joints, plain.model.skeleton.joint_names.len() + 6);
+    assert!(c.model.skeleton.joint_names.iter().any(|n| n == "tail_06"));
+    assert!(c.model.clips.iter().all(|clip| clip.channels.len() == joints));
+    assert!(c.model.meshes.iter().flat_map(|m| m.joints.iter()).flatten().all(|&j| (j as usize) < joints));
+}
