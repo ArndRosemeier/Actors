@@ -92,3 +92,24 @@ fn characters_stand_on_the_ground() {
     let low = c.model.meshes.iter().flat_map(|m| m.positions.iter().map(|p| p.y)).fold(f32::MAX, f32::min);
     assert!(low.abs() < 0.01, "lowest point at {low} m, expected the ground");
 }
+
+#[test]
+fn race_patterns_and_eyes_are_baked() {
+    let Some(packs) = packs() else { return };
+    let mut b = CharacterBuilder::load(&packs).unwrap();
+    let mut config = b.default_config();
+    config.skin_pattern = "veins".into();
+    config.pattern_strength = 1.0;
+    config.eye_glow = 1.0;
+    config.pupil = "slit".into();
+    config.eye_color = Some("#40c040".into());
+    let c = b.build(&config, &BuildOptions { clips: vec!["idle".into()], ..Default::default() }).unwrap();
+    let mesh = |n: &str| &c.model.meshes[c.meshes.iter().position(|m| m == n).unwrap()];
+    let body = mesh(&c.meshes[0]);
+    assert_eq!(body.albedo.as_ref().map(|a| a.width), Some(1024), "patterned skin");
+    assert!(body.maps.emissive.is_some(), "veins glow");
+    assert!(mesh("eyes").maps.emissive.is_some(), "eyes glow");
+    // Without a pattern the photo skin stays as it is.
+    let plain = b.build(&b.default_config(), &BuildOptions { clips: vec!["idle".into()], ..Default::default() }).unwrap();
+    assert!(plain.model.meshes[0].maps.emissive.is_none());
+}

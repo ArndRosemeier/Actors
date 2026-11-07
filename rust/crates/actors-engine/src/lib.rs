@@ -20,10 +20,15 @@
 //!
 //! What is baked is a snapshot: change the config and build again (about 0.3 to 0.6 s in a
 //! release build with three clips; build on a worker thread in a game). The engine has no polygon
-//! offset, so outer garments sit a millimetre or two further out per layer instead. Not yet carried over from the three.js adapter: robots and
-//! skeletons, generated race add-ons (horns, tails, tusks, beards, leaves), the skin shader's
-//! patterns, stubble and detail, iris colours, and face animation.
+//! offset, so outer garments sit a millimetre or two further out per layer instead.
+//!
+//! What the three.js shaders do per pixel is baked into textures here: iris colour, pupil shape
+//! and glowing eyes into the eye texture, and race skin patterns (scales, bark, veins, ...) into
+//! a 1024² skin texture (see [`pattern`]). Not yet carried over from the three.js adapter: robots
+//! and skeletons, generated race add-ons (horns, tails, tusks, beards, leaves), stubble, skin
+//! detail, the patterns' bump and roughness, fabric shaders, and face animation.
 
+pub mod pattern;
 pub mod texture;
 
 use actors_core::format::{MaterialKind, MeshRole};
@@ -83,7 +88,11 @@ pub struct CharacterBuilder {
     catalog: CharacterCatalog,
     known: HashMap<String, f64>,
     textures: HashMap<String, Arc<AlbedoMap>>,
+    /// Baked eyes (iris colour, pupil, glow) by look.
+    eyes: HashMap<String, EyeMaps>,
 }
+
+type EyeMaps = (Arc<AlbedoMap>, Option<Arc<AlbedoMap>>);
 
 impl CharacterBuilder {
     /// Loads `<packs>/human/manifest.json` (packs from `npm run import:human` or a release's
@@ -100,7 +109,7 @@ impl CharacterBuilder {
         full.robot = None;
         full.skeletal = None;
         let known = pack.extra.modifiers.iter().map(|m| (m.id.clone(), if m.negative.is_empty() { 0.0 } else { -1.0 })).collect();
-        Ok(Self { rt, pack, catalog: full.clone(), full, known, textures: HashMap::new() })
+        Ok(Self { rt, pack, catalog: full.clone(), full, known, textures: HashMap::new(), eyes: HashMap::new() })
     }
 
     /// What can be built (after [`Self::allow`]).
@@ -169,10 +178,16 @@ impl CharacterBuilder {
             order.iter().map(|&mine| covers.iter().filter(|(o, _)| *o > mine).flat_map(|(_, h)| h.iter().copied()).collect()).collect();
         // Pack shapes are centred on the body; the engine's characters stand on y = 0.
         let lift = -range(&shape).0;
+        let patterned = self.patterned_skin(&c, &human, &sk, &shape, &names, lift, skin.as_deref())?;
         let mut meshes = Vec::with_capacity(names.len());
         for (i, n) in names.iter().enumerate() {
             let md = self.rt.mesh(n).ok_or_else(|| Error::Unknown { kind: "mesh", name: n.clone() })?.clone();
-            let material = self.material(&md, &c, &human, skin.as_deref())?;
+            let mut material = self.material(&md, &c, &human, skin.as_deref())?;
+            if let (MaterialKind::Skin, Some((albedo, emit))) = (md.def.material.kind, &patterned) {
+                material.albedo = Some(albedo.clone());
+                material.color = [1.0; 3];
+                material.emissive = emit.clone().map(|e| (e, PATTERN_EMIT));
+            }
             // The engine has no polygon offset: outer layers sit a little further out instead.
             let offset = if md.def.material.kind == MaterialKind::Cloth { order[i] * LAYER_GAP } else { 0.0 };
             meshes.push(skin_mesh(&md, &shape, &hides[i], material, lift, offset)?);
@@ -181,6 +196,105 @@ impl CharacterBuilder {
         let clips = self.clips(&sk, &c, options)?;
         let (skeleton, bind_local) = engine_skeleton(&sk, lift);
         Ok(CharacterModel { model: AnimatedModel { skeleton, meshes, clips, bind_local }, config: c, height, meshes: names })
+    }
+
+    /// The skin texture with the race pattern baked in (and its glow), or None without a pattern.
+    #[allow(clippy::too_many_arguments)]
+    fn patterned_skin(
+        &mut self,
+        c: &CharacterConfig,
+        human: &Human,
+        sk: &FittedSkeleton,
+        shape: &ActorShape,
+        names: &[String],
+        lift: f32,
+        photo: Option<&AlbedoMap>,
+    ) -> Result<Option<(AlbedoMap, Option<AlbedoMap>)>> {
+        let id = pattern::pattern_id(&c.skin_pattern);
+        if id == 0 || c.pattern_strength <= 0.0 {
+            return Ok(None);
+        }
+        let tone = skin_tone(c);
+        let head = sk.names.iter().position(|n| n == "head").map(|i| sk.heads[i]);
+        let scale = actors_human::race_scale(&human.race) * human.deform.as_ref().map_or(1.0, |d| d.scale) * human.fit_scale;
+        let glow = match c.skin_pattern.as_str() {
+            "veins" => 0.6 + c.eye_glow as f32 * 0.6,
+            "crystals" => 0.4,
+            _ => 0.0,
+        };
+        let p = pattern::Pattern {
+            id,
+            strength: c.pattern_strength as f32,
+            seed: (c.seed * 97.0) as f32,
+            glow,
+            accent: Vec3::from(c.pattern_color.as_deref().and_then(hex_linear).unwrap_or(tone.map(|v| v * 0.3))),
+            scale: scale as f32,
+            head: head.map_or([1.55, 0.0], |h| [h[1] as f32 + lift, -h[2] as f32]),
+        };
+        // Bind-pose positions of the skin meshes' texels (feet at 0, +Z back, as the shader's vBind).
+        let mut tris = Vec::new();
+        for n in names {
+            let Some(md) = self.rt.mesh(n).filter(|m| m.def.material.kind == MaterialKind::Skin) else { continue };
+            let Some((pos, _)) = shape.source_of(md) else { continue };
+            let at = |v: u32| {
+                let s = md.map[v as usize] as usize * 3;
+                Vec3::new(pos[s], pos[s + 1] + lift, -pos[s + 2])
+            };
+            let uv = |v: u32| [md.uv[v as usize * 2], md.uv[v as usize * 2 + 1]];
+            for t in md.indices.as_chunks::<3>().0 {
+                tris.push((t.map(uv), t.map(at)));
+            }
+        }
+        let bind = pattern::bind_map(PATTERN_SIZE, tris.into_iter());
+        let mask = match self.rt.mesh(&names[0]).and_then(|m| m.def.textures.as_ref()).and_then(|t| t.get("maskA")).cloned() {
+            Some(f) => Some(self.texture(&f)?),
+            None => None,
+        };
+        let tint = photo.map(|_| photo_tint(c, human));
+        let size = PATTERN_SIZE;
+        // Point sample of a map at a texel of the pattern grid (maps are 2048 or any size).
+        let sample = |m: &AlbedoMap, x: usize, y: usize| {
+            let (mx, my) = (x * m.width as usize / size, y * m.height as usize / size);
+            let i = (my * m.width as usize + mx) * 4;
+            [m.rgba[i], m.rgba[i + 1], m.rgba[i + 2]]
+        };
+        let mut albedo = vec![0u8; size * size * 4];
+        let mut emit = vec![0u8; size * size * 4];
+        let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).min(16);
+        let rows = size.div_ceil(threads);
+        std::thread::scope(|scope| {
+            for ((a, e), r0) in albedo.chunks_mut(rows * size * 4).zip(emit.chunks_mut(rows * size * 4)).zip((0..).step_by(rows)) {
+                let (bind, mask, p) = (&bind, mask.as_deref(), &p);
+                scope.spawn(move || {
+                    for (k, (ap, ep)) in a.as_chunks_mut::<4>().0.iter_mut().zip(e.as_chunks_mut::<4>().0.iter_mut()).enumerate() {
+                        let (x, y) = (k % size, r0 + k / size);
+                        let base = match (photo, tint) {
+                            (Some(ph), Some(t)) => {
+                                let px = sample(ph, x, y);
+                                Vec3::new(
+                                    texture::byte_to_linear(px[0]) * t[0],
+                                    texture::byte_to_linear(px[1]) * t[1],
+                                    texture::byte_to_linear(px[2]) * t[2],
+                                )
+                            }
+                            _ => Vec3::from(tone),
+                        };
+                        let (col, glow) = match bind[y * size + x] {
+                            Some(b) => {
+                                let m = mask.map_or([0; 3], |m| sample(m, x, y));
+                                p.apply(base, b, m[0] as f32 / 255.0, m[2] as f32 / 255.0)
+                            }
+                            None => (base, Vec3::ZERO),
+                        };
+                        *ap = [texture::linear_to_byte(col.x), texture::linear_to_byte(col.y), texture::linear_to_byte(col.z), 255];
+                        let g = glow / PATTERN_EMIT;
+                        *ep = [texture::linear_to_byte(g.x), texture::linear_to_byte(g.y), texture::linear_to_byte(g.z), 255];
+                    }
+                });
+            }
+        });
+        let map = |rgba| AlbedoMap { width: size as u32, height: size as u32, rgba };
+        Ok(Some((map(albedo), (glow > 0.0).then(|| map(emit)))))
     }
 
     fn evaluate(&mut self, human: &Human, c: &CharacterConfig, fit: &[&str]) -> Result<ActorShape> {
@@ -263,23 +377,23 @@ impl CharacterBuilder {
     fn material(&mut self, md: &MeshData, c: &CharacterConfig, human: &Human, skin: Option<&AlbedoMap>) -> Result<Material> {
         let def = &md.def;
         let hint_lin = def.material.color.map(|col| col.map(srgb_to_linear));
-        let mut m =
-            Material { color: [1.0; 3], albedo: None, normal: None, roughness: def.material.roughness.unwrap_or(0.6), double_sided: false };
+        let mut m = Material {
+            color: [1.0; 3],
+            albedo: None,
+            normal: None,
+            roughness: def.material.roughness.unwrap_or(0.6),
+            double_sided: false,
+            emissive: None,
+        };
         let tex = def.textures.as_ref();
         match def.material.kind {
-            MaterialKind::Skin => {
-                match skin {
-                    Some(s) => {
-                        m.albedo = Some(s.clone());
-                        // A custom skin colour scales the photo's channels so its mean becomes that colour.
-                        if let (Some(custom), Some(tone)) = (c.skin_color.as_deref().and_then(hex_linear), human.skin_texture_tone(3)) {
-                            let tone = tone.map(|v| srgb_to_linear(v as f32));
-                            m.color = [0, 1, 2].map(|i| custom[i] / tone[i].max(1e-3));
-                        }
-                    }
-                    None => m.color = c.skin_color.as_deref().and_then(hex_linear).unwrap_or_else(|| skin_tone_color(c.skin_tone)),
+            MaterialKind::Skin => match skin {
+                Some(s) => {
+                    m.albedo = Some(s.clone());
+                    m.color = photo_tint(c, human);
                 }
-            }
+                None => m.color = skin_tone(c),
+            },
             MaterialKind::Hair => {
                 m.double_sided = true;
                 match tex.and_then(|t| t.get("color")) {
@@ -312,6 +426,29 @@ impl CharacterBuilder {
                 if let Some(file) = tex.and_then(|t| t.get("normal")) {
                     m.normal = Some((*self.texture(file)?).clone());
                 }
+            }
+            MaterialKind::Eye if tex.is_some_and(|t| t.contains_key("color")) => {
+                let file = &tex.unwrap()["color"];
+                let photo = self.texture(file)?;
+                let iris = c.eye_color.as_deref().and_then(texture::iris_from_hex).or_else(|| texture::iris_preset(&c.eyes));
+                let glow = c.eye_glow as f32;
+                let pupil = texture::pupil_shape(&c.pupil);
+                let key = format!("{file}|{iris:?}|{pupil}|{glow}");
+                let (albedo, emit) = match self.eyes.get(&key) {
+                    Some(e) => e.clone(),
+                    None => {
+                        let (a, e) = texture::eye(&photo, iris, pupil, glow);
+                        let baked = (Arc::new(a), e.map(Arc::new));
+                        // A few looks at most: a crowd shares a handful of eye colours.
+                        if self.eyes.len() > 32 {
+                            self.eyes.clear();
+                        }
+                        self.eyes.insert(key, baked.clone());
+                        baked
+                    }
+                };
+                m.albedo = Some((*albedo).clone());
+                m.emissive = emit.map(|e| ((*e).clone(), glow * 2.5));
             }
             MaterialKind::Eye | MaterialKind::Teeth | MaterialKind::Mouth => {
                 if let Some(file) = tex.and_then(|t| t.get("color")) {
@@ -365,6 +502,28 @@ impl CharacterBuilder {
 }
 
 /// The procedural skin colour for `skin_tone` (0 = light .. 1 = dark), linear.
+/// The skin colour (linear): the custom colour, else the tone slider's.
+fn skin_tone(c: &CharacterConfig) -> [f32; 3] {
+    c.skin_color.as_deref().and_then(hex_linear).unwrap_or_else(|| skin_tone_color(c.skin_tone))
+}
+
+/// A custom skin colour scales the photo skin's channels so its mean becomes that colour.
+fn photo_tint(c: &CharacterConfig, human: &Human) -> [f32; 3] {
+    match (c.skin_color.as_deref().and_then(hex_linear), human.skin_texture_tone(3)) {
+        (Some(custom), Some(tone)) => {
+            let tone = tone.map(|v| srgb_to_linear(v as f32));
+            [0, 1, 2].map(|i| custom[i] / tone[i].max(1e-3))
+        }
+        _ => [1.0; 3],
+    }
+}
+
+/// Emissive strength of baked pattern glow (the map holds half the emitted light).
+const PATTERN_EMIT: f32 = 2.0;
+
+/// Texels per side of a patterned skin.
+const PATTERN_SIZE: usize = 1024;
+
 pub fn skin_tone_color(tone: f64) -> [f32; 3] {
     const TONES: [[f32; 3]; 4] = [[0.93, 0.76, 0.66], [0.78, 0.57, 0.43], [0.5, 0.33, 0.22], [0.25, 0.15, 0.1]];
     let f = tone.clamp(0.0, 1.0) as f32 * 3.0;
@@ -383,6 +542,8 @@ struct Material {
     normal: Option<AlbedoMap>,
     roughness: f32,
     double_sided: bool,
+    /// Emitted colour (sRGB) and its linear strength: glowing eyes.
+    emissive: Option<(AlbedoMap, f32)>,
 }
 
 /// Lowest and highest point of the visible body (the base mesh also holds helper geometry, such
@@ -444,7 +605,7 @@ fn skin_mesh(md: &MeshData, shape: &ActorShape, hidden: &HashSet<u32>, m: Materi
     };
     let normals: Vec<Vec3> = md.map.iter().map(|&s| at(nrm, s).normalize_or_zero()).collect();
     let positions: Vec<Vec3> = md.map.iter().zip(&normals).map(|(&s, n)| at(pos, s) + Vec3::Y * lift + *n * offset).collect();
-    let uvs: Vec<[f32; 2]> = (0..n).map(|i| md.uv.get(i * 2..i * 2 + 2).map_or([0.0, 0.0], |u| [u[0], u[1]])).collect();
+    let uvs: Vec<[f32; 2]> = (0..n).map(|i| md.uv.get(i * 2..i * 2 + 2).map_or([0.0, 0.0], |u| [u[0], 1.0 - u[1]])).collect();
     let joints: Vec<[u16; 4]> = match &md.joints {
         Some(j) => j.as_chunks::<4>().0.iter().map(|j| [j[0], j[1], j[2], j[3]]).collect(),
         None => vec![[0; 4]; n],
@@ -477,6 +638,10 @@ fn skin_mesh(md: &MeshData, shape: &ActorShape, hidden: &HashSet<u32>, m: Materi
         .collect();
     let color = Vec4::new(m.color[0], m.color[1], m.color[2], 1.0);
     let mut maps = MaterialMaps { normal: m.normal, ..MaterialMaps::default() };
+    if let Some((e, k)) = m.emissive {
+        maps.emissive = Some(e);
+        maps.emissive_factor = [k; 3];
+    }
     maps.roughness = m.roughness;
     maps.metallic = 0.0;
     Ok(SkinMesh {
