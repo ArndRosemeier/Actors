@@ -98,7 +98,7 @@ function mailHeight(x: number, y: number, size: number): number {
 }
 
 /** Fabrics drawn as metal (armour). */
-export const METAL_FABRICS: Record<string, number> = { mail: 0.8, plate: 0.85 };
+export const METAL_FABRICS: Record<string, number> = { mail: 0.8, plate: 0.85, gem: 0.9 };
 
 const fabricCache = new Map<string, THREE.DataTexture>();
 /** Weave/knit normal maps for garments. */
@@ -128,6 +128,13 @@ export function fabricNormalMap(kind: string): THREE.DataTexture {
         value = Math.sqrt(Math.min(1, Math.min(0.5 - a, 0.5 - b) * 6));
       } else if (kind === "mail") {
         value = mailHeight(x, y, size);
+      } else if (kind === "fur") {
+        // Short dense pile: fine vertical streaks.
+        value = noise[(y * 3 % size) * size + (x * 13 % size)];
+      } else if (kind === "pearl" || kind === "gem" || kind === "feather") {
+        // Polished (jewellery) or drawn by its texture (feathers): no weave.
+        h[y * size + x] = 0.5;
+        continue;
       } else if (kind === "leather") {
         value = 0.5 + (noise[(y * 7 % size) * size + (x * 7 % size)] - 0.5) * 0.8;
       } else {

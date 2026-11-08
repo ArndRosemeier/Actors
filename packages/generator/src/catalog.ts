@@ -1,6 +1,7 @@
 import type { DeformSpec } from "@actors/core";
 import { raceParts, randomRaceLook } from "./racelook";
 import { FUTURE_OUTFITS } from "./future-outfits";
+import { GOLDEN_AGE_OUTFITS } from "./golden-age-outfits";
 import { MEDIEVAL_OUTFITS } from "./medieval-outfits";
 import { GARMENT_THEMES, HAIR_THEMES, RACE_THEMES } from "./themes";
 import { ADULT_MIN_AGE, DEFAULT_PARAMS, DEFAULT_ROBOT, DEFAULT_SKELETAL, type SkeletalConfig, sanitizeSkeletal, ROBOT_EARS, ROBOT_HEADS, ROBOT_PLATING, type RobotConfig, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type BeardStyle, type HornStyle, type PupilShape, RACES, RACE_IDS, RACE_STYLES, type RaceId, SHAPE_SLIDERS, type SkinPattern, type TailStyle } from "@actors/human";
@@ -396,6 +397,7 @@ export const OUTFITS: OutfitPreset[] = [
   { id: "monk", label: "Monk robe", garments: ["briefs", "monk-robe", "monk-hood"] },
   { id: "viking", label: "Viking", garments: ["briefs", "viking-tunic", "viking-pants", "viking-boots"], gender: "male" },
   { id: "antique", label: "Mycenaean tunic", garments: ["briefs", "tunic", "t-bar-shoes"] },
+  ...GOLDEN_AGE_OUTFITS,
   ...MEDIEVAL_OUTFITS,
   // Fantasy
   { id: "warlord", label: "Dark warlord", garments: ["briefs", "viking-tunic", "viking-pants", "viking-boots", "gauntlet-gloves", "dark-horned-helmet"], gender: "male", colors: { "viking-tunic": "#2a2a2e", "gauntlet-gloves": "#1c1c1f" } },
