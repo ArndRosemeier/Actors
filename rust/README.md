@@ -6,12 +6,12 @@ release's `actors-packs-<version>.tar.gz`) works in both.
 
 | Crate | What it is | Status |
 |---|---|---|
-| `actors-core` | Renderer-free runtime: pack loading, morph targets, shape passes (bone proportions, tips, scale), normals, skeleton fitting, garment fitting, subdivision, LOD, clip retargeting, pose blending. Port of `@actors/core`. | done |
+| `actors-core` | Renderer-free runtime: pack loading, morph targets, face rig, shape passes (bone proportions, tips, scale), normals, skeleton fitting, garment fitting, subdivision, LOD, clip retargeting, pose blending. Port of `@actors/core`. | done |
 | `actors-human` | Human sliders, races, body shapes, expressions → target weights; race add-ons (horns, tusks, tails, beards, leaf hair, crest). Port of `@actors/human`. | done |
 | `actors-generator` | The same `CharacterConfig` JSON as `@actors/generator`: catalog, outfits, random characters (same seed, same character), themes, allow rules. Port of `@actors/generator` without the renderer. | done |
-| `actors-engine` | Adapter for [Engine](https://github.com/ArndRosemeier/Engine): a `CharacterConfig` becomes an `AnimatedModel` (shaped body, photo skin, race patterns and stubble, race add-ons, hair, clothes in layers, fitted skeleton, baked clips with tail sway). | done (humans) |
+| `actors-engine` | Adapter for [Engine](https://github.com/ArndRosemeier/Engine): a `CharacterConfig` becomes an `AnimatedModel` (shaped body, photo skin, race patterns and stubble, race add-ons, hair, clothes in layers, fitted skeleton, baked clips with tail sway, animated faces as morph targets). | done (humans) |
 
-Later: animals, drones, robots and skeletons, fabric shaders, the GPU face rig.
+Later: animals, drones, robots and skeletons, fabric shaders, gaze and wrinkles.
 
 ## Using it
 

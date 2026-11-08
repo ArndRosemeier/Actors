@@ -227,6 +227,26 @@ impl Human {
         Ok(parts_body(shape, body, eyes, ears, mlip.as_deref()).map_or_else(Vec::new, |b| build_parts(&b, &cfg)))
     }
 
+    /// A face rig for a shape from [`Human::evaluate`]: every face unit of the pack as its own
+    /// morph target (see [`actors_core::face_rig`]), in [`HumanPack::face_units`] order. Covers
+    /// the meshes that follow the face and are loaded.
+    pub fn face_rig(&self, rt: &mut ActorRuntime, shape: &ActorShape) -> Result<actors_core::face_rig::FaceRig> {
+        use actors_core::runtime::{face_space, follows_face};
+        let units: Vec<(String, Weights)> = self
+            .pack
+            .face_units()
+            .iter()
+            .map(|u| {
+                let one: UnitWeights = [(u.clone(), 1.0)].into_iter().collect();
+                (u.clone(), self.face_weights(&one, 1.0))
+            })
+            .collect();
+        rt.ensure_targets(units.iter().flat_map(|(_, w)| w.keys()))?;
+        let spaces: HashSet<String> =
+            rt.meshes().iter().filter(|m| follows_face(&m.def)).map(face_space).filter(|s| !s.is_empty()).collect();
+        actors_core::face_rig::build_face_rig(rt, shape, &units, Some(&spaces))
+    }
+
     /// Surface deltas for face units on top of a shape (an expression, a blink), for GPU morphs.
     pub fn face_delta(&self, rt: &mut ActorRuntime, shape: &ActorShape, units: &UnitWeights, scale: f64) -> Result<SurfaceDelta> {
         let weights = self.face_weights(units, scale);

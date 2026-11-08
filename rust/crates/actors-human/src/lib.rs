@@ -25,6 +25,7 @@
 
 mod data;
 pub mod expressions;
+pub mod face_animator;
 pub mod human;
 pub mod macros;
 pub mod modifiers;
@@ -37,6 +38,7 @@ pub mod skins;
 
 pub use data::{data as tables, HumanData, UnitWeights};
 pub use expressions::{blink, expression, expression_target_weights, wrinkle_weights};
+pub use face_animator::{text_to_visemes, FaceAnimator, FaceAnimatorOptions, FaceFrame, VisemeKey, VISEMES};
 pub use human::{GarmentInfo, Human, HumanExtra, HumanPack};
 pub use params::{HumanParams, ADULT_MIN_AGE, MAX_AGE};
 pub use parts::{build_parts, has_parts, parts_body, PartsBody, PartsConfig};

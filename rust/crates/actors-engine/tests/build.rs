@@ -142,6 +142,35 @@ fn stubble_is_painted_on_the_face() {
 }
 
 #[test]
+fn animated_faces_are_morph_targets() {
+    let Some(packs) = packs() else { return };
+    let mut b = CharacterBuilder::load(&packs).unwrap();
+    let opts = BuildOptions { clips: vec!["idle".into()], ..Default::default() };
+    let mut config = b.default_config();
+    config.face_animation = true;
+    config.expression = "smile".into();
+    let c = b.build(&config, &opts).unwrap();
+    let face = c.face.as_ref().expect("a face");
+    assert_eq!(c.model.morph_targets, face.units);
+    assert!(face.units.len() > 20 && face.units.len() <= engine::anim::MAX_MORPH_TARGETS);
+    let mesh = |n: &str| &c.model.meshes[c.meshes.iter().position(|m| m == n).unwrap()];
+    // The body moves with every unit; lashes and brows follow the lids and brows.
+    assert_eq!(mesh(&c.meshes[0]).morphs.len(), face.units.len());
+    assert!(!mesh("eyelashes").morphs.is_empty());
+    assert!(face.expression[face.unit("mouth-corner-puller").unwrap()] > 0.0, "smile as resting weights");
+    // The engine takes it, and a driver blinks over the expression.
+    engine::anim::Animator::new(std::sync::Arc::new(c.model.clone())).unwrap();
+    let mut driver = actors_engine::FaceDriver::new(face, Default::default());
+    let lid = face.unit("eye-left-closure").unwrap();
+    let closed = (0..400).map(|_| driver.update(1.0 / 60.0)[lid]).fold(0.0f32, f32::max);
+    assert!(closed > 0.5, "blinks: {closed}");
+    // Without face animation the expression is baked and there are no morphs.
+    config.face_animation = false;
+    let baked = b.build(&config, &opts).unwrap();
+    assert!(baked.face.is_none() && baked.model.morph_targets.is_empty());
+}
+
+#[test]
 fn race_add_ons_are_built() {
     let Some(packs) = packs() else { return };
     let mut b = CharacterBuilder::load(&packs).unwrap();
