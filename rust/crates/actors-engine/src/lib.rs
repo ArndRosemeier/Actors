@@ -26,9 +26,16 @@
 //! and glowing eyes into the eye texture, race skin patterns (scales, bark, veins, ...) and
 //! painted stubble into a 1024² skin texture (see [`pattern`]). Race add-ons (horns, tusks, tails,
 //! beards, leaf hair, crest) come from `actors_human::parts`; a tail adds six bones
-//! (`tail_01`..`tail_06`) that sway in every clip. Not yet carried over from the three.js adapter:
-//! robots and skeletons, skin detail, the patterns' bump and roughness, fabric shaders and face
-//! animation.
+//! (`tail_01`..`tail_06`) that sway in every clip.
+//!
+//! Faces: with `face_animation` (or `face_rig`) in the config, every face unit becomes one of the
+//! model's morph targets ([`CharacterModel::face`]) and the expression becomes their resting
+//! weights. A [`FaceDriver`] adds blinks, glances, idle movement and lip-sync
+//! (`driver.animator.say("...")`); pass its weights to `world.set_morph_weights` every frame.
+//! Without it the expression is baked into the shape.
+//!
+//! Not yet carried over from the three.js adapter: robots and skeletons, skin detail, the
+//! patterns' bump and roughness, fabric shaders, eye bones (gaze) and wrinkles.
 
 pub mod pattern;
 pub mod texture;
@@ -43,7 +50,7 @@ use actors_generator::{
     CharacterCatalog, CharacterConfig, Detail, RandomOptions, SeededRandom, SkinKind,
 };
 use actors_human::{expression, shape_modifiers, Human, HumanPack, PartsConfig};
-use engine::anim::{AnimatedModel, AnimationClip, JointChannels, QuatTrack, Skeleton, SkinMesh, Vec3Track, MAX_JOINTS};
+use engine::anim::{AnimatedModel, AnimationClip, JointChannels, MeshMorph, QuatTrack, Skeleton, SkinMesh, Vec3Track, MAX_JOINTS};
 use engine::mesh::{AlbedoMap, MaterialMaps};
 use glam::{Mat4, Quat, Vec3, Vec4};
 use std::collections::{HashMap, HashSet};
@@ -82,6 +89,74 @@ pub struct CharacterModel {
     /// The meshes drawn, by pack name (then the generated parts: "beard", "horns", "tail", ...),
     /// in the order of `model.meshes`.
     pub meshes: Vec<String>,
+    /// The face as morph targets, when the config asks for a face rig or face animation.
+    pub face: Option<Face>,
+}
+
+/// A character's face as morph targets: every face unit (brow raiser, lid closure, mouth
+/// corner puller, ...) is one of `model.morph_targets`, in the same order as `units`. Set their
+/// weights each frame with `world.set_morph_weights`, or let a [`FaceDriver`] do it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Face {
+    /// Face unit names (MakeHuman's expression units), as `model.morph_targets`.
+    pub units: Vec<String>,
+    /// Unit weights of the config's expression at its intensity (the resting face).
+    pub expression: Vec<f32>,
+}
+
+impl Face {
+    /// Index of a face unit (and its morph target).
+    pub fn unit(&self, name: &str) -> Option<usize> {
+        self.units.iter().position(|u| u == name)
+    }
+
+    /// Morph weights for an expression (see `actors_human::expression`) at `intensity`.
+    pub fn expression_weights(&self, name: &str, intensity: f64) -> Vec<f32> {
+        let mut out = vec![0.0; self.units.len()];
+        if let Some(units) = actors_human::expression(name) {
+            for (u, w) in units {
+                if let Some(i) = self.unit(u) {
+                    out[i] += (w * intensity) as f32;
+                }
+            }
+        }
+        out
+    }
+}
+
+/// A living face for a built character: blinks, glances, idle movement and lip-sync (see
+/// `actors_human::FaceAnimator`) over its expression. Call [`FaceDriver::update`] every frame and
+/// pass the result to `world.set_morph_weights(id, ...)`.
+#[derive(Clone, Debug)]
+pub struct FaceDriver {
+    pub animator: actors_human::FaceAnimator,
+    /// The resting face (one weight per unit); starts as the config's expression.
+    pub expression: Vec<f32>,
+    units: Vec<String>,
+    out: Vec<f32>,
+}
+
+impl FaceDriver {
+    pub fn new(face: &Face, options: actors_human::FaceAnimatorOptions) -> Self {
+        Self {
+            animator: actors_human::FaceAnimator::new(options),
+            expression: face.expression.clone(),
+            units: face.units.clone(),
+            out: vec![0.0; face.units.len()],
+        }
+    }
+
+    /// Advances the face by `dt` seconds; returns the morph weights for this frame.
+    pub fn update(&mut self, dt: f32) -> &[f32] {
+        self.out.copy_from_slice(&self.expression);
+        let frame = self.animator.update(dt as f64, 0.0);
+        for (u, w) in &frame.units {
+            if let Some(i) = self.units.iter().position(|n| n == u) {
+                self.out[i] += *w as f32;
+            }
+        }
+        &self.out
+    }
 }
 
 /// A loaded human pack that builds characters for the engine.
@@ -216,6 +291,13 @@ impl CharacterBuilder {
             }
         }
 
+        let face = if c.face_rig || c.face_animation {
+            let mut face = self.face_morphs(&human, &shape, &names, &mut meshes)?;
+            face.expression = face.expression_weights(&c.expression, c.expression_intensity);
+            Some(face)
+        } else {
+            None
+        };
         let (skeleton, bind_local) = engine_skeleton(&sk, lift, &extra);
         let mut clips = self.clips(&sk, &c, options)?;
         for clip in &mut clips {
@@ -223,10 +305,17 @@ impl CharacterBuilder {
             tail_sway(clip, &extra, sk.len(), &bind_local);
         }
         Ok(CharacterModel {
-            model: AnimatedModel { skeleton, meshes, clips, bind_local },
+            model: AnimatedModel {
+                skeleton,
+                meshes,
+                clips,
+                bind_local,
+                morph_targets: face.as_ref().map(|f| f.units.clone()).unwrap_or_default(),
+            },
             config: c,
             height,
             meshes: names.into_iter().chain(parts.into_iter().map(|p| p.name)).collect(),
+            face,
         })
     }
 
@@ -360,9 +449,47 @@ impl CharacterBuilder {
         })
     }
 
+    /// The face rig as morph targets on the pack meshes that follow the face (the first
+    /// `names.len()` of `meshes`).
+    fn face_morphs(&mut self, human: &Human, shape: &ActorShape, names: &[String], meshes: &mut [SkinMesh]) -> Result<Face> {
+        let rig = human.face_rig(&mut self.rt, shape)?;
+        for (n, mesh) in names.iter().zip(meshes.iter_mut()) {
+            let md = self.rt.mesh(n).ok_or_else(|| Error::NotLoaded(n.clone()))?;
+            if !actors_core::runtime::follows_face(&md.def) {
+                continue;
+            }
+            let Some(units) = rig.spaces.get(&actors_core::runtime::face_space(md)) else { continue };
+            // A source vertex can be drawn as several (UV seams).
+            let mut drawn: HashMap<u32, Vec<u32>> = HashMap::new();
+            for (i, &s) in md.map.iter().enumerate() {
+                drawn.entry(s).or_default().push(i as u32);
+            }
+            for (target, d) in units.iter().enumerate() {
+                let Some(d) = d else { continue };
+                let mut m = MeshMorph { target, ..Default::default() };
+                for (k, v) in d.vertices.iter().enumerate() {
+                    let at = |a: &[f32]| Vec3::new(a[k * 3], a[k * 3 + 1], a[k * 3 + 2]);
+                    for &i in drawn.get(v).map(Vec::as_slice).unwrap_or_default() {
+                        m.vertices.push(i);
+                        m.positions.push(at(&d.positions));
+                        m.normals.push(at(&d.normals));
+                    }
+                }
+                if !m.vertices.is_empty() {
+                    mesh.morphs.push(m);
+                }
+            }
+        }
+        Ok(Face { units: rig.units, expression: Vec::new() })
+    }
+
     fn evaluate(&mut self, human: &Human, c: &CharacterConfig, fit: &[&str]) -> Result<ActorShape> {
         let mut weights: Weights = human.target_weights()?;
-        // The expression is baked into the shape (no face animation yet).
+        // The expression is baked into the shape, unless the face is animated (then it is the
+        // resting weights of the face's morph targets).
+        if c.face_rig || c.face_animation {
+            return self.rt.evaluate(&weights, Some(&human.shape_options()), Some(fit));
+        }
         if let Some(units) = expression(&c.expression) {
             for (k, v) in human.face_weights(units, c.expression_intensity) {
                 *weights.entry(k).or_insert(0.0) += v;
@@ -752,6 +879,7 @@ fn skin_mesh(md: &MeshData, shape: &ActorShape, hidden: &HashSet<u32>, m: Materi
         double_sided: m.double_sided,
         albedo: m.albedo,
         maps,
+        morphs: Vec::new(),
     })
 }
 
@@ -879,5 +1007,6 @@ fn part_mesh(p: &PartMesh, m: Material, lift: f32) -> SkinMesh {
         double_sided: m.double_sided,
         albedo: m.albedo,
         maps,
+        morphs: Vec::new(),
     }
 }
