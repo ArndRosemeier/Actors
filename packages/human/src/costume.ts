@@ -149,6 +149,8 @@ interface ShellOpts {
   /** Follow face morphs (masks): each vertex follows its nearest base vertex. */
   follow?: boolean;
   shade?: number;
+  /** A stiff plate: no vertex of the shell's face lies behind this depth at (x, y). */
+  front?: (x: number, y: number) => number;
 }
 
 const mix = (a: SV, b: SV, t: number, key: string): SV => {
@@ -199,7 +201,9 @@ function shell(B: Body, out: Builder, o: ShellOpts) {
     index.set(s.key, i);
     const uv = o.uv ? o.uv(s.p) : [0.5, 0.5];
     out.follow = o.follow ? s.a : NO_ANCHOR;
-    out.vert(add(s.p, mul(s.n, o.offset)), s.n, uv[0], uv[1], o.shade ?? 1, top4(s.w));
+    const p = add(s.p, mul(s.n, o.offset));
+    if (o.front) p[2] = Math.max(p[2], o.front(p[0], p[1]));
+    out.vert(p, s.n, uv[0], uv[1], o.shade ?? 1, top4(s.w));
     return i;
   };
   const tri: number[] = [];
@@ -421,8 +425,18 @@ function buildEmblem(B: Body, c: CostumeParts, plate: Builder, rim: Builder) {
   const front = (p: V3, n: V3) => (n[2] > 0.15 && p[2] > chest ? 1 : -1);
   const rimW = c.emblem === "cutout" ? 0.004 : 0.008 * (half / 0.1);
   const uv = (p: V3): [number, number] => [0.5 + (p[0] - cx) / (2 * half), 0.5 + (p[1] - cy) / (2 * half)];
-  shell(B, plate, { pick, value: (p, n) => Math.min(-d(p) - rimW, front(p, n)), offset: 0.017, subdiv: 2, rim: 0.012, uv });
-  shell(B, rim, { pick, value: (p, n) => Math.min(-d(p), d(p) + rimW + 0.0015, front(p, n)), offset: 0.0195, subdiv: 2, rim: 0.016, uv });
+  // The plate is stiff: it bridges the hollow between the pecs (and clothes there) instead of
+  // sinking into it, curving back gently toward its sides.
+  let zMax = -Infinity;
+  for (let v = 0; v < B.n; v++) {
+    if (!B.b.isBody[v] || !pick(v)) continue;
+    const p = at(B.b.positions, v);
+    if (p[2] > chest && d(p) < 0) zMax = Math.max(zMax, p[2]);
+  }
+  const stiff = (offset: number) =>
+    Number.isFinite(zMax) ? (x: number, y: number) => zMax + offset - 2.2 * (x - cx) ** 2 - 0.8 * (y - cy) ** 2 : undefined;
+  shell(B, plate, { pick, value: (p, n) => Math.min(-d(p) - rimW, front(p, n)), offset: 0.017, subdiv: 2, rim: 0.012, uv, front: stiff(0.017) });
+  shell(B, rim, { pick, value: (p, n) => Math.min(-d(p), d(p) + rimW + 0.0015, front(p, n)), offset: 0.0195, subdiv: 2, rim: 0.016, uv, front: stiff(0.0195) });
 }
 
 // ------------------------------------------------------------------ cape
