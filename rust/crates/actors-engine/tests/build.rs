@@ -255,3 +255,29 @@ fn costumes_are_built_and_capes_swing() {
     assert!(swing[2].0 > swing[0].0);
     assert!(swing[2].1 > swing[0].1 + 0.05);
 }
+
+#[test]
+fn robots_are_built_and_stand_on_their_soles() {
+    let Some(packs) = packs() else {
+        eprintln!("skipped: set ACTORS_PACKS");
+        return;
+    };
+    let mut b = CharacterBuilder::load(&packs).unwrap();
+    assert!(b.catalog().robot.is_some(), "robots are offered");
+    let mut config = b.default_config();
+    config.robot = true;
+    config.robot_look.head = "optics".into();
+    config.robot_look.glow = "#ff4020".into();
+    let c = b.build(&config, &BuildOptions::default()).unwrap();
+    assert_eq!(c.meshes, ["robot-frame", "robot-plate", "robot-trim", "robot-joint", "robot-glow"]);
+    let low = c.model.meshes.iter().flat_map(|m| m.positions.iter()).fold(f32::MAX, |l, p| l.min(p.y));
+    assert!(low.abs() < 1e-3, "soles at {low}");
+    assert!(c.face.is_none() && c.model.find_clip("walk").is_some());
+    // Lights glow in the look's colour, red here.
+    let glow = c.model.meshes.last().unwrap();
+    let e = glow.maps.emissive.as_ref().expect("an emissive map");
+    assert!(e.rgba[0] > 200 && e.rgba[2] < 120, "glow {:?}", &e.rgba[..4]);
+    // Humans still don't turn into robots on their own.
+    let human = b.random(7, &RandomOptions::default());
+    assert!(!human.robot);
+}
