@@ -53,7 +53,7 @@ pub fn hex_linear(hex: &str) -> Option<[f32; 3]> {
 /// Decodes a PNG or JPEG into RGBA.
 pub fn decode(bytes: &[u8]) -> Result<AlbedoMap, String> {
     let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?.to_rgba8();
-    Ok(AlbedoMap { width: img.width(), height: img.height(), rgba: img.into_raw() })
+    Ok(AlbedoMap { width: img.width(), height: img.height(), rgba: img.into_raw().into() })
 }
 
 /// Weighted mix of same-sized images (photo skins); images of another size are skipped.
@@ -69,7 +69,7 @@ pub fn blend(layers: &[(&AlbedoMap, f32)]) -> Option<AlbedoMap> {
         let v: f32 = same.iter().map(|(m, w)| m.rgba[i] as f32 * w).sum::<f32>() / total;
         *px = v.round().clamp(0.0, 255.0) as u8;
     }
-    Some(AlbedoMap { width: first.width, height: first.height, rgba: out })
+    Some(AlbedoMap { width: first.width, height: first.height, rgba: out.into() })
 }
 
 /// Recolours a texture keeping its shading pattern: each texel becomes `tint` (linear) scaled by
@@ -214,7 +214,7 @@ pub fn eye(map: &AlbedoMap, iris: Option<Iris>, pupil: u32, glow: f32) -> (Albed
     const IRIS: f32 = 0.115;
     let dilation = 0.5;
     let mut out = map.clone();
-    let mut emit = (glow > 0.0).then(|| AlbedoMap { width: map.width, height: map.height, rgba: vec![0; map.rgba.len()] });
+    let mut emit = (glow > 0.0).then(|| AlbedoMap { width: map.width, height: map.height, rgba: vec![0; map.rgba.len()].into() });
     for y in 0..h {
         for x in 0..w {
             let (u, v) = ((x as f32 + 0.5) / w as f32, 1.0 - (y as f32 + 0.5) / h as f32);
@@ -330,7 +330,7 @@ pub fn beard_texture() -> &'static AlbedoMap {
                 data[o + 3] = (a * 255.0).round() as u8;
             }
         }
-        AlbedoMap { width: W as u32, height: H as u32, rgba: data }
+        AlbedoMap { width: W as u32, height: H as u32, rgba: data.into() }
     })
 }
 
@@ -358,7 +358,7 @@ pub fn leaf_texture() -> &'static AlbedoMap {
                 data[o + 3] = if inside { 255 } else { 0 };
             }
         }
-        AlbedoMap { width: W as u32, height: H as u32, rgba: data }
+        AlbedoMap { width: W as u32, height: H as u32, rgba: data.into() }
     })
 }
 
@@ -387,7 +387,7 @@ pub fn emblem_texture(c: &actors_generator::CostumeLook) -> AlbedoMap {
     for y in 0..SIZE {
         rgba[y * row..(y + 1) * row].copy_from_slice(&top_first[(SIZE - 1 - y) * row..(SIZE - y) * row]);
     }
-    let map = AlbedoMap { width: SIZE as u32, height: SIZE as u32, rgba };
+    let map = AlbedoMap { width: SIZE as u32, height: SIZE as u32, rgba: rgba.into() };
     let mut list = cache.lock().unwrap();
     if list.len() >= 16 {
         list.remove(0);

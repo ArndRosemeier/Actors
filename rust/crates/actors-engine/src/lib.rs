@@ -436,7 +436,7 @@ impl CharacterBuilder {
                 });
             }
         });
-        let map = |rgba| AlbedoMap { width: size as u32, height: size as u32, rgba };
+        let map = |rgba: Vec<u8>| AlbedoMap { width: size as u32, height: size as u32, rgba: rgba.into() };
         Ok(Some((map(albedo), (glow > 0.0).then(|| map(emit)))))
     }
 
