@@ -306,7 +306,7 @@ fn first_seg(body: &RobotBody, r: &Rig, v: usize) -> i32 {
 /// Area-weighted vertex normals.
 fn vertex_normals(pos: &[f64], idx: &[u32], count: usize) -> Vec<f64> {
     let mut out = vec![0.0; count * 3];
-    for t in idx.chunks_exact(3) {
+    for t in idx.as_chunks::<3>().0 {
         let (a, b, c) = (t[0] as usize, t[1] as usize, t[2] as usize);
         let n = cross(sub(at64(pos, b), at64(pos, a)), sub(at64(pos, c), at64(pos, a)));
         for v in [a, b, c] {
@@ -571,7 +571,7 @@ fn build_plate(body: &RobotBody, r: &Rig, s: i32, tris: &[usize], style: &PlateS
     let mut p: Vec<f64> = lp.iter().map(|&x| f32r(x)).collect();
     // Edges: an edge a->b is on the boundary if no triangle has b->a.
     let mut out: Vec<Vec<u32>> = vec![Vec::new(); n];
-    for t in tri.chunks_exact(3) {
+    for t in tri.as_chunks::<3>().0 {
         for k in 0..3 {
             out[t[k] as usize].push(t[(k + 1) % 3]);
         }
@@ -699,7 +699,7 @@ fn build_plate(body: &RobotBody, r: &Rig, s: i32, tris: &[usize], style: &PlateS
     for v in 0..n {
         bld.vert(at64(&inner, v), mul(at64(&nn, v), -1.0), 0.0, 0.0, 0.45, &w);
     }
-    for t in tri.chunks_exact(3) {
+    for t in tri.as_chunks::<3>().0 {
         bld.idx.extend_from_slice(&[i0 + t[0], i0 + t[2], i0 + t[1]]);
     }
     // Rim: one quad per boundary edge, facing away from the plate.
