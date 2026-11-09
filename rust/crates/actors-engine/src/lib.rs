@@ -36,7 +36,11 @@
 //! (`driver.animator.say("...")`); pass its weights to `world.set_morph_weights` every frame.
 //! Without it the expression is baked into the shape.
 //!
-//! Not yet carried over from the three.js adapter: robots and skeletons, skin detail, the
+//! Robots (`config.robot`, shaped by `config.robot_look`; `actors_human::robot`): plates, inner
+//! frame, joint housings, a helmet with visor or optics, and lights, all over the body's shape and
+//! skinned to the same skeleton, so every clip plays on them. They stand on their soles.
+//!
+//! Not yet carried over from the three.js adapter: skeletons, skin detail, the
 //! patterns' bump and roughness, fabric shaders, eye bones (gaze) and wrinkles.
 
 pub mod cape;
@@ -192,8 +196,7 @@ impl CharacterBuilder {
     pub fn from_runtime(rt: ActorRuntime) -> Result<Self> {
         let pack = HumanPack::new(rt.manifest())?;
         let mut full = build_catalog(rt.manifest(), &pack, rt.clip_defs(), None);
-        // Robots and skeletons are not ported to the engine yet.
-        full.robot = None;
+        // Skeletons are not ported to the engine yet.
         full.skeletal = None;
         let known = pack.extra.modifiers.iter().map(|m| (m.id.clone(), if m.negative.is_empty() { 0.0 } else { -1.0 })).collect();
         Ok(Self { rt, pack, catalog: full.clone(), full, known, textures: HashMap::new(), eyes: HashMap::new() })
@@ -227,7 +230,8 @@ impl CharacterBuilder {
     /// Builds the character.
     pub fn build(&mut self, config: &CharacterConfig, options: &BuildOptions) -> Result<CharacterModel> {
         let c = sanitize_config(&self.catalog, config);
-        let names = self.mesh_names(&c);
+        // A robot is built over the bare body (its parts stand in for every pack mesh).
+        let names = if c.robot { self.robot_mesh_names() } else { self.mesh_names(&c) };
         self.rt.load_meshes(&names)?;
         let fit: Vec<&str> = names.iter().map(String::as_str).collect();
 
@@ -249,6 +253,10 @@ impl CharacterBuilder {
         let sk = shape.skeleton.clone().ok_or_else(|| Error::Format("pack has no skeleton".into()))?;
         if sk.len() > MAX_JOINTS {
             return Err(Error::Format(format!("{} bones, the engine takes {MAX_JOINTS}", sk.len())));
+        }
+        if c.robot {
+            let bottom = range(&shape).0;
+            return self.build_robot(c, &shape, &sk, bottom, height, options);
         }
 
         let skin = self.skin_albedo(&human, &c, options.skin_layers)?;
@@ -334,6 +342,53 @@ impl CharacterBuilder {
             face,
             cape,
         })
+    }
+
+    /// A robot (see `actors_human::robot`): plates, frame, joints, head and lights over the
+    /// body's shape, skinned to the same skeleton, standing on its soles (`bottom` is the body's
+    /// lowest point, `height` the body's height).
+    fn build_robot(
+        &mut self,
+        c: CharacterConfig,
+        shape: &ActorShape,
+        sk: &FittedSkeleton,
+        bottom: f32,
+        height: f32,
+        options: &BuildOptions,
+    ) -> Result<CharacterModel> {
+        let look = &c.robot_look;
+        let cfg = actors_human::RobotConfig {
+            head: look.head.clone(),
+            ears: look.ears.clone(),
+            plating: look.plating.clone(),
+            thickness: look.thickness,
+            core: look.core,
+        };
+        let body = actors_human::robot_body(shape, self.rt.meshes())
+            .ok_or_else(|| Error::Format("no skinned body with eyes for a robot".into()))?;
+        let robot = actors_human::build_robot(&body, &cfg);
+        let lift = robot.lift as f32 - bottom;
+        let meshes = robot.parts.iter().map(|p| part_mesh(p, robot_material(p.kind, look), lift)).collect();
+        let (skeleton, bind_local) = engine_skeleton(sk, lift, &[]);
+        let (mut clips, _) = self.clips(sk, &c, options, false)?;
+        for clip in &mut clips {
+            clip.channels.resize_with(sk.len(), Default::default);
+        }
+        let model = AnimatedModel { skeleton, meshes, clips, bind_local, morph_targets: Vec::new() };
+        Ok(CharacterModel {
+            model,
+            config: c,
+            height: height + robot.lift as f32,
+            meshes: robot.parts.into_iter().map(|p| p.name).collect(),
+            face: None,
+            cape: None,
+        })
+    }
+
+    /// Pack meshes a robot is built from: the body (first, it sets the height) and the eyes.
+    fn robot_mesh_names(&self) -> Vec<String> {
+        let has = |n: &str| self.rt.manifest().meshes.iter().any(|m| m.name == n);
+        ["body", "eyes"].into_iter().filter(|n| has(n)).map(String::from).collect()
     }
 
     /// The skin texture with the race pattern and painted stubble baked in (and the pattern's
@@ -1091,6 +1146,43 @@ fn part_material(p: &PartMesh, c: &CharacterConfig, skin: &Material, hair: [f32;
             m
         }
         _ => plain(own, 0.45),
+    }
+}
+
+/// The material of a robot part, as the web generator colours each kind from the robot's look:
+/// paint and trim with the chosen finish, a dark inner frame, metal joints, near-black visor glass
+/// and lights in the glow colour.
+fn robot_material(kind: PartKind, look: &actors_generator::RobotLook) -> Material {
+    let col = |hex: &str, fallback: [f32; 3]| hex_linear(hex).unwrap_or(fallback);
+    let plain = |color: [f32; 3], roughness: f32, metallic: f32| Material {
+        color,
+        albedo: None,
+        normal: None,
+        roughness,
+        metallic,
+        double_sided: false,
+        emissive: None,
+    };
+    let finish =
+        actors_generator::tables().robot_finishes.get(&look.finish).map_or((0.3, 0.45, 0.35), |f| (f.metalness, f.roughness, f.clearcoat));
+    // No clearcoat in Engine: a coated finish reads a little glossier.
+    let (metal, rough) = (finish.0 as f32, (finish.1 * (1.0 - 0.35 * finish.2)) as f32);
+    let glow = col(&look.glow, [0.06, 0.7, 1.0]);
+    match kind {
+        PartKind::Plate => plain(col(&look.paint, [0.7; 3]), rough, metal),
+        PartKind::Trim => plain(col(&look.trim, [0.3; 3]), rough, metal),
+        PartKind::Frame => plain(col(&look.frame, [0.016, 0.018, 0.024]), 0.5, 0.35),
+        PartKind::Joint => plain(col(&look.metal, [0.33, 0.35, 0.4]), 0.28, 1.0),
+        // Visor glass: near black with a hint of the light colour.
+        PartKind::Visor => plain(glow.map(|v| v * 0.04), 0.04, 0.4),
+        PartKind::Glow => {
+            let strength = look.glow_strength as f32 * 3.2;
+            // The light colour as a 1x1 emissive map (sRGB), at the look's strength.
+            let rgba = [texture::linear_to_byte(glow[0]), texture::linear_to_byte(glow[1]), texture::linear_to_byte(glow[2]), 255];
+            let map = AlbedoMap { width: 1, height: 1, rgba: rgba.to_vec().into() };
+            Material { emissive: Some((map, strength)), ..plain(glow.map(|v| v * 0.05), 0.3, 0.0) }
+        }
+        _ => plain([0.5; 3], 0.45, 0.0),
     }
 }
 

@@ -492,7 +492,8 @@ function buildPlate(body: RobotBody, r: Rig, s: number, tris: number[], style: P
   const L = Float32Array.from(ln);
   for (let v = 0; v < n; v++) if (dot(at(N, v), at(L, v)) < 0) N.set(at(L, v), v * 3);
   // Distance to the plate edge (Dijkstra over edges) for the rounded rim.
-  const dist = new Float32Array(n).fill(Infinity);
+  // Float64: a 32-bit array rounds the stored distance, and "d > dist[v]" then skips vertices whose distance rounded down.
+  const dist = new Float64Array(n).fill(Infinity);
   const heap = new Heap();
   for (let v = 0; v < n; v++)
     if (boundary[v]) {

@@ -1,0 +1,6 @@
+[
+  { "name": "default", "params": { "gender": 1, "ageYears": 30 }, "robot": {} },
+  { "name": "sleek-optics-antennae", "params": { "gender": 0, "ageYears": 25, "weight": 0.3 }, "robot": { "head": "optics", "ears": "antennae", "plating": "sleek", "thickness": 0.2, "core": false } },
+  { "name": "armored-mono-fins", "params": { "gender": 0.8, "ageYears": 40, "muscle": 0.9 }, "robot": { "head": "mono", "ears": "fins", "plating": "armored", "thickness": 0.9, "core": true } },
+  { "name": "android-none", "params": { "gender": 0.3, "ageYears": 60 }, "robot": { "head": "android", "ears": "none", "plating": "segmented", "thickness": 0.5, "core": true } }
+]

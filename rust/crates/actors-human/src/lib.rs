@@ -35,6 +35,7 @@ pub mod params;
 pub mod parts;
 pub mod races;
 pub mod raceshape;
+pub mod robot;
 pub mod shapes;
 pub mod skins;
 
@@ -47,4 +48,5 @@ pub use params::{HumanParams, ADULT_MIN_AGE, MAX_AGE};
 pub use parts::{build_parts, has_parts, parts_body, PartsBody, PartsConfig};
 pub use races::{RaceId, RaceInfo, RaceStyle};
 pub use raceshape::{race_head_scale, race_scale, RaceSettings, TargetResolver};
+pub use robot::{build_robot, robot_body, RobotBody, RobotConfig, RobotParts};
 pub use shapes::{body_types, shape_modifiers, shape_sliders, BodyType, ShapeSlider};
