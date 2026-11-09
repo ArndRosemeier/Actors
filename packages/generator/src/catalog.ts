@@ -3,7 +3,7 @@ import { raceParts, randomRaceLook } from "./racelook";
 import { FUTURE_OUTFITS } from "./future-outfits";
 import { MEDIEVAL_OUTFITS } from "./medieval-outfits";
 import { GARMENT_THEMES, HAIR_THEMES, RACE_THEMES } from "./themes";
-import { ADULT_MIN_AGE, DEFAULT_PARAMS, DEFAULT_ROBOT, DEFAULT_SKELETAL, type SkeletalConfig, sanitizeSkeletal, ROBOT_EARS, ROBOT_HEADS, ROBOT_PLATING, type RobotConfig, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type BeardStyle, type HornStyle, type PupilShape, RACES, RACE_IDS, RACE_STYLES, type RaceId, SHAPE_SLIDERS, type SkinPattern, type TailStyle } from "@actors/human";
+import { ADULT_MIN_AGE, DEFAULT_PARAMS, DEFAULT_ROBOT, DEFAULT_SKELETAL, type SkeletalConfig, sanitizeSkeletal, ROBOT_EARS, ROBOT_HEADS, ROBOT_PLATING, type RobotConfig, EXPRESSIONS, type Human, type HumanParams, MAX_AGE, type BeardStyle, type HornStyle, type PupilShape, RACES, RACE_IDS, RACE_STYLES, type RaceId, SHAPE_SLIDERS, type SkinPattern, type TailStyle, type BeltStyle, type CapeStyle, type CollarStyle, type EmblemShape, type EmblemSymbol, type MaskStyle, BELT_STYLES, CAPE_STYLES, COLLAR_STYLES, EMBLEM_SHAPES, EMBLEM_SYMBOLS, MASK_STYLES } from "@actors/human";
 
 /** One choice in a list: the id the API takes and a display label. */
 export interface Choice {
@@ -137,6 +137,83 @@ export function randomRobotLook(r: () => number): RobotLook {
     core: r() < 0.6,
     glowStrength: 0.4 + r() * 0.6,
   });
+}
+
+/** Surface finish of a costume piece (a garment or a costume part). */
+export type CostumeFinish = "cloth" | "satin" | "leather" | "rubber" | "gloss" | "metallic";
+
+/** Material settings per costume finish. */
+export const COSTUME_FINISHES: Record<CostumeFinish, { label: string; metalness: number; roughness: number; clearcoat: number; sheen: number }> = {
+  cloth: { label: "Cloth", metalness: 0, roughness: 0.85, clearcoat: 0, sheen: 0.3 },
+  satin: { label: "Satin (spandex)", metalness: 0, roughness: 0.42, clearcoat: 0.15, sheen: 0.8 },
+  leather: { label: "Leather", metalness: 0, roughness: 0.55, clearcoat: 0.25, sheen: 0 },
+  rubber: { label: "Rubber", metalness: 0, roughness: 0.32, clearcoat: 0.5, sheen: 0 },
+  gloss: { label: "Gloss vinyl", metalness: 0.05, roughness: 0.14, clearcoat: 1, sheen: 0 },
+  metallic: { label: "Metal", metalness: 1, roughness: 0.28, clearcoat: 0.3, sheen: 0 },
+};
+
+/**
+ * A hero costume on top of the outfit: a cape (with a collar), a mask, a belt and a chest emblem
+ * (see `@actors/human` costume.ts), their colours (sRGB hex), and a finish for any piece: a
+ * garment id or a costume part ("cape", "mask", "belt", "buckle", "emblem", "rim").
+ */
+export interface CostumeLook {
+  cape: CapeStyle;
+  collar: CollarStyle;
+  capeColor: string;
+  liningColor: string;
+  mask: MaskStyle;
+  maskColor: string;
+  belt: BeltStyle;
+  beltColor: string;
+  buckleColor: string;
+  emblem: EmblemShape;
+  symbol: EmblemSymbol;
+  /** 0..1 */
+  emblemSize: number;
+  emblemColor: string;
+  symbolColor: string;
+  rimColor: string;
+  finishes: Record<string, CostumeFinish>;
+}
+
+export const DEFAULT_COSTUME: CostumeLook = {
+  cape: "none", collar: "none", capeColor: "#c8202a", liningColor: "#f2c230",
+  mask: "none", maskColor: "#1f2a6b",
+  belt: "none", beltColor: "#f2c230", buckleColor: "#d8dde4",
+  emblem: "none", symbol: "bolt", emblemSize: 0.5, emblemColor: "#c8202a", symbolColor: "#f2c230", rimColor: "#f2c230",
+  finishes: {},
+};
+
+/** Finish of costume parts that have none set. */
+export const COSTUME_PART_FINISH: Record<string, CostumeFinish> = { cape: "satin", "cape-lining": "satin", mask: "satin", belt: "leather", buckle: "metallic", emblem: "gloss", "emblem-rim": "metallic" };
+
+/** A valid costume (bad values fall back to the defaults). */
+export function sanitizeCostume(look: Partial<CostumeLook> | undefined): CostumeLook {
+  const l = { ...DEFAULT_COSTUME, ...look };
+  const d = DEFAULT_COSTUME;
+  const color = (k: "capeColor" | "liningColor" | "maskColor" | "beltColor" | "buckleColor" | "emblemColor" | "symbolColor" | "rimColor") => (typeof l[k] === "string" && HEX.test(l[k]) ? l[k] : d[k]);
+  const pick = <T>(list: readonly T[], v: T, dv: T) => (list.includes(v) ? v : dv);
+  const finishes: Record<string, CostumeFinish> = {};
+  for (const [k, v] of Object.entries(l.finishes ?? {})) if (typeof k === "string" && k.length < 64 && v in COSTUME_FINISHES) finishes[k] = v;
+  return {
+    cape: pick(CAPE_STYLES, l.cape, d.cape),
+    collar: pick(COLLAR_STYLES, l.collar, d.collar),
+    capeColor: color("capeColor"),
+    liningColor: color("liningColor"),
+    mask: pick(MASK_STYLES, l.mask, d.mask),
+    maskColor: color("maskColor"),
+    belt: pick(BELT_STYLES, l.belt, d.belt),
+    beltColor: color("beltColor"),
+    buckleColor: color("buckleColor"),
+    emblem: pick(EMBLEM_SHAPES, l.emblem, d.emblem),
+    symbol: pick(EMBLEM_SYMBOLS, l.symbol, d.symbol),
+    emblemSize: Math.min(1, Math.max(0, Number.isFinite(l.emblemSize) ? l.emblemSize : d.emblemSize)),
+    emblemColor: color("emblemColor"),
+    symbolColor: color("symbolColor"),
+    rimColor: color("rimColor"),
+    finishes,
+  };
 }
 
 /** A skeleton's look: shape options (see `@actors/human` SkeletalConfig) plus bone and light colours. */
@@ -357,6 +434,8 @@ export interface CharacterConfig {
    */
   skeletal: boolean;
   skeletalLook: SkeletalLook;
+  /** A hero costume over the outfit: cape, mask, belt, chest emblem, finishes (none by default). */
+  costume: CostumeLook;
 }
 
 export const PAINTED_BROWS = "painted";
@@ -667,6 +746,7 @@ export function defaultConfig(catalog: CharacterCatalog): CharacterConfig {
     robotLook: { ...DEFAULT_ROBOT_LOOK },
     skeletal: false,
     skeletalLook: { ...DEFAULT_SKELETAL_LOOK },
+    costume: { ...DEFAULT_COSTUME, finishes: {} },
   });
 }
 

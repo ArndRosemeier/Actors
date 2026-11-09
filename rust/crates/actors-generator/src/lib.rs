@@ -36,7 +36,10 @@ pub use catalog::{
     build_catalog, concealed_garments, outfit_garments, race_features, resolve_outfit, AnimationChoice, CharacterCatalog, Choice,
     DetailChoice, FeatureLists, GarmentChoice, OutfitPreset, RaceChoice, RaceFeatures,
 };
-pub use config::{default_config, fit_config, sanitize_config, CharacterConfig, Detail, Gaze, RobotLook, SkeletalLook, SkinKind};
+pub use config::{
+    costume_finish, default_config, fit_config, sanitize_config, CharacterConfig, CostumeLook, Detail, Gaze, RobotLook, SkeletalLook,
+    SkinKind, COSTUME_FINISHES, COSTUME_PART_FINISH,
+};
 pub use data::{data as tables, GeneratorData};
 pub use random::{
     race_parts, random_config, random_race_look, random_robot_look, random_skeletal_look, rgb_to_hex, Gender, RaceChoiceOption, Random,

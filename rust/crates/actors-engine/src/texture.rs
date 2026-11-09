@@ -361,3 +361,37 @@ pub fn leaf_texture() -> &'static AlbedoMap {
         AlbedoMap { width: W as u32, height: H as u32, rgba: data }
     })
 }
+
+/// The chest emblem's texture for a costume (see `actors_human::emblem`): the plate in the
+/// emblem colour with the symbol in the symbol colour. Row 0 is v = 0 (the emblem's bottom), as
+/// Engine reads it. A few looks are cached.
+pub fn emblem_texture(c: &actors_generator::CostumeLook) -> AlbedoMap {
+    use std::sync::{Mutex, OnceLock};
+    const SIZE: usize = 256;
+    static CACHE: OnceLock<Mutex<Vec<(String, AlbedoMap)>>> = OnceLock::new();
+    let rgb = |h: &str| parse_hex(h).map(|c| c.map(f64::from)).unwrap_or([1.0; 3]);
+    let key = format!("{}|{}|{}|{}", c.emblem, c.symbol, c.emblem_color, c.symbol_color);
+    let cache = CACHE.get_or_init(|| Mutex::new(Vec::new()));
+    if let Some((_, m)) = cache.lock().unwrap().iter().find(|(k, _)| *k == key) {
+        return m.clone();
+    }
+    let paint = actors_human::emblem::EmblemPaint {
+        shape: c.emblem.clone(),
+        symbol: c.symbol.clone(),
+        plate: rgb(&c.emblem_color),
+        ink: rgb(&c.symbol_color),
+    };
+    let top_first = actors_human::emblem::emblem_texture(&paint, SIZE);
+    let mut rgba = vec![0u8; top_first.len()];
+    let row = SIZE * 4;
+    for y in 0..SIZE {
+        rgba[y * row..(y + 1) * row].copy_from_slice(&top_first[(SIZE - 1 - y) * row..(SIZE - y) * row]);
+    }
+    let map = AlbedoMap { width: SIZE as u32, height: SIZE as u32, rgba };
+    let mut list = cache.lock().unwrap();
+    if list.len() >= 16 {
+        list.remove(0);
+    }
+    list.push((key, map.clone()));
+    map
+}

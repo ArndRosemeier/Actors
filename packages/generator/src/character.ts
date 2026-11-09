@@ -1,14 +1,14 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { type ActorShape, type Clip, type Fetcher, type MessagePortLike, deform } from "@actors/core";
-import { ADULT_MIN_AGE, BEARD_REGION, BEARD_STYLES, beardPaint, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, type FaceFrame, FaceAnimator, Human, type VisemeKey, wrinkleWeights, shapeModifiers, type HumanParams, MAX_AGE, type PartsConfig, type RaceId, raceScale, sanitizeRace } from "@actors/human";
+import { ADULT_MIN_AGE, BEARD_REGION, BEARD_STYLES, beardPaint, BLINK, eyeCentres, HORN_STYLES, TAIL_STYLES, EXPRESSIONS, type FaceFrame, FaceAnimator, Human, type VisemeKey, wrinkleWeights, shapeModifiers, type HumanParams, MAX_AGE, type PartsConfig, type RaceId, raceScale, sanitizeRace, type CostumeParts, costumeHidesHair, emblemTexture } from "@actors/human";
 import { type ActorMaterialKit, type ScreenTexturePool, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor, bakeLookForExport, cutHemsForExport } from "@actors/three";
 import { type ThemeFilter, filterCatalog } from "./themes";
 import { type AllowOptions, type HeightRange, allowCatalog, heightFit } from "./allow";
-import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, type SkeletalLook, buildCatalog, defaultConfig, fitConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook, sanitizeSkeletalLook } from "./catalog";
+import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, type SkeletalLook, type CostumeLook, COSTUME_FINISHES, COSTUME_PART_FINISH, sanitizeCostume, buildCatalog, defaultConfig, fitConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook, sanitizeSkeletalLook } from "./catalog";
 
-/** A change to a character. `body`, `robotLook` and `skeletalLook` are merged into the current values; every other field replaces the current value. */
-export type CharacterPatch = Partial<Omit<CharacterConfig, "body" | "robotLook" | "skeletalLook">> & { body?: Partial<HumanParams>; robotLook?: Partial<RobotLook>; skeletalLook?: Partial<SkeletalLook> };
+/** A change to a character. `body`, `robotLook`, `skeletalLook` and `costume` are merged into the current values; every other field replaces the current value. */
+export type CharacterPatch = Partial<Omit<CharacterConfig, "body" | "robotLook" | "skeletalLook" | "costume">> & { body?: Partial<HumanParams>; robotLook?: Partial<RobotLook>; skeletalLook?: Partial<SkeletalLook>; costume?: Partial<CostumeLook> };
 
 export interface CharacterOptions {
   /** URL of the pack's manifest.json (e.g. "/packs/human/manifest.json"). */
@@ -206,11 +206,12 @@ export class Character {
     const defined = Object.fromEntries(Object.entries(structuredClone(patch)).filter(([, v]) => v !== undefined));
     const robotLook = sanitizeRobotLook({ ...this.cfg.robotLook, ...patch.robotLook });
     const skeletalLook = sanitizeSkeletalLook({ ...this.cfg.skeletalLook, ...patch.skeletalLook });
+    const costume = sanitizeCostume({ ...this.cfg.costume, ...patch.costume });
     // Robot and skeleton exclude each other: turning one on turns the other off.
     const robot = !!(patch.robot ?? (patch.skeletal ? false : this.cfg.robot));
     const skeletal = !robot && !!(patch.skeletal ?? this.cfg.skeletal);
     // Only the races, robots and skeletons the catalog offers.
-    this.cfg = fitConfig(this.catalog, { ...this.cfg, ...defined, body, robotLook, skeletalLook, robot, skeletal, outfit: this.normalizeOutfit(patch.outfit ?? this.cfg.outfit) });
+    this.cfg = fitConfig(this.catalog, { ...this.cfg, ...defined, body, robotLook, skeletalLook, costume, robot, skeletal, outfit: this.normalizeOutfit(patch.outfit ?? this.cfg.outfit) });
     const race = sanitizeRace({ race: this.cfg.race, race2: this.cfg.race2, mix: this.cfg.raceMix, size: this.cfg.raceSize, youth: this.cfg.youth });
     Object.assign(this.cfg, { race: race.race, race2: race.race2, raceMix: race.race2 ? race.mix : this.cfg.raceMix, raceSize: race.size, youth: race.youth ?? 0 });
     // A child never shows anatomy.
@@ -543,7 +544,7 @@ export class Character {
   /** Everything that needs no new shape: visibility, colours, eyes, morph weights. */
   /** Whether a worn garment (a closed helmet, a hood) hides the hair. */
   private hidesHair(): boolean {
-    return this.catalog.garments.some((g) => g.hidesHair && this.cfg.outfit.includes(g.id));
+    return costumeHidesHair(this.costumeParts()) || this.catalog.garments.some((g) => g.hidesHair && this.cfg.outfit.includes(g.id));
   }
 
   /** The generated parts this look wears (not for robots and skeletons, whose parts are their own). */
@@ -564,7 +565,59 @@ export class Character {
     const c = this.cfg;
     const hair = (c.hair === "leaves" || c.hair === "crest") && !this.hidesHair() ? c.hair : "none";
     const rgb = new THREE.Color(c.hornColor ?? "#d9cfb4").convertLinearToSRGB();
-    return { seed: c.seed, horns: c.horns, hornSize: c.hornSize, hornColor: [rgb.r, rgb.g, rgb.b], tusks: c.tusks, tail: c.tail, tailLength: c.tailLength, beard: c.beard, hair };
+    return { seed: c.seed, horns: c.horns, hornSize: c.hornSize, hornColor: [rgb.r, rgb.g, rgb.b], tusks: c.tusks, tail: c.tail, tailLength: c.tailLength, beard: c.beard, hair, costume: this.costumeParts() };
+  }
+
+  /** The costume's geometry (its colours are set on the materials, so recolouring builds nothing). */
+  private costumeParts(): CostumeParts | undefined {
+    const k = sanitizeCostume(this.cfg.costume);
+    if (k.cape === "none" && k.mask === "none" && k.belt === "none" && k.emblem === "none") return undefined;
+    const white: [number, number, number] = [1, 1, 1];
+    return { cape: k.cape, collar: k.collar, capeColor: white, liningColor: white, mask: k.mask, maskColor: white, belt: k.belt, beltColor: white, buckleColor: white, emblem: k.emblem, symbol: k.symbol, emblemSize: k.emblemSize, rimColor: white };
+  }
+
+  private emblemKey = "";
+  private emblemMap: THREE.DataTexture | null = null;
+
+  /** Colours, finishes and the emblem texture of the costume parts and garments. */
+  private applyCostume(): void {
+    const k = sanitizeCostume(this.cfg.costume);
+    const a = this.actor;
+    const colors: Record<string, string> = { cape: k.capeColor, "cape-lining": k.liningColor, mask: k.maskColor, belt: k.beltColor, buckle: k.buckleColor, "emblem-rim": k.rimColor };
+    for (const [name, color] of Object.entries(colors)) a.setPartColorByName(name, color);
+    for (const name of ["cape", "cape-lining", "mask", "belt", "buckle", "emblem", "emblem-rim"]) {
+      const f = COSTUME_FINISHES[k.finishes[name === "cape-lining" ? "cape" : name === "emblem-rim" ? "rim" : name] ?? COSTUME_PART_FINISH[name]];
+      a.setMeshMaterial(name, { metalness: f.metalness, roughness: f.roughness, clearcoat: f.clearcoat, sheen: f.sheen });
+    }
+    for (const g of this.cfg.outfit) {
+      const fin = k.finishes[g];
+      if (fin) {
+        const f = COSTUME_FINISHES[fin];
+        a.setMeshMaterial(g, { metalness: f.metalness, roughness: f.roughness, clearcoat: f.clearcoat, sheen: f.sheen });
+      }
+    }
+    if (k.emblem !== "none") {
+      const key = JSON.stringify([k.emblem, k.symbol, k.emblemColor, k.symbolColor]);
+      if (key !== this.emblemKey || !this.emblemMap) {
+        const rgb = (hex: string): [number, number, number] => {
+          const c = new THREE.Color(hex).convertLinearToSRGB();
+          return [c.r, c.g, c.b];
+        };
+        const size = 256;
+        this.emblemMap?.dispose();
+        const tex = new THREE.DataTexture(emblemTexture({ shape: k.emblem, symbol: k.symbol, plate: rgb(k.emblemColor), ink: rgb(k.symbolColor) }, size), size, size, THREE.RGBAFormat);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        // Row 0 is the top of the emblem; the plate's v points up.
+        tex.flipY = true;
+        tex.magFilter = THREE.LinearFilter;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.generateMipmaps = true;
+        tex.needsUpdate = true;
+        this.emblemMap = tex;
+        this.emblemKey = key;
+      }
+      a.setPartMap("emblem", this.emblemMap);
+    }
   }
 
   private applyLook(): void {
@@ -588,7 +641,7 @@ export class Character {
     // Closed helmets and hoods hide the hair, which would poke through them.
     const hatHides = this.hidesHair();
     for (const h of this.catalog.hair) a.setVisible(h.id, h.id === c.hair && !hatHides);
-    for (const b of this.catalog.brows) a.setVisible(b.id, b.id === c.brows);
+    for (const b of this.catalog.brows) a.setVisible(b.id, b.id === c.brows && !costumeHidesHair(this.costumeParts()));
     if (this.human.runtime.meshes.some((m) => m.def.name === "body-low")) {
       a.setVisible("body", c.detail === "high");
       a.setVisible("body-low", c.detail === "low");
@@ -630,6 +683,7 @@ export class Character {
     a.eye.uPupil.value.set(PUPILS[c.pupil] ?? 0, 0.5, c.eyeGlow, 0);
     a.skin.uFemale.value = concealedCover ? 0 : c.anatomy && !male ? 1 : 0;
     a.setMorphWeight("expression", c.expressionIntensity);
+    if (!c.robot && !c.skeletal) this.applyCostume();
     if (c.robot) {
       const r = c.robotLook, f = ROBOT_FINISHES[r.finish];
       a.setPartColor(["plate"], r.paint);
@@ -750,7 +804,7 @@ export class Character {
       ? shapeKey
       : c.skeletal
         ? JSON.stringify([shapeKey, c.horns, c.hornSize, c.hornColor, c.tusks])
-        : JSON.stringify([shapeKey, c.hair, this.hidesHair(), c.beard, c.horns, c.hornSize, c.tusks, c.tail, c.tailLength, c.seed]);
+        : JSON.stringify([shapeKey, c.hair, this.hidesHair(), c.beard, c.horns, c.hornSize, c.tusks, c.tail, c.tailLength, c.seed, this.costumeParts() ?? null]);
     if (partsKey !== this.applied.parts && this.shape && c.robot) {
       this.applied.parts = partsKey;
       const robot = h.robotParts ?? h.robot(this.shape, r);

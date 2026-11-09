@@ -243,6 +243,11 @@ Animals with the same `rig` family share bone names, so their clips play on each
 
 Quirks: the horse and `donkey-1` are big files (13 MB, 288-bone rigs with tack; `donkey-1` is horse-sized); the crow and mammoth were rescaled; a few clips are partial (only some channels, e.g. the buck's "Walk"; `clipFor` skips them, the library page greys them out); clip names are the pack's own, typos included. To preview the models on the library page, serve PrivateAssets' `wildmesh3d/` folder locally (with CORS) and open `library.html?base=<its URL>` from `npm run dev`.
 
+## Hero costumes
+
+Capes (that swing in Engine), collars, masks, belts and chest emblems with their finishes: see
+[hero-costumes.md](hero-costumes.md).
+
 ## Licences and credits
 
 Code is MIT. Most assets are CC0, but some garments and hairstyles are **CC-BY**: if your app shows a character wearing one, credit its author. `character.catalog` carries the credit line for those choices (`credit`), and `NOTICE-ASSETS.md` (also inside each package) lists them all. The CMU motion capture data may be used freely but not resold as data. The library animals (WildMesh3D) are not part of Actors: their licence covers Arnd's own projects only (use, modify, sell games with them; don't redistribute or resell the models themselves).

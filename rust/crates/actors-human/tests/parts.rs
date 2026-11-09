@@ -46,6 +46,7 @@ fn config(v: &serde_json::Map<String, Value>) -> PartsConfig {
         tail_length: f("tailLength", d.tail_length),
         beard: s("beard", &d.beard),
         hair: s("hair", &d.hair),
+        costume: v.get("costume").map(|c| serde_json::from_value(c.clone()).unwrap()),
     }
 }
 

@@ -1,5 +1,5 @@
-import { ADULT_MIN_AGE, BEARD_STYLES, BODY_TYPES, HORN_STYLES, SHAPE_SLIDERS, type HumanParams, MAX_AGE, TAIL_STYLES } from "@actors/human";
-import { type CharacterConfig, PAINTED_BROWS, type RobotLook, type SkeletalLook, outfitGarments, raceFeatures } from "./catalog";
+import { ADULT_MIN_AGE, BELT_STYLES, CAPE_STYLES, COLLAR_STYLES, EMBLEM_SHAPES, EMBLEM_SYMBOLS, MASK_STYLES, BEARD_STYLES, BODY_TYPES, HORN_STYLES, SHAPE_SLIDERS, type HumanParams, MAX_AGE, TAIL_STYLES } from "@actors/human";
+import { type CharacterConfig, type CostumeLook, COSTUME_FINISHES, PAINTED_BROWS, type RobotLook, type SkeletalLook, outfitGarments, raceFeatures } from "./catalog";
 import type { Character, CharacterPatch } from "./character";
 import { PUPILS, SKIN_PATTERNS } from "@actors/three";
 
@@ -58,7 +58,7 @@ export type EditorMode = "simple" | "detailed";
  * (with skin), face (with hair), outfit (clothes), animation. Older names still work in `sections`:
  * "look" is the face; "shape" and "details" are part of the Detailed tabs of body and face.
  */
-export type EditorSection = "race" | "robot" | "skeleton" | "body" | "face" | "outfit" | "animation" | "look" | "shape" | "details";
+export type EditorSection = "race" | "robot" | "skeleton" | "body" | "face" | "outfit" | "costume" | "animation" | "look" | "shape" | "details";
 /** The footer's buttons. */
 export type EditorButton = "randomize" | "reset" | "save" | "load" | "export";
 
@@ -525,6 +525,58 @@ export class CharacterEditor {
       }
       // Open the groups that have something worn.
       for (const [category, grid] of groups) if (c.outfit.some((id) => cat.garments.find((x) => x.id === id)?.category === category)) (grid.parentElement as HTMLDetailsElement).open = true;
+    });
+
+    // Hero costume: cape, mask, belt and chest emblem over the clothes.
+    const costume = this.section("Costume", "costume");
+    const setCostume = (look: Partial<CostumeLook>) => set({ costume: look });
+    const styleOpts = (list: readonly string[]): [string, string][] => list.map((x) => [x, x === "none" ? "None" : x[0].toUpperCase() + x.slice(1)]);
+    const finishOpts: [string, string][] = [["", "Default"], ...Object.entries(COSTUME_FINISHES).map(([k, f]): [string, string] => [k, f.label])];
+    const finish = (label: string, part: string) =>
+      detailed(this.select(costume, label, finishOpts, (c) => c.costume.finishes[part] ?? "", (v) => {
+        const finishes = { ...character.config.costume.finishes };
+        if (v) finishes[part] = v as CostumeLook["finishes"][string];
+        else delete finishes[part];
+        setCostume({ finishes });
+      }, `costume.finish.${part}`));
+    this.select(costume, "Cape", styleOpts(CAPE_STYLES), (c) => c.costume.cape, (v) => setCostume({ cape: v as CostumeLook["cape"] }), "costume.cape");
+    this.select(costume, "Collar", styleOpts(COLLAR_STYLES), (c) => c.costume.collar, (v) => setCostume({ collar: v as CostumeLook["collar"] }), "costume.collar");
+    this.color(costume, "Cape colour", (c) => c.costume.capeColor, (v) => v && setCostume({ capeColor: v }), "costume.capeColor");
+    detailed(this.color(costume, "Lining", (c) => c.costume.liningColor, (v) => v && setCostume({ liningColor: v }), "costume.liningColor"));
+    finish("Cape finish", "cape");
+    this.select(costume, "Mask", styleOpts(MASK_STYLES), (c) => c.costume.mask, (v) => setCostume({ mask: v as CostumeLook["mask"] }), "costume.mask");
+    this.color(costume, "Mask colour", (c) => c.costume.maskColor, (v) => v && setCostume({ maskColor: v }), "costume.maskColor");
+    finish("Mask finish", "mask");
+    this.select(costume, "Belt", styleOpts(BELT_STYLES), (c) => c.costume.belt, (v) => setCostume({ belt: v as CostumeLook["belt"] }), "costume.belt");
+    detailed(this.color(costume, "Belt colour", (c) => c.costume.beltColor, (v) => v && setCostume({ beltColor: v }), "costume.beltColor"));
+    detailed(this.color(costume, "Buckle colour", (c) => c.costume.buckleColor, (v) => v && setCostume({ buckleColor: v }), "costume.buckleColor"));
+    finish("Belt finish", "belt");
+    this.select(costume, "Emblem", styleOpts(EMBLEM_SHAPES), (c) => c.costume.emblem, (v) => setCostume({ emblem: v as CostumeLook["emblem"] }), "costume.emblem");
+    this.select(costume, "Symbol", styleOpts(EMBLEM_SYMBOLS), (c) => c.costume.symbol, (v) => setCostume({ symbol: v as CostumeLook["symbol"] }), "costume.symbol");
+    detailed(this.slider(costume, "Emblem size", 0, 1, 0.01, (v) => `${Math.round(v * 100)}%`, (c) => c.costume.emblemSize, (v) => setCostume({ emblemSize: v }), "costume.emblemSize"));
+    this.color(costume, "Emblem colour", (c) => c.costume.emblemColor, (v) => v && setCostume({ emblemColor: v }), "costume.emblemColor");
+    this.color(costume, "Symbol colour", (c) => c.costume.symbolColor, (v) => v && setCostume({ symbolColor: v }), "costume.symbolColor");
+    detailed(this.color(costume, "Rim colour", (c) => c.costume.rimColor, (v) => v && setCostume({ rimColor: v }), "costume.rimColor"));
+    // A finish for each worn garment: satin tights, leather boots, metal gauntlets.
+    const garmentFinishes = document.createElement("details");
+    garmentFinishes.innerHTML = `<summary>Garment finishes</summary>`;
+    detailed(garmentFinishes);
+    costume.appendChild(garmentFinishes);
+    let finishFor = "";
+    this.syncers.push((c) => {
+      const key = c.outfit.join(",");
+      if (key === finishFor) return;
+      finishFor = key;
+      garmentFinishes.querySelectorAll(".ae-row").forEach((r) => r.remove());
+      for (const g of c.outfit) {
+        const label = cat.garments.find((x) => x.id === g)?.label ?? g;
+        this.select(garmentFinishes, label, finishOpts, (cc) => cc.costume.finishes[g] ?? "", (v) => {
+          const finishes = { ...character.config.costume.finishes };
+          if (v) finishes[g] = v as CostumeLook["finishes"][string];
+          else delete finishes[g];
+          setCostume({ finishes });
+        });
+      }
     });
 
     // Animation and expression

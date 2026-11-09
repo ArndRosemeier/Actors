@@ -44,5 +44,20 @@
     "name": "mutton",
     "params": { "gender": 1, "ageYears": 35 },
     "parts": { "seed": 0.05, "beard": "mutton" }
+  },
+  {
+    "name": "hero-cape-cowl-utility",
+    "params": { "gender": 0.9, "ageYears": 30, "muscle": 0.8 },
+    "parts": { "costume": { "cape": "classic", "collar": "standing", "capeColor": [0.78, 0.13, 0.16], "liningColor": [0.95, 0.76, 0.19], "mask": "cowl", "maskColor": [0.12, 0.16, 0.42], "belt": "utility", "beltColor": [0.95, 0.76, 0.19], "buckleColor": [0.85, 0.87, 0.89], "emblem": "shield", "symbol": "bolt", "emblemSize": 0.5, "rimColor": [0.95, 0.76, 0.19] } }
+  },
+  {
+    "name": "heroine-scalloped-domino",
+    "params": { "gender": 0.1, "ageYears": 27 },
+    "parts": { "costume": { "cape": "scalloped", "collar": "flared", "capeColor": [0.2, 0.1, 0.4], "liningColor": [0.6, 0.6, 0.7], "mask": "domino", "maskColor": [0.1, 0.1, 0.1], "belt": "buckle", "beltColor": [0.3, 0.3, 0.3], "buckleColor": [0.9, 0.8, 0.3], "emblem": "cutout", "symbol": "star", "emblemSize": 0.8, "rimColor": [0.9, 0.8, 0.3] } }
+  },
+  {
+    "name": "tiefling-bandit-long-cape",
+    "params": { "gender": 0.6, "ageYears": 45 },
+    "parts": { "seed": 0.12, "horns": "ram", "hornSize": 0.7, "tail": "thin", "tailLength": 0.8, "costume": { "cape": "long", "collar": "none", "capeColor": [0.1, 0.3, 0.2], "liningColor": [0.8, 0.2, 0.2], "mask": "bandit", "maskColor": [0.7, 0.1, 0.1], "belt": "plain", "beltColor": [0.4, 0.25, 0.1], "buckleColor": [0.8, 0.8, 0.8], "emblem": "badge", "symbol": "atom", "emblemSize": 0.2, "rimColor": [0.8, 0.8, 0.8] } }
   }
 ]

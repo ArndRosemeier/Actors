@@ -15,6 +15,7 @@ import type { ActorShape, FittedSkeleton, MeshData, PartBone, PartKind, PartMesh
 /** `PartMesh.anchors` value for vertices that don't follow face morphs. */
 export const NO_ANCHOR = 0xffffffff;
 import type { HornStyle, TailStyle } from "./races";
+import { type CostumeParts, buildCostume, hasCostume } from "./costume";
 export type BeardStyle = "none" | "short" | "full" | "long" | "braided" | "forked" | "goatee" | "mustache" | "mutton" | "chinstrap";
 /** Procedural hair styles (the pack's hair meshes cover the rest). */
 export type HairPart = "none" | "leaves" | "crest";
@@ -40,6 +41,8 @@ export interface PartsConfig {
   tailLength: number;
   beard: BeardStyle;
   hair: HairPart;
+  /** Hero costume pieces (cape, mask, belt, emblem); see costume.ts. */
+  costume?: CostumeParts;
 }
 
 /** What the builders need from the body: the evaluated shape and its landmarks. */
@@ -842,7 +845,7 @@ function flatUv(b: Builder, uvs: Float32Array, v: number) {
 
 /** True if the config adds any part. */
 export function hasParts(c: PartsConfig): boolean {
-  return (c.horns !== "none" && c.hornSize > 0.05) || c.tusks > 0.05 || (c.tail !== "none" && c.tailLength > 0.05) || c.beard !== "none" || c.hair !== "none";
+  return (c.horns !== "none" && c.hornSize > 0.05) || c.tusks > 0.05 || (c.tail !== "none" && c.tailLength > 0.05) || c.beard !== "none" || c.hair !== "none" || hasCostume(c.costume);
 }
 
 /** Builds the add-on meshes for a body. */
@@ -872,6 +875,10 @@ export function buildParts(body: PartsBody, c: PartsConfig): PartMesh[] {
       flatUv(b, body.uvs, tailRoot(ctx).v);
     },
   );
+  if (c.costume && hasCostume(c.costume)) {
+    const boneBase = body.skeleton.names.length + parts.reduce((n, p) => n + (p.bones?.length ?? 0), 0);
+    parts.push(...buildCostume(body, c.costume, boneBase));
+  }
   return parts;
 }
 

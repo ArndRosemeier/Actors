@@ -628,6 +628,34 @@ export class ThreeActor {
     for (const mesh of this.parts.values()) if (kinds.includes(mesh.userData.partKind)) Object.assign(mesh.material as THREE.MeshPhysicalMaterial, settings);
   }
 
+  /** Colour of one generated part, by its name (e.g. "cape"). */
+  setPartColorByName(name: string, color: THREE.ColorRepresentation): void {
+    const mesh = this.parts.get(name);
+    if (mesh) (mesh.material as THREE.MeshStandardMaterial).color.set(color);
+  }
+
+  /** The texture of one generated part, by name (the chest emblem). */
+  setPartMap(name: string, map: THREE.Texture | null): void {
+    const mesh = this.parts.get(name);
+    if (!mesh) return;
+    const mat = mesh.material as THREE.MeshStandardMaterial;
+    if (mat.map !== map) {
+      mat.map = map;
+      mat.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Surface settings of a pack mesh or generated part, by name: a costume finish on a garment or
+   * a cape. Settings a material does not have are skipped.
+   */
+  setMeshMaterial(name: string, settings: Partial<Record<"metalness" | "roughness" | "clearcoat" | "sheen", number>>): void {
+    const target = this.parts.get(name) ?? this.meshes.get(name);
+    if (!target) return;
+    for (const mat of (Array.isArray(target.material) ? target.material : [target.material]) as unknown as Record<string, unknown>[])
+      for (const [k, v] of Object.entries(settings)) if (typeof mat[k] === "number") mat[k] = v;
+  }
+
   private packHidden: boolean | "body" = false;
 
   /**
@@ -1821,13 +1849,16 @@ export class ThreeActor {
       const steps = Math.max(12, cycles * 24);
       const times = Array.from({ length: steps + 1 }, (_, i) => (i / steps) * duration);
       const q = new THREE.Quaternion(), qp = new THREE.Quaternion();
+      // A cape (see @actors/human costume.ts) mostly billows; a tail mostly swings.
+      const cape = root.name.startsWith("cape_");
+      const [ya, pa] = cape ? [0.025, 0.05] : [0.09, 0.03];
       chain.forEach((bone, k) => {
         const values: number[] = [];
         for (const t of times) {
           const ph = (t / duration) * cycles * Math.PI * 2;
           // A wave travelling to the tip, stronger toward it; a slight lift and fall.
-          q.setFromAxisAngle(yaw, 0.09 * (0.4 + k * 0.25) * Math.sin(ph - k * 0.7));
-          qp.setFromAxisAngle(pitch, 0.03 * Math.sin(ph * 2 - k * 0.5));
+          q.setFromAxisAngle(yaw, ya * (0.4 + k * 0.25) * Math.sin(ph - k * 0.7));
+          qp.setFromAxisAngle(pitch, pa * (cape ? 0.5 + k * 0.2 : 1) * Math.sin(ph * 2 - k * 0.5));
           q.multiply(qp);
           values.push(q.x, q.y, q.z, q.w);
         }

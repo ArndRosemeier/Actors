@@ -41,6 +41,8 @@ pub struct PartsConfig {
     pub beard: String,
     /// "none", "leaves" or "crest".
     pub hair: String,
+    /// Hero costume pieces (cape, mask, belt, emblem); see `costume.rs`.
+    pub costume: Option<crate::costume::CostumeParts>,
 }
 
 impl Default for PartsConfig {
@@ -56,6 +58,7 @@ impl Default for PartsConfig {
             tail_length: 0.0,
             beard: "none".into(),
             hair: "none".into(),
+            costume: None,
         }
     }
 }
@@ -151,14 +154,14 @@ pub type Weights = Vec<(u16, f64)>;
 /// Collects a part's vertices, skinning and triangles.
 #[derive(Default)]
 pub struct Builder {
-    pos: Vec<f64>,
-    nrm: Vec<f64>,
-    uv: Vec<f64>,
-    shade: Vec<f64>,
-    ji: Vec<u16>,
-    jw: Vec<f64>,
+    pub(crate) pos: Vec<f64>,
+    pub(crate) nrm: Vec<f64>,
+    pub(crate) uv: Vec<f64>,
+    pub(crate) shade: Vec<f64>,
+    pub(crate) ji: Vec<u16>,
+    pub(crate) jw: Vec<f64>,
     pub idx: Vec<u32>,
-    anchor: Vec<u32>,
+    pub(crate) anchor: Vec<u32>,
     /// Base vertex the next vertices follow in face morphs (NO_ANCHOR = rigid).
     pub follow: u32,
     pub bones: Vec<PartBone>,
@@ -1176,6 +1179,7 @@ pub fn has_parts(c: &PartsConfig) -> bool {
         || (c.tail != "none" && c.tail_length > 0.05)
         || c.beard != "none"
         || c.hair != "none"
+        || crate::costume::has_costume(c.costume.as_ref())
 }
 
 /// Builds the add-on meshes for a body.
@@ -1211,6 +1215,10 @@ pub fn build_parts(body: &PartsBody, c: &PartsConfig) -> Vec<PartMesh> {
         let v = tail_root(ctx).1;
         flat_uv(b, &ctx.body.uvs, v);
     });
+    if let Some(costume) = c.costume.as_ref().filter(|x| crate::costume::has_costume(Some(x))) {
+        let bone_base = body.skeleton.names.len() + parts.iter().map(|p| p.bones.len()).sum::<usize>();
+        parts.extend(crate::costume::build_costume(body, costume, bone_base));
+    }
     parts
 }
 

@@ -4,6 +4,8 @@
 use crate::catalog::{race_features, resolve_outfit, CharacterCatalog, FeatureLists};
 use crate::data::data;
 use actors_core::deform_recipe::DeformSpec;
+use actors_human::costume::{CostumeParts, BELT_STYLES, CAPE_STYLES, COLLAR_STYLES, MASK_STYLES};
+use actors_human::emblem::{EMBLEM_SHAPES, EMBLEM_SYMBOLS};
 use actors_human::{HumanParams, RaceId, RaceSettings, ADULT_MIN_AGE, MAX_AGE};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -200,6 +202,159 @@ impl SkeletalLook {
     }
 }
 
+/// Surface finishes for costume pieces: (id, label, metalness, roughness, clearcoat, sheen).
+pub const COSTUME_FINISHES: [(&str, &str, f64, f64, f64, f64); 6] = [
+    ("cloth", "Cloth", 0.0, 0.85, 0.0, 0.3),
+    ("satin", "Satin (spandex)", 0.0, 0.42, 0.15, 0.8),
+    ("leather", "Leather", 0.0, 0.55, 0.25, 0.0),
+    ("rubber", "Rubber", 0.0, 0.32, 0.5, 0.0),
+    ("gloss", "Gloss vinyl", 0.05, 0.14, 1.0, 0.0),
+    ("metallic", "Metal", 1.0, 0.28, 0.3, 0.0),
+];
+
+/// Material settings of a finish: (metalness, roughness, clearcoat, sheen).
+pub fn costume_finish(id: &str) -> Option<(f64, f64, f64, f64)> {
+    COSTUME_FINISHES.iter().find(|f| f.0 == id).map(|f| (f.2, f.3, f.4, f.5))
+}
+
+/// Finish of costume parts that have none set, by part name.
+pub const COSTUME_PART_FINISH: [(&str, &str); 7] = [
+    ("cape", "satin"),
+    ("cape-lining", "satin"),
+    ("mask", "satin"),
+    ("belt", "leather"),
+    ("buckle", "metallic"),
+    ("emblem", "gloss"),
+    ("emblem-rim", "metallic"),
+];
+
+fn hex_rgb(s: &str) -> [f64; 3] {
+    let c = |i: usize| u8::from_str_radix(&s[i..i + 2], 16).unwrap_or(0) as f64 / 255.0;
+    if is_hex(s) {
+        [c(1), c(3), c(5)]
+    } else {
+        [1.0, 1.0, 1.0]
+    }
+}
+
+/// A hero costume on top of the outfit: a cape (with a collar), a mask, a belt and a chest emblem
+/// (see `actors_human::costume`), their colours (sRGB hex), and a finish for any piece: a garment
+/// id or a costume part ("cape", "mask", "belt", "buckle", "emblem", "rim").
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CostumeLook {
+    pub cape: String,
+    pub collar: String,
+    pub cape_color: String,
+    pub lining_color: String,
+    pub mask: String,
+    pub mask_color: String,
+    pub belt: String,
+    pub belt_color: String,
+    pub buckle_color: String,
+    pub emblem: String,
+    pub symbol: String,
+    /// 0..1
+    pub emblem_size: f64,
+    pub emblem_color: String,
+    pub symbol_color: String,
+    pub rim_color: String,
+    pub finishes: IndexMap<String, String>,
+}
+
+impl Default for CostumeLook {
+    fn default() -> Self {
+        Self {
+            cape: "none".into(),
+            collar: "none".into(),
+            cape_color: "#c8202a".into(),
+            lining_color: "#f2c230".into(),
+            mask: "none".into(),
+            mask_color: "#1f2a6b".into(),
+            belt: "none".into(),
+            belt_color: "#f2c230".into(),
+            buckle_color: "#d8dde4".into(),
+            emblem: "none".into(),
+            symbol: "bolt".into(),
+            emblem_size: 0.5,
+            emblem_color: "#c8202a".into(),
+            symbol_color: "#f2c230".into(),
+            rim_color: "#f2c230".into(),
+            finishes: IndexMap::new(),
+        }
+    }
+}
+
+impl CostumeLook {
+    /// A valid costume (bad values fall back to the defaults).
+    pub fn sanitized(&self) -> Self {
+        let d = Self::default();
+        let color = |v: &String, dv: &String| if is_hex(v) { v.clone() } else { dv.clone() };
+        let pick = |list: &[&str], v: &String, dv: &String| if list.contains(&v.as_str()) { v.clone() } else { dv.clone() };
+        Self {
+            cape: pick(&CAPE_STYLES, &self.cape, &d.cape),
+            collar: pick(&COLLAR_STYLES, &self.collar, &d.collar),
+            cape_color: color(&self.cape_color, &d.cape_color),
+            lining_color: color(&self.lining_color, &d.lining_color),
+            mask: pick(&MASK_STYLES, &self.mask, &d.mask),
+            mask_color: color(&self.mask_color, &d.mask_color),
+            belt: pick(&BELT_STYLES, &self.belt, &d.belt),
+            belt_color: color(&self.belt_color, &d.belt_color),
+            buckle_color: color(&self.buckle_color, &d.buckle_color),
+            emblem: pick(&EMBLEM_SHAPES, &self.emblem, &d.emblem),
+            symbol: pick(&EMBLEM_SYMBOLS, &self.symbol, &d.symbol),
+            emblem_size: unit(self.emblem_size, d.emblem_size),
+            emblem_color: color(&self.emblem_color, &d.emblem_color),
+            symbol_color: color(&self.symbol_color, &d.symbol_color),
+            rim_color: color(&self.rim_color, &d.rim_color),
+            finishes: self
+                .finishes
+                .iter()
+                .filter(|(k, v)| k.len() < 64 && costume_finish(v).is_some())
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        }
+    }
+
+    /// True if the costume adds any part.
+    pub fn any(&self) -> bool {
+        self.cape != "none" || self.mask != "none" || self.belt != "none" || self.emblem != "none"
+    }
+
+    /// The parts' shapes and colours for [`actors_human::PartsConfig::costume`].
+    pub fn parts(&self) -> CostumeParts {
+        CostumeParts {
+            cape: self.cape.clone(),
+            collar: self.collar.clone(),
+            cape_color: hex_rgb(&self.cape_color),
+            lining_color: hex_rgb(&self.lining_color),
+            mask: self.mask.clone(),
+            mask_color: hex_rgb(&self.mask_color),
+            belt: self.belt.clone(),
+            belt_color: hex_rgb(&self.belt_color),
+            buckle_color: hex_rgb(&self.buckle_color),
+            emblem: self.emblem.clone(),
+            symbol: self.symbol.clone(),
+            emblem_size: self.emblem_size,
+            rim_color: hex_rgb(&self.rim_color),
+        }
+    }
+
+    /// The finish of a costume part (by part name) or a garment (by id): the one set in
+    /// `finishes`, else the part's default; garments without one have none.
+    pub fn finish_of(&self, name: &str) -> Option<&str> {
+        let key = match name {
+            "cape" | "cape-lining" => "cape",
+            "emblem-rim" => "rim",
+            n => n,
+        };
+        if let Some(f) = self.finishes.get(key) {
+            return Some(f.as_str());
+        }
+        COSTUME_PART_FINISH.iter().find(|p| p.0 == name).map(|p| p.1)
+    }
+}
+
 /// Which skin the body wears.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -321,6 +476,8 @@ pub struct CharacterConfig {
     /// A skeleton (undead) instead of a human. Ignored while `robot` is set.
     pub skeletal: bool,
     pub skeletal_look: SkeletalLook,
+    /// A hero costume (cape, mask, belt, emblem) and finishes, on top of the outfit.
+    pub costume: CostumeLook,
 }
 
 impl Default for CharacterConfig {
@@ -378,6 +535,7 @@ impl Default for CharacterConfig {
             robot_look: RobotLook::default(),
             skeletal: false,
             skeletal_look: SkeletalLook::default(),
+            costume: CostumeLook::default(),
         }
     }
 }
@@ -476,6 +634,7 @@ pub fn sanitize_config(catalog: &CharacterCatalog, config: &CharacterConfig) -> 
     c.body.age_years = c.body.age_years.clamp(ADULT_MIN_AGE, MAX_AGE);
     c.robot_look = c.robot_look.sanitized();
     c.skeletal_look = c.skeletal_look.sanitized();
+    c.costume = c.costume.sanitized();
     if c.robot {
         c.skeletal = false;
     }
