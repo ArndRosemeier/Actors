@@ -23,7 +23,9 @@
 //! The data tables (races, expressions, shape sliders, ...) are shared with the TypeScript
 //! package through `data/human.json`.
 
+pub mod costume;
 mod data;
+pub mod emblem;
 pub mod expressions;
 pub mod face_animator;
 pub mod human;
@@ -36,6 +38,7 @@ pub mod raceshape;
 pub mod shapes;
 pub mod skins;
 
+pub use costume::{build_costume, costume_hides_hair, has_costume, CostumeParts};
 pub use data::{data as tables, HumanData, UnitWeights};
 pub use expressions::{blink, expression, expression_target_weights, wrinkle_weights};
 pub use face_animator::{text_to_visemes, FaceAnimator, FaceAnimatorOptions, FaceFrame, VisemeKey, VISEMES};

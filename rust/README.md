@@ -7,9 +7,9 @@ release's `actors-packs-<version>.tar.gz`) works in both.
 | Crate | What it is | Status |
 |---|---|---|
 | `actors-core` | Renderer-free runtime: pack loading, morph targets, face rig, shape passes (bone proportions, tips, scale), normals, skeleton fitting, garment fitting, subdivision, LOD, clip retargeting, pose blending. Port of `@actors/core`. | done |
-| `actors-human` | Human sliders, races, body shapes, expressions → target weights; race add-ons (horns, tusks, tails, beards, leaf hair, crest). Port of `@actors/human`. | done |
+| `actors-human` | Human sliders, races, body shapes, expressions → target weights; race add-ons (horns, tusks, tails, beards, leaf hair, crest); hero costumes (cape, mask, belt, emblem). Port of `@actors/human`. | done |
 | `actors-generator` | The same `CharacterConfig` JSON as `@actors/generator`: catalog, outfits, random characters (same seed, same character), themes, allow rules. Port of `@actors/generator` without the renderer. | done |
-| `actors-engine` | Adapter for [Engine](https://github.com/ArndRosemeier/Engine): a `CharacterConfig` becomes an `AnimatedModel` (shaped body, photo skin, race patterns and stubble, race add-ons, hair, clothes in layers, fitted skeleton, baked clips with tail sway, animated faces as morph targets). | done (humans) |
+| `actors-engine` | Adapter for [Engine](https://github.com/ArndRosemeier/Engine): a `CharacterConfig` becomes an `AnimatedModel` (shaped body, photo skin, race patterns and stubble, race add-ons, hair, clothes in layers, fitted skeleton, baked clips with tail sway and swinging capes, hero costumes with finishes, animated faces as morph targets). | done (humans) |
 
 Later: animals, drones, robots and skeletons, fabric shaders, gaze and wrinkles.
 
@@ -111,7 +111,7 @@ npm run import:human && npm run import:animals        # or unpack actors-packs i
 npx tsx rust/golden/dump.ts apps/viewer/public/packs /tmp/golden
 npx tsx rust/golden/dump-human.ts apps/viewer/public/packs /tmp/golden   # human sliders, races, deform plans
 npx tsx rust/golden/dump-generator.ts apps/viewer/public/packs /tmp/golden   # catalog, random configs, allow rules
-npx tsx rust/golden/dump-parts.ts apps/viewer/public/packs /tmp/golden       # horns, tusks, tails, beards
+npx tsx rust/golden/dump-parts.ts apps/viewer/public/packs /tmp/golden       # horns, tusks, tails, beards, costumes
 ACTORS_PACKS=apps/viewer/public/packs ACTORS_GOLDEN=/tmp/golden cargo test --manifest-path rust/Cargo.toml
 ```
 

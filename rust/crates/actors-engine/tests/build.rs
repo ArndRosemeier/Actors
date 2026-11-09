@@ -198,3 +198,60 @@ fn race_add_ons_are_built() {
     }
     assert!(c.model.meshes.iter().flat_map(|m| m.joints.iter()).flatten().all(|&j| (j as usize) < joints));
 }
+
+#[test]
+fn costumes_are_built_and_capes_swing() {
+    let Some(packs) = packs() else { return };
+    let mut b = CharacterBuilder::load(&packs).unwrap();
+    let mut config = b.default_config();
+    config.hair = b.catalog().hair.first().map(|h| h.id.clone());
+    let c = &mut config.costume;
+    c.cape = "classic".into();
+    c.collar = "standing".into();
+    c.mask = "cowl".into();
+    c.belt = "utility".into();
+    c.emblem = "shield".into();
+    c.symbol = "bolt".into();
+    let clips = BuildOptions { clips: vec!["idle".into(), "walk".into(), "sprint".into()], ..Default::default() };
+    let plain = b.build(&b.default_config(), &clips).unwrap();
+    let t = std::time::Instant::now();
+    let hero = b.build(&config, &clips).unwrap();
+    eprintln!("costumed build: {:?}", t.elapsed());
+    for part in ["cape", "cape-lining", "mask", "belt", "buckle", "emblem", "emblem-rim"] {
+        assert!(hero.meshes.iter().any(|m| m == part), "{part} is drawn");
+    }
+    // The cowl covers the hair.
+    assert!(config.hair.as_ref().is_none_or(|h| !hero.meshes.contains(h)));
+    let joints = hero.model.skeleton.joint_names.len();
+    assert_eq!(joints, plain.model.skeleton.joint_names.len() + 15);
+    let rig = hero.cape.as_ref().expect("cape rig");
+    assert_eq!(rig.chains.len(), 3);
+    let name = |n: &str| hero.model.skeleton.joint_names.iter().position(|x| x == n).unwrap();
+    let (hem, pelvis) = (name("cape_c_5"), name("pelvis"));
+    let at = |clip: usize, time: f32, j: usize| {
+        let m = sample_joint_matrices(&hero.model, clip, time)[j] * hero.model.skeleton.inverse_bind[j].inverse();
+        m.w_axis.truncate()
+    };
+    let mut swing = Vec::new();
+    for (ci, clip) in hero.model.clips.iter().enumerate() {
+        let n = 24;
+        let pts: Vec<_> = (0..=n).map(|i| at(ci, clip.duration * i as f32 / n as f32, hem)).collect();
+        let pel: Vec<_> = (0..=n).map(|i| at(ci, clip.duration * i as f32 / n as f32, pelvis)).collect();
+        if std::env::var_os("CAPE_DEBUG").is_some() {
+            for (h, p) in pts.iter().zip(&pel) {
+                eprintln!("  hem {:.2} {:.2} {:.2}  pelvis {:.2} {:.2} {:.2}", h.x, h.y, h.z, p.x, p.y, p.z);
+            }
+        }
+        let range = pts.iter().map(|p| p.distance(pts[0])).fold(0.0f32, f32::max);
+        let behind = pts.iter().zip(&pel).map(|(h, p)| p.z - h.z).fold(f32::INFINITY, f32::min);
+        let lift = pts.iter().zip(&pel).map(|(h, p)| h.y - p.y).sum::<f32>() / pts.len() as f32;
+        eprintln!("{}: hem moves {range:.3} m, stays {behind:.3} m behind the hips, {lift:.3} m above them", clip.name);
+        // The loop closes: the hem is where it started.
+        assert!(pts[0].distance(pts[n]) < 0.03, "{} loops", clip.name);
+        assert!(behind > 0.02, "the cape stays behind the body in {}", clip.name);
+        swing.push((range, lift));
+    }
+    // It swings more in a sprint than standing, and the wind lifts it.
+    assert!(swing[2].0 > swing[0].0);
+    assert!(swing[2].1 > swing[0].1 + 0.05);
+}

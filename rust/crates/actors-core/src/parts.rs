@@ -22,6 +22,10 @@ pub enum PartKind {
     Glow,
     /// Skeleton (undead) bones; their eye and heart lights use `Glow`.
     Bone,
+    /// Costume cloth (cape, mask, belt, buckle, emblem rim): coloured by `PartMesh::color`.
+    Cloth,
+    /// A chest emblem plate, painted with the emblem texture.
+    Emblem,
 }
 
 /// An extra bone a part adds (a tail chain), in model space (bind pose).

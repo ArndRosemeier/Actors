@@ -7,7 +7,9 @@ export type PartKind =
   // Robot parts: painted armour plates, second paint, flexible inner frame, bare-metal joint housings, visor glass, lights.
   | "plate" | "trim" | "frame" | "joint" | "visor" | "glow"
   // Skeleton (undead) parts: bone; their eye and heart lights use "glow".
-  | "bone";
+  | "bone"
+  // Hero costume parts: cloth, leather and metal pieces in their own colour and finish, and the chest emblem (textured).
+  | "cloth" | "emblem";
 
 export interface PartMesh {
   name: string;

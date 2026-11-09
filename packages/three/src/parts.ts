@@ -195,6 +195,10 @@ export function createPartMaterial(part: PartMesh, skin: SkinUniforms): THREE.Ma
     }
     case "fur":
       return useDualQuaternionSkinning(new THREE.MeshStandardMaterial({ color, vertexColors: true, roughness: 0.9 }));
+    // Costume pieces: colour and finish are set afterwards (see Character's costume); the emblem gets its texture.
+    case "cloth":
+    case "emblem":
+      return useDualQuaternionSkinning(new THREE.MeshPhysicalMaterial({ color: part.kind === "emblem" ? 0xffffff : color, vertexColors: true, roughness: 0.45, sheen: 0.5, sheenRoughness: 0.4, sheenColor: new THREE.Color(0.4, 0.4, 0.4), clearcoatRoughness: 0.2 }));
     case "tusk":
       return useDualQuaternionSkinning(new THREE.MeshPhysicalMaterial({ color, vertexColors: true, roughness: 0.35, clearcoat: 0.4, clearcoatRoughness: 0.3 }));
     default:

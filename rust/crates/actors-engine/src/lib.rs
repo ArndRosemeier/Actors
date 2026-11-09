@@ -26,7 +26,9 @@
 //! and glowing eyes into the eye texture, race skin patterns (scales, bark, veins, ...) and
 //! painted stubble into a 1024² skin texture (see [`pattern`]). Race add-ons (horns, tusks, tails,
 //! beards, leaf hair, crest) come from `actors_human::parts`; a tail adds six bones
-//! (`tail_01`..`tail_06`) that sway in every clip.
+//! (`tail_01`..`tail_06`) that sway in every clip. Hero costumes (cape, collar, mask, belt, chest
+//! emblem; `actors_human::costume`) are built with their finishes, and the cape's bones get a
+//! cloth simulation baked into every clip ([`cape`]; `swing_cape` for clips a game adds).
 //!
 //! Faces: with `face_animation` (or `face_rig`) in the config, every face unit becomes one of the
 //! model's morph targets ([`CharacterModel::face`]) and the expression becomes their resting
@@ -37,8 +39,11 @@
 //! Not yet carried over from the three.js adapter: robots and skeletons, skin detail, the
 //! patterns' bump and roughness, fabric shaders, eye bones (gaze) and wrinkles.
 
+pub mod cape;
 pub mod pattern;
 pub mod texture;
+
+pub use cape::{swing_cape, CapeRig, CapeWind};
 
 use actors_core::format::{MaterialKind, MeshRole};
 use actors_core::parts::{PartBone, PartKind, PartMesh};
@@ -46,8 +51,8 @@ use actors_core::{
     ActorRuntime, ActorShape, DirSource, Error, FittedSkeleton, InPlace, MeshData, Result, RetargetOptions, Retargeter, Weights,
 };
 use actors_generator::{
-    allow_catalog, build_catalog, concealed_garments, default_config, height_fit, random_config, sanitize_config, AllowOptions,
-    CharacterCatalog, CharacterConfig, Detail, RandomOptions, SeededRandom, SkinKind,
+    allow_catalog, build_catalog, concealed_garments, costume_finish, default_config, height_fit, random_config, sanitize_config,
+    AllowOptions, CharacterCatalog, CharacterConfig, Detail, RandomOptions, SeededRandom, SkinKind,
 };
 use actors_human::{expression, shape_modifiers, Human, HumanPack, PartsConfig};
 use engine::anim::{AnimatedModel, AnimationClip, JointChannels, MeshMorph, QuatTrack, Skeleton, SkinMesh, Vec3Track, MAX_JOINTS};
@@ -91,6 +96,9 @@ pub struct CharacterModel {
     pub meshes: Vec<String>,
     /// The face as morph targets, when the config asks for a face rig or face animation.
     pub face: Option<Face>,
+    /// The cape's bones, when the costume has a cape: every built clip swings it already; give
+    /// clips added later their swing with [`swing_cape`].
+    pub cape: Option<CapeRig>,
 }
 
 /// A character's face as morph targets: every face unit (brow raiser, lid closure, mouth
@@ -299,23 +307,32 @@ impl CharacterBuilder {
             None
         };
         let (skeleton, bind_local) = engine_skeleton(&sk, lift, &extra);
-        let mut clips = self.clips(&sk, &c, options)?;
+        let caped = extra.iter().any(|b| b.name.starts_with("cape_"));
+        let (mut clips, travel) = self.clips(&sk, &c, options, caped)?;
         for clip in &mut clips {
             clip.channels.resize_with(sk.len() + extra.len(), Default::default);
             tail_sway(clip, &extra, sk.len(), &bind_local);
         }
+        let mut model = AnimatedModel {
+            skeleton,
+            meshes,
+            clips,
+            bind_local,
+            morph_targets: face.as_ref().map(|f| f.units.clone()).unwrap_or_default(),
+        };
+        let cape = if caped { CapeRig::of(&model) } else { None };
+        if let Some(rig) = &cape {
+            for (i, t) in travel.iter().enumerate() {
+                swing_cape(&mut model, rig, i, CapeWind { travel: *t, root_motion: options.in_place == InPlace::Off });
+            }
+        }
         Ok(CharacterModel {
-            model: AnimatedModel {
-                skeleton,
-                meshes,
-                clips,
-                bind_local,
-                morph_targets: face.as_ref().map(|f| f.units.clone()).unwrap_or_default(),
-            },
+            model,
             config: c,
             height,
             meshes: names.into_iter().chain(parts.into_iter().map(|p| p.name)).collect(),
             face,
+            cape,
         })
     }
 
@@ -512,11 +529,11 @@ impl CharacterBuilder {
         let concealed = concealed_garments(&self.catalog, &c.outfit);
         let worn: Vec<&String> = c.outfit.iter().filter(|g| !concealed.contains(g) && has(g)).collect();
         let garment = |id: &str| self.catalog.garment(id);
-        let hides_hair = c.outfit.iter().any(|g| garment(g).is_some_and(|g| g.hides_hair));
+        let hides_hair = c.outfit.iter().any(|g| garment(g).is_some_and(|g| g.hides_hair)) || cowl(c);
         if let Some(h) = c.hair.as_deref().filter(|h| has(h) && !hides_hair) {
             out.push(h.into());
         }
-        if let Some(b) = c.brows.as_deref().filter(|b| has(b)) {
+        if let Some(b) = c.brows.as_deref().filter(|b| has(b) && !cowl(c)) {
             out.push(b.into());
         }
         // Adults only (sanitize_config turns anatomy off for children); hidden under covering clothes.
@@ -530,10 +547,11 @@ impl CharacterBuilder {
 
     /// Whether a worn garment hides the hair (hats, hoods, helmets).
     fn hides_hair(&self, c: &CharacterConfig) -> bool {
-        c.outfit.iter().any(|g| self.catalog.garment(g).is_some_and(|g| g.hides_hair))
+        c.outfit.iter().any(|g| self.catalog.garment(g).is_some_and(|g| g.hides_hair)) || cowl(c)
     }
 
-    /// The race add-ons: horns, tusks, tail, beard, leaf hair or crest (see actors_human::parts).
+    /// The race add-ons (horns, tusks, tail, beard, leaf hair or crest) and the costume (cape,
+    /// mask, belt, emblem); see actors_human::parts and actors_human::costume.
     fn parts(&mut self, c: &CharacterConfig, human: &Human, shape: &ActorShape) -> Result<Vec<PartMesh>> {
         let hair = c.hair.as_deref().filter(|h| matches!(*h, "leaves" | "crest") && !self.hides_hair(c)).unwrap_or("none");
         let horn = texture::parse_hex(c.horn_color.as_deref().unwrap_or("#d9cfb4")).unwrap_or([0.85, 0.81, 0.71]);
@@ -548,6 +566,7 @@ impl CharacterBuilder {
             tail_length: c.tail_length,
             beard: c.beard.clone(),
             hair: hair.into(),
+            costume: c.costume.any().then(|| c.costume.parts()),
         };
         human.parts(&mut self.rt, shape, &cfg)
     }
@@ -605,6 +624,7 @@ impl CharacterBuilder {
             albedo: None,
             normal: None,
             roughness: def.material.roughness.unwrap_or(0.6),
+            metallic: 0.0,
             double_sided: false,
             emissive: None,
         };
@@ -649,6 +669,11 @@ impl CharacterBuilder {
                 if let Some(file) = tex.and_then(|t| t.get("normal")) {
                     m.normal = Some((*self.texture(file)?).clone());
                 }
+                // A finish chosen in the costume (satin, leather, rubber, ...).
+                if let Some((metal, rough, _, _)) = c.costume.finishes.get(&def.name).and_then(|f| costume_finish(f)) {
+                    m.roughness = rough as f32;
+                    m.metallic = metal as f32;
+                }
             }
             MaterialKind::Eye if tex.is_some_and(|t| t.contains_key("color")) => {
                 let file = &tex.unwrap()["color"];
@@ -687,7 +712,15 @@ impl CharacterBuilder {
         Ok(m)
     }
 
-    fn clips(&mut self, sk: &FittedSkeleton, c: &CharacterConfig, options: &BuildOptions) -> Result<Vec<AnimationClip>> {
+    /// The clips, and with `travel` how fast each one moves the character (m/s, model space;
+    /// measured from its root motion), for the cape's wind.
+    fn clips(
+        &mut self,
+        sk: &FittedSkeleton,
+        c: &CharacterConfig,
+        options: &BuildOptions,
+        travel: bool,
+    ) -> Result<(Vec<AnimationClip>, Vec<Vec3>)> {
         let mut names = options.clips.clone();
         if names.is_empty() {
             names.extend(c.animation.iter().cloned());
@@ -699,9 +732,20 @@ impl CharacterBuilder {
         }
         let opts = RetargetOptions { in_place: options.in_place, ..Default::default() };
         let mut out = Vec::with_capacity(names.len());
+        let mut travels = Vec::new();
         for name in names {
             let clip = self.rt.load_clip(&name)?;
+            // Root motion of a clip baked in place, for the cape's wind.
+            let free = if travel && options.in_place != InPlace::Off {
+                Some(Retargeter::new(sk, clip.clone(), &RetargetOptions { in_place: InPlace::Off, ..Default::default() })?.bake(10.0))
+            } else {
+                None
+            };
             let baked = Retargeter::new(sk, clip, &opts)?.bake(options.fps);
+            if travel {
+                let measured = clip_travel(sk, free.as_ref().unwrap_or(&baked));
+                travels.push(if measured.length() > 0.2 { measured } else { Vec3::Z * gait_speed(&name) });
+            }
             let times = baked.times.clone();
             let mut channels: Vec<JointChannels> = baked
                 .rotations
@@ -720,8 +764,55 @@ impl CharacterBuilder {
             });
             out.push(AnimationClip { name, duration: times.last().copied().unwrap_or(0.0), channels });
         }
-        Ok(out)
+        Ok((out, travels))
     }
+}
+
+/// Forward speed (m/s) of a gait clip recorded on the spot, by its name.
+fn gait_speed(name: &str) -> f32 {
+    let n = name.to_ascii_lowercase();
+    let has = |w: &str| n.contains(w);
+    if has("sprint") {
+        6.5
+    } else if has("run") {
+        4.5
+    } else if has("jog") {
+        3.2
+    } else if has("crouch") && has("walk") {
+        0.8
+    } else if has("walk") {
+        1.4
+    } else {
+        0.0
+    }
+}
+
+/// How fast a baked clip moves the character: the root's travel over the clip (horizontal, model
+/// space, m/s).
+fn clip_travel(sk: &FittedSkeleton, baked: &actors_core::BakedClip) -> Vec3 {
+    let p = &baked.root_positions;
+    let (Some(&t1), true) = (baked.times.last(), p.len() >= 6) else { return Vec3::ZERO };
+    let n = p.len();
+    let local = Vec3::new(p[n - 3] - p[0], p[n - 2] - p[1], p[n - 1] - p[2]);
+    // The root's position is in its parent's frame.
+    let mut rot = Quat::IDENTITY;
+    let mut j = sk.parent(baked.root_index);
+    while let Some(i) = j {
+        let q = sk.local_rotations[i];
+        rot = Quat::from_xyzw(q[0] as f32, q[1] as f32, q[2] as f32, q[3] as f32).normalize() * rot;
+        j = sk.parent(i);
+    }
+    let d = rot * local;
+    let dur = t1 - baked.times[0];
+    if dur <= 0.0 {
+        return Vec3::ZERO;
+    }
+    Vec3::new(d.x, 0.0, d.z) / dur
+}
+
+/// A cowl covers the head: no hair or brows under it.
+fn cowl(c: &CharacterConfig) -> bool {
+    actors_human::costume_hides_hair(Some(&c.costume.parts()))
 }
 
 /// The procedural skin colour for `skin_tone` (0 = light .. 1 = dark), linear.
@@ -765,6 +856,7 @@ struct Material {
     albedo: Option<AlbedoMap>,
     normal: Option<AlbedoMap>,
     roughness: f32,
+    metallic: f32,
     double_sided: bool,
     /// Emitted colour (sRGB) and its linear strength: glowing eyes.
     emissive: Option<(AlbedoMap, f32)>,
@@ -867,7 +959,7 @@ fn skin_mesh(md: &MeshData, shape: &ActorShape, hidden: &HashSet<u32>, m: Materi
         maps.emissive_factor = [k; 3];
     }
     maps.roughness = m.roughness;
-    maps.metallic = 0.0;
+    maps.metallic = m.metallic;
     Ok(SkinMesh {
         positions,
         normals,
@@ -942,7 +1034,7 @@ fn tail_sway(clip: &mut AnimationClip, extra: &[PartBone], first: usize, bind_lo
         return;
     }
     let is_extra = |name: &str| extra.iter().any(|b| b.name == name);
-    for (root, _) in extra.iter().enumerate().filter(|(_, b)| !is_extra(&b.parent)) {
+    for (root, _) in extra.iter().enumerate().filter(|(_, b)| !is_extra(&b.parent) && b.name.starts_with("tail_")) {
         let mut chain = vec![root];
         while let Some(next) = extra.iter().position(|b| b.parent == extra[*chain.last().unwrap()].name) {
             chain.push(next);
@@ -969,8 +1061,15 @@ fn tail_sway(clip: &mut AnimationClip, extra: &[PartBone], first: usize, bind_lo
 
 /// The material of a generated part, as the three.js adapter gives each kind.
 fn part_material(p: &PartMesh, c: &CharacterConfig, skin: &Material, hair: [f32; 3]) -> Material {
-    let plain =
-        |color: [f32; 3], roughness: f32| Material { color, albedo: None, normal: None, roughness, double_sided: false, emissive: None };
+    let plain = |color: [f32; 3], roughness: f32| Material {
+        color,
+        albedo: None,
+        normal: None,
+        roughness,
+        metallic: 0.0,
+        double_sided: false,
+        emissive: None,
+    };
     let own = p.color.map(|col| col.map(srgb_to_linear)).unwrap_or([0.3, 0.2, 0.12].map(srgb_to_linear));
     match p.kind {
         PartKind::Skin => Material { normal: None, ..skin.clone() },
@@ -980,6 +1079,17 @@ fn part_material(p: &PartMesh, c: &CharacterConfig, skin: &Material, hair: [f32;
         PartKind::Fur => plain(hair, 0.9),
         PartKind::Tusk => plain(own, 0.35),
         PartKind::Horn => plain(c.horn_color.as_deref().and_then(hex_linear).unwrap_or(own), 0.45),
+        PartKind::Cloth | PartKind::Emblem => {
+            let (metal, rough, coat, _) = c.costume.finish_of(&p.name).and_then(costume_finish).unwrap_or((0.0, 0.6, 0.0, 0.0));
+            // No clearcoat in Engine: a coated finish reads a little glossier.
+            let roughness = (rough * (1.0 - 0.35 * coat)) as f32;
+            let mut m = Material { metallic: metal as f32, double_sided: true, ..plain(own, roughness) };
+            if p.kind == PartKind::Emblem {
+                m.color = [1.0; 3];
+                m.albedo = Some(texture::emblem_texture(&c.costume));
+            }
+            m
+        }
         _ => plain(own, 0.45),
     }
 }
@@ -991,7 +1101,7 @@ fn part_mesh(p: &PartMesh, m: Material, lift: f32) -> SkinMesh {
     let skin = matches!(p.kind, PartKind::Skin | PartKind::Fin);
     let v3 = |a: &[f32], i: usize| Vec3::new(a[i * 3], a[i * 3 + 1], a[i * 3 + 2]);
     let shade = |i: usize| if skin { 1.0 } else { p.shade.get(i).copied().unwrap_or(1.0) };
-    let mut maps = MaterialMaps { roughness: m.roughness, metallic: 0.0, ..MaterialMaps::default() };
+    let mut maps = MaterialMaps { roughness: m.roughness, metallic: m.metallic, ..MaterialMaps::default() };
     if let Some((e, k)) = m.emissive {
         maps.emissive = Some(e);
         maps.emissive_factor = [k; 3];
