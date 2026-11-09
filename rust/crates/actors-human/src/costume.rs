@@ -219,6 +219,8 @@ struct ShellOpts<'f> {
     uv: Option<&'f dyn Fn(Vec3) -> (f64, f64)>,
     follow: bool,
     shade: f64,
+    /// A stiff plate: no vertex of the shell's face lies behind this depth at (x, y).
+    front: Option<&'f dyn Fn(f64, f64) -> f64>,
 }
 
 fn mix(a: &Sv, b: &Sv, t: f64, key: String) -> Sv {
@@ -287,7 +289,11 @@ impl Shell<'_, '_> {
         self.index.insert(s.key.clone(), i);
         let uv = self.o.uv.map_or((0.5, 0.5), |f| f(s.p));
         out.follow = if self.o.follow { s.a } else { NO_ANCHOR };
-        out.vert(add(s.p, mul(s.n, self.o.offset)), s.n, uv.0, uv.1, self.o.shade, &top4(&s.w));
+        let mut p = add(s.p, mul(s.n, self.o.offset));
+        if let Some(f) = self.o.front {
+            p[2] = p[2].max(f(p[0], p[1]));
+        }
+        out.vert(p, s.n, uv.0, uv.1, self.o.shade, &top4(&s.w));
         i
     }
     fn cut(&mut self, a: &Rc<Sv>, b: &Rc<Sv>) -> Rc<Sv> {
@@ -440,7 +446,17 @@ fn build_mask(bd: &Body, style: &str, out: &mut Builder) {
             };
             band.min(eye_holes(f, 0.3, 0.2)) * k
         };
-        let o = ShellOpts { pick: &on_head, value: &value, offset: 0.0045, subdiv: 1, rim: 0.0035, uv: None, follow: true, shade: 1.0 };
+        let o = ShellOpts {
+            pick: &on_head,
+            value: &value,
+            offset: 0.0045,
+            subdiv: 1,
+            rim: 0.0035,
+            uv: None,
+            follow: true,
+            shade: 1.0,
+            front: None,
+        };
         shell(bd, out, &o);
         if !domino {
             bandit_tails(bd, out);
@@ -455,7 +471,8 @@ fn build_mask(bd: &Body, style: &str, out: &mut Builder) {
         let front = f[2] + 0.55;
         (mouth * 0.7).max(-front * 0.5).min(eye_holes(f, 0.34, 0.24)).min((p[1] - (neck_base[1] - 0.012)) / k) * k
     };
-    let o = ShellOpts { pick: &on_head, value: &value, offset: 0.0055, subdiv: 0, rim: 0.004, uv: None, follow: true, shade: 1.0 };
+    let o =
+        ShellOpts { pick: &on_head, value: &value, offset: 0.0055, subdiv: 0, rim: 0.004, uv: None, follow: true, shade: 1.0, front: None };
     shell(bd, out, &o);
 }
 
@@ -534,7 +551,11 @@ fn build_belt(bd: &Body, style: &str, belt: &mut Builder, buckle: &mut Builder) 
     let half = 0.026 * s;
     let pick = torso_pick(bd);
     let band = |p: Vec3, _n: Vec3| (p[1] - (wy - half)).min(wy + half - p[1]);
-    shell(bd, belt, &ShellOpts { pick: &pick, value: &band, offset: 0.02, subdiv: 1, rim: 0.012, uv: None, follow: false, shade: 1.0 });
+    shell(
+        bd,
+        belt,
+        &ShellOpts { pick: &pick, value: &band, offset: 0.02, subdiv: 1, rim: 0.012, uv: None, follow: false, shade: 1.0, front: None },
+    );
     if style == "plain" {
         return;
     }
@@ -548,7 +569,11 @@ fn build_belt(bd: &Body, style: &str, belt: &mut Builder, buckle: &mut Builder) 
         }
     };
     let value = |p: Vec3, n: Vec3| (-plate(p[0], p[1] - wy)).min(if n[2] > 0.2 { 1.0 } else { -1.0 });
-    shell(bd, buckle, &ShellOpts { pick: &pick, value: &value, offset: 0.029, subdiv: 2, rim: 0.012, uv: None, follow: false, shade: 1.0 });
+    shell(
+        bd,
+        buckle,
+        &ShellOpts { pick: &pick, value: &value, offset: 0.029, subdiv: 2, rim: 0.012, uv: None, follow: false, shade: 1.0, front: None },
+    );
     if !utility {
         return;
     }
@@ -566,7 +591,17 @@ fn build_belt(bd: &Body, style: &str, belt: &mut Builder, buckle: &mut Builder) 
             shell(
                 bd,
                 belt,
-                &ShellOpts { pick: &pick, value: &value, offset: 0.042, subdiv: 2, rim: 0.03, uv: None, follow: false, shade: 0.94 },
+                &ShellOpts {
+                    pick: &pick,
+                    value: &value,
+                    offset: 0.042,
+                    subdiv: 2,
+                    rim: 0.03,
+                    uv: None,
+                    follow: false,
+                    shade: 0.94,
+                    front: None,
+                },
             );
         }
     }
@@ -582,17 +617,56 @@ fn build_emblem(bd: &Body, c: &CostumeParts, plate: &mut Builder, rim: &mut Buil
     let front = |p: Vec3, n: Vec3| if n[2] > 0.15 && p[2] > chest { 1.0 } else { -1.0 };
     let rim_w = if c.emblem == "cutout" { 0.004 } else { 0.008 * (half / 0.1) };
     let uv = |p: Vec3| (0.5 + (p[0] - cx) / (2.0 * half), 0.5 + (p[1] - cy) / (2.0 * half));
+    // The plate is stiff: it bridges the hollow between the pecs (and clothes there) instead of
+    // sinking into it, curving back gently toward its sides.
+    let mut z_max = f64::NEG_INFINITY;
+    for v in 0..bd.n {
+        if bd.b.is_body[v] == 0 || !pick(v) {
+            continue;
+        }
+        let p = bd.at(v);
+        if p[2] > chest && d(p) < 0.0 {
+            z_max = z_max.max(p[2]);
+        }
+    }
+    let stiff_plate = move |x: f64, y: f64| z_max + 0.017 - 2.2 * (x - cx).powf(2.0) - 0.8 * (y - cy).powf(2.0);
+    let stiff_rim = move |x: f64, y: f64| z_max + 0.0195 - 2.2 * (x - cx).powf(2.0) - 0.8 * (y - cy).powf(2.0);
+    let stiff = z_max.is_finite();
     let pv = |p: Vec3, n: Vec3| (-d(p) - rim_w).min(front(p, n));
     shell(
         bd,
         plate,
-        &ShellOpts { pick: &pick, value: &pv, offset: 0.017, subdiv: 2, rim: 0.012, uv: Some(&uv), follow: false, shade: 1.0 },
+        &ShellOpts {
+            pick: &pick,
+            value: &pv,
+            offset: 0.017,
+            subdiv: 2,
+            rim: 0.012,
+            uv: Some(&uv),
+            follow: false,
+            shade: 1.0,
+            front: if stiff { Some(&stiff_plate) } else { None },
+        },
     );
     let rv = |p: Vec3, n: Vec3| {
         let x = d(p);
         (-x).min(x + rim_w + 0.0015).min(front(p, n))
     };
-    shell(bd, rim, &ShellOpts { pick: &pick, value: &rv, offset: 0.0195, subdiv: 2, rim: 0.016, uv: Some(&uv), follow: false, shade: 1.0 });
+    shell(
+        bd,
+        rim,
+        &ShellOpts {
+            pick: &pick,
+            value: &rv,
+            offset: 0.0195,
+            subdiv: 2,
+            rim: 0.016,
+            uv: Some(&uv),
+            follow: false,
+            shade: 1.0,
+            front: if stiff { Some(&stiff_rim) } else { None },
+        },
+    );
 }
 
 // ------------------------------------------------------------------ cape
