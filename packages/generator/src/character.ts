@@ -5,7 +5,7 @@ import { ADULT_MIN_AGE, BEARD_REGION, BEARD_STYLES, beardPaint, BLINK, eyeCentre
 import { type ActorMaterialKit, type ScreenTexturePool, IRIS_PRESETS, PUPILS, SKIN_PATTERNS, ThreeActor, bakeLookForExport, cutHemsForExport } from "@actors/three";
 import { type ThemeFilter, filterCatalog } from "./themes";
 import { type AllowOptions, type HeightRange, allowCatalog, heightFit } from "./allow";
-import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, type SkeletalLook, type CostumeLook, COSTUME_FINISHES, COSTUME_PART_FINISH, sanitizeCostume, buildCatalog, defaultConfig, fitConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook, sanitizeSkeletalLook } from "./catalog";
+import { type CharacterCatalog, type CharacterConfig, PAINTED_BROWS, ROBOT_FINISHES, type RandomOptions, type RobotLook, type SkeletalLook, type CostumeLook, COSTUME_DYED_PATTERN, COSTUME_FINISHES, COSTUME_PART_FINISH, costumeDyesSolid, sanitizeCostume, buildCatalog, defaultConfig, fitConfig, concealedGarments, outfitGarments, randomConfig, resolveOutfit, sanitizeRobotLook, sanitizeSkeletalLook } from "./catalog";
 
 /** A change to a character. `body`, `robotLook`, `skeletalLook` and `costume` are merged into the current values; every other field replaces the current value. */
 export type CharacterPatch = Partial<Omit<CharacterConfig, "body" | "robotLook" | "skeletalLook" | "costume">> & { body?: Partial<HumanParams>; robotLook?: Partial<RobotLook>; skeletalLook?: Partial<SkeletalLook>; costume?: Partial<CostumeLook> };
@@ -591,6 +591,7 @@ export class Character {
     }
     for (const g of this.cfg.outfit) {
       const fin = k.finishes[g];
+      a.setGarmentPattern(g, costumeDyesSolid(fin) ? COSTUME_DYED_PATTERN : 1);
       if (fin) {
         const f = COSTUME_FINISHES[fin];
         a.setMeshMaterial(g, { metalness: f.metalness, roughness: f.roughness, clearcoat: f.clearcoat, sheen: f.sheen });

@@ -55,8 +55,8 @@ use actors_core::{
     ActorRuntime, ActorShape, DirSource, Error, FittedSkeleton, InPlace, MeshData, Result, RetargetOptions, Retargeter, Weights,
 };
 use actors_generator::{
-    allow_catalog, build_catalog, concealed_garments, costume_finish, default_config, height_fit, random_config, sanitize_config,
-    AllowOptions, CharacterCatalog, CharacterConfig, Detail, RandomOptions, SeededRandom, SkinKind,
+    allow_catalog, build_catalog, concealed_garments, costume_dyes_solid, costume_finish, default_config, height_fit, random_config,
+    sanitize_config, AllowOptions, CharacterCatalog, CharacterConfig, Detail, RandomOptions, SeededRandom, SkinKind,
 };
 use actors_human::{expression, shape_modifiers, Human, HumanPack, PartsConfig};
 use engine::anim::{AnimatedModel, AnimationClip, JointChannels, MeshMorph, QuatTrack, Skeleton, SkinMesh, Vec3Track, MAX_JOINTS};
@@ -696,25 +696,36 @@ impl CharacterBuilder {
                 m.double_sided = true;
                 match tex.and_then(|t| t.get("color")) {
                     Some(file) => {
-                        let t = self.texture(file)?;
+                        let mut t = self.texture(file)?;
+                        if def.tags.iter().any(|t| t == "brows") {
+                            t = Arc::new(texture::soft_brows(&t, 3));
+                        }
                         m.albedo = Some(match c.hair_color.as_deref().and_then(hex_linear) {
                             Some(tint) => texture::tint(&t, tint, luminance(hint_lin.unwrap_or([0.3, 0.2, 0.1]))),
                             None => (*t).clone(),
                         });
                     }
-                    // Eyelashes: near black either way (linear).
+                    // Eyelashes: strands cut from the lash map (near black either way).
+                    None if def.tags.iter().any(|t| t == "lashes") => m.albedo = Some(texture::lash_map()),
                     None => m.color = [0.05, 0.035, 0.03],
                 }
             }
             MaterialKind::Cloth => {
                 m.double_sided = true;
                 let tint = c.garment_colors.get(&def.name).and_then(|h| hex_linear(h));
+                let finish = c.costume.finishes.get(&def.name).map(String::as_str);
                 match tex.and_then(|t| t.get("color")) {
                     Some(file) => {
                         let t = self.texture(file)?;
                         // Textured garments store their texture's mean colour (sRGB).
+                        let mean = luminance(hint_lin.unwrap_or([0.5; 3]));
                         m.albedo = Some(match tint {
-                            Some(tint) => texture::tint(&t, tint, luminance(hint_lin.unwrap_or([0.5; 3]))),
+                            // A costume finish (satin, leather, ...) dyes the piece one colour: a print
+                            // (a giraffe tank top) fades to faint folds.
+                            Some(tint) if finish.is_some_and(costume_dyes_solid) => {
+                                texture::tint_flat(&t, tint, mean, actors_generator::COSTUME_DYED_PATTERN as f32)
+                            }
+                            Some(tint) => texture::tint(&t, tint, mean),
                             None => (*t).clone(),
                         });
                     }
@@ -725,7 +736,7 @@ impl CharacterBuilder {
                     m.normal = Some((*self.texture(file)?).clone());
                 }
                 // A finish chosen in the costume (satin, leather, rubber, ...).
-                if let Some((metal, rough, _, _)) = c.costume.finishes.get(&def.name).and_then(|f| costume_finish(f)) {
+                if let Some((metal, rough, _, _)) = finish.and_then(costume_finish) {
                     m.roughness = rough as f32;
                     m.metallic = metal as f32;
                 }

@@ -153,6 +153,18 @@ export const COSTUME_FINISHES: Record<CostumeFinish, { label: string; metalness:
 };
 
 /**
+ * How much of a garment texture's pattern stays when a costume finish dyes the garment (any
+ * finish but "cloth"): prints and weaves fade to faint folds, so a spandex suit reads as one
+ * colour. 0 is flat colour, 1 the whole pattern.
+ */
+export const COSTUME_DYED_PATTERN = 0.12;
+
+/** Whether a costume finish dyes a recoloured garment one colour (see COSTUME_DYED_PATTERN). */
+export function costumeDyesSolid(finish: string | undefined): boolean {
+  return !!finish && finish !== "cloth" && finish in COSTUME_FINISHES;
+}
+
+/**
  * A hero costume on top of the outfit: a cape (with a collar), a mask, a belt and a chest emblem
  * (see `@actors/human` costume.ts), their colours (sRGB hex), and a finish for any piece: a
  * garment id or a costume part ("cape", "mask", "belt", "buckle", "emblem", "rim").

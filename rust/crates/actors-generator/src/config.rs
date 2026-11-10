@@ -217,6 +217,16 @@ pub fn costume_finish(id: &str) -> Option<(f64, f64, f64, f64)> {
     COSTUME_FINISHES.iter().find(|f| f.0 == id).map(|f| (f.2, f.3, f.4, f.5))
 }
 
+/// How much of a garment texture's pattern stays when a costume finish dyes the garment (any
+/// finish but "cloth"): prints and weaves fade to faint folds, so a spandex suit reads as one
+/// colour. 0 is flat colour, 1 the whole pattern.
+pub const COSTUME_DYED_PATTERN: f64 = 0.12;
+
+/// Whether a costume finish dyes a recoloured garment one colour (see [`COSTUME_DYED_PATTERN`]).
+pub fn costume_dyes_solid(id: &str) -> bool {
+    id != "cloth" && costume_finish(id).is_some()
+}
+
 /// Finish of costume parts that have none set, by part name.
 pub const COSTUME_PART_FINISH: [(&str, &str); 7] = [
     ("cape", "satin"),

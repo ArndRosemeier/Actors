@@ -907,6 +907,15 @@ export class ThreeActor {
     if (color !== null) u.uTint.value.set(color);
   }
 
+  /**
+   * How much of a recoloured garment's texture pattern shows (1 all of it, the default): a costume
+   * finish dyes a piece one colour with COSTUME_DYED_PATTERN.
+   */
+  setGarmentPattern(name: string, pattern: number): void {
+    const u = (this.meshes.get(name)?.material as THREE.Material | undefined)?.userData.tint as ClothTintUniforms | undefined;
+    if (u) u.uTintPattern.value = Math.min(1, Math.max(0, pattern));
+  }
+
   /** Whether a mesh can be recoloured with setGarmentColor. */
   isTintable(name: string): boolean {
     return !!(this.meshes.get(name)?.material as THREE.Material | undefined)?.userData.tint;
