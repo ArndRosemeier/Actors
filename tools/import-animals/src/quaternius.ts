@@ -2,15 +2,19 @@
  * The deer's rig and clips: Quaternius' "Ultimate Animated Animals" pack
  * (CC0, quaternius.com), the low-poly Deer model. Only its skeleton and
  * animations are used, plus its proportions as the blueprint for the body.
- * The pack is shared from Google Drive; files are fetched by id.
+ * The pack is shared from Google Drive, which often refuses downloads ("quota
+ * exceeded"), so the Deer.gltf (CC0, July 2021 release) is kept in the repo at
+ * tools/import-animals/assets/quaternius-deer.gltf.
  */
 import { readFileSync } from "node:fs";
-import { fetchCached } from "../../import-makehuman/src/fetch";
+import { fileURLToPath } from "node:url";
 
 const drive = (id: string) => `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t`;
 
-/** glTF (embedded buffer) of the low-poly doe in the pack's glTF folder. */
+/** Where the low-poly doe's glTF (embedded buffer) comes from: the pack's glTF folder. */
 export const QUATERNIUS_DEER = drive("1iGpXKrqYGyZCPGHPPSuDAoKnOXLhXJ0q");
+/** The same file, kept in the repo. */
+const DEER_FILE = fileURLToPath(new URL("../assets/quaternius-deer.gltf", import.meta.url));
 export const QUATERNIUS_PACK = "https://quaternius.com/packs/ultimateanimatedanimals.html";
 export const QUATERNIUS_NOTE = "Quaternius Ultimate Animated Animals, Deer rig and animations (CC0), quaternius.com";
 
@@ -40,7 +44,7 @@ export function glbFromGltf(text: string): Buffer {
   return Buffer.concat([header, chunk(jsonChunk, 0x4e4f534a), chunk(binChunk, 0x004e4942)]);
 }
 
-/** The deer's glTF as GLB bytes (downloaded once into the cache). */
-export function deerGlb(cache: string): Buffer {
-  return glbFromGltf(readFileSync(fetchCached(cache, QUATERNIUS_DEER), "utf8"));
+/** The deer's glTF as GLB bytes. */
+export function deerGlb(): Buffer {
+  return glbFromGltf(readFileSync(DEER_FILE, "utf8"));
 }

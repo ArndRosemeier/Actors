@@ -214,7 +214,7 @@ function quadrupedSpec(id: "dog" | "squirrel", cell: number, triangles: number):
 }
 
 function deerSpec(cell: number, triangles: number): AnimalSpec {
-  const glb = parseGlb(deerGlb(CACHE));
+  const glb = parseGlb(deerGlb());
   const source = readRig(glb, DEER_SKIP);
   const body = deerBody(source);
   const eye = body.eyes[0].center;
