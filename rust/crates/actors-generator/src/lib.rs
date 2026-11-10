@@ -37,8 +37,8 @@ pub use catalog::{
     DetailChoice, FeatureLists, GarmentChoice, OutfitPreset, RaceChoice, RaceFeatures,
 };
 pub use config::{
-    costume_finish, default_config, fit_config, sanitize_config, CharacterConfig, CostumeLook, Detail, Gaze, RobotLook, SkeletalLook,
-    SkinKind, COSTUME_FINISHES, COSTUME_PART_FINISH,
+    costume_dyes_solid, costume_finish, default_config, fit_config, sanitize_config, CharacterConfig, CostumeLook, Detail, Gaze, RobotLook,
+    SkeletalLook, SkinKind, COSTUME_DYED_PATTERN, COSTUME_FINISHES, COSTUME_PART_FINISH,
 };
 pub use data::{data as tables, GeneratorData};
 pub use random::{

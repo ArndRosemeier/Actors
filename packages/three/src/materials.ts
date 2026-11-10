@@ -410,6 +410,8 @@ export interface ClothTintUniforms {
   uTintMix: { value: number };
   /** Mean luminance (linear) of the garment's own colour or texture. */
   uTintMeanLum: { value: number };
+  /** Share of the texture's pattern kept under the tint: 1 all of it, less for a dyed costume piece. */
+  uTintPattern: { value: number };
 }
 
 /**
@@ -448,17 +450,20 @@ export function createClothMaterial(
     polygonOffsetFactor: -2 * layer,
     polygonOffsetUnits: -4 * layer,
   });
-  const uniforms: ClothTintUniforms = { uTint: { value: new THREE.Color(1, 1, 1) }, uTintMix: { value: 0 }, uTintMeanLum: { value: Math.max(0.01, meanLum) } };
+  const uniforms: ClothTintUniforms = { uTint: { value: new THREE.Color(1, 1, 1) }, uTintMix: { value: 0 }, uTintMeanLum: { value: Math.max(0.01, meanLum) }, uTintPattern: { value: 1 } };
   mat.userData.tint = uniforms;
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform vec3 uTint;\nuniform float uTintMix;\nuniform float uTintMeanLum;\n// A pixel's brightness over the texture's mean, with a soft knee above 1: bright patches of a dark,\n// high-contrast texture stay lighter than the tint instead of turning white (gain below 1.5).\nfloat tintGain( float g ) { return g > 1.0 ? 1.0 + 0.5 * ( g - 1.0 ) / ( g - 0.5 ) : g; }")
+      .replace("#include <common>", "#include <common>\nuniform vec3 uTint;\nuniform float uTintMix;\nuniform float uTintMeanLum;\nuniform float uTintPattern;\n// A pixel's brightness over the texture's mean, with a soft knee above 1: bright patches of a dark,\n// high-contrast texture stay lighter than the tint instead of turning white (gain below 1.5).\nfloat tintGain( float g ) { return g > 1.0 ? 1.0 + 0.5 * ( g - 1.0 ) / ( g - 0.5 ) : g; }")
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
 float clothLum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
-diffuseColor.rgb = mix( diffuseColor.rgb, uTint * tintGain( clothLum / uTintMeanLum ), uTintMix );`,
+float clothGain = clothLum / uTintMeanLum;
+// A dyed costume piece keeps only a trace of its print (see COSTUME_DYED_PATTERN).
+clothGain = uTintPattern < 1.0 ? 1.0 + clamp( clothGain - 1.0, -1.0, 1.0 ) * uTintPattern : tintGain( clothGain );
+diffuseColor.rgb = mix( diffuseColor.rgb, uTint * clothGain, uTintMix );`,
       )
       // Cut-outs (lace, fishnet) from the texture's full-resolution alpha: smaller mip levels blur the
       // transparent space around UV islands into the cloth and punched holes along every seam from afar.

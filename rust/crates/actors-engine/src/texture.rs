@@ -88,6 +88,124 @@ pub fn tint(map: &AlbedoMap, tint: [f32; 3], mean_lum: f32) -> AlbedoMap {
     out
 }
 
+/// Like [`tint`], but keeps only `pattern` (0..1) of the texture's brightness pattern around its
+/// mean: a dyed costume piece shows its folds faintly and its print not at all.
+pub fn tint_flat(map: &AlbedoMap, tint: [f32; 3], mean_lum: f32, pattern: f32) -> AlbedoMap {
+    let mean = mean_lum.max(0.01);
+    let mut out = map.clone();
+    for px in out.rgba.as_chunks_mut::<4>().0 {
+        let lin = [px[0], px[1], px[2]].map(byte_to_linear);
+        let lum = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+        let k = 1.0 + (lum / mean - 1.0).clamp(-1.0, 1.0) * pattern;
+        for c in 0..3 {
+            px[c] = linear_to_byte(tint[c] * k);
+        }
+    }
+    out
+}
+
+/// The eyelash strips' texture (u along the lid): near-black lashes in the alpha, as `lashAlphaMap`
+/// in @actors/three (same seed, same strands). v 0..0.34 holds the upper lashes (root at v = 0),
+/// v 0.69..1 the lower ones (root at v = 1): dense roots, tapered strands, sparse tips. Without it
+/// the strips drew as solid dark bands round the eyes.
+pub fn lash_map() -> AlbedoMap {
+    static MAP: std::sync::OnceLock<AlbedoMap> = std::sync::OnceLock::new();
+    MAP.get_or_init(|| {
+        let (w, h) = (512usize, 128usize);
+        let mut alpha = vec![0.0f32; w * h];
+        // mulberry32, as `rng` in procedural.ts.
+        let mut s: u32 = 3;
+        let mut rand = move || {
+            s = s.wrapping_add(0x6d2b_79f5);
+            let mut t = s;
+            t = (t ^ (t >> 15)).wrapping_mul(t | 1);
+            t ^= t.wrapping_add((t ^ (t >> 7)).wrapping_mul(t | 61));
+            (t ^ (t >> 14)) as f64 / 4_294_967_296.0
+        };
+        let mut strip = |v0: f64, v1: f64, count: usize, max_len: f64, width: f64| {
+            let rows = ((v1 - v0).abs() * h as f64).round() as i64;
+            let dir = (v1 - v0).signum() as i64;
+            let root = (v0 * (h - 1) as f64).round() as i64;
+            for _ in 0..count {
+                let x0 = rand() * w as f64;
+                let len = max_len * (0.5 + rand() * 0.5);
+                let bend = (rand() - 0.5) * 6.0;
+                let n = rows as f64 * len;
+                let mut r = 0i64;
+                while (r as f64) < n {
+                    let t = r as f64 / n;
+                    let y = root + dir * r;
+                    r += 1;
+                    if y < 0 || y >= h as i64 {
+                        continue;
+                    }
+                    let cx = x0 + bend * t * t;
+                    let half = width * (1.0 - 0.8 * t);
+                    for x in (cx - 3.0).floor() as i64..=(cx + 3.0).ceil() as i64 {
+                        let a = ((1.0 - (x as f64 - cx).abs() / half).max(0.0) * (1.0 - 0.3 * t)) as f32;
+                        let i = y as usize * w + (x + w as i64).rem_euclid(w as i64) as usize;
+                        alpha[i] = alpha[i].max(a);
+                    }
+                }
+            }
+            // The root line along the lid margin.
+            let line = (rows as f64 * 0.12).max(2.0);
+            let mut r = 0i64;
+            while (r as f64) < line {
+                let y = root + dir * r;
+                r += 1;
+                if (0..h as i64).contains(&y) {
+                    alpha[y as usize * w..(y as usize + 1) * w].fill(1.0);
+                }
+            }
+        };
+        strip(0.0, 0.34, 420, 1.0, 1.4);
+        strip(1.0, 0.69, 180, 0.7, 1.1);
+        // Near black (linear 0.05, 0.035, 0.03), as the plain lashes were.
+        let rgb = [0.05, 0.035, 0.03].map(linear_to_byte);
+        let rgba: Vec<u8> = alpha.iter().flat_map(|a| [rgb[0], rgb[1], rgb[2], (a * 255.0).round() as u8]).collect();
+        AlbedoMap { width: w as u32, height: h as u32, rgba: rgba.into() }
+    })
+    .clone()
+}
+
+/// Brows drawn as one soft shape: the photo brows are fine dark strokes in the alpha, which a
+/// cut-out renderer turns into ragged clumps up close and loses from afar. The alpha is blurred
+/// (two box passes of `radius` texels) and raised so the strokes merge into a brow whose edge
+/// fades; the strokes stay in the colour.
+pub fn soft_brows(map: &AlbedoMap, radius: usize) -> AlbedoMap {
+    let (w, h) = (map.width as usize, map.height as usize);
+    let px = map.rgba.as_chunks::<4>().0;
+    let mut a: Vec<f32> = px.iter().map(|p| p[3] as f32 / 255.0).collect();
+    let mut tmp = vec![0.0f32; w * h];
+    let r = radius as i64;
+    for _ in 0..2 {
+        box_pass(&a, &mut tmp, w, h, r, true);
+        box_pass(&tmp, &mut a, w, h, r, false);
+    }
+    let mut out = map.clone();
+    for (p, (blur, orig)) in out.rgba.as_chunks_mut::<4>().0.iter_mut().zip(a.iter().zip(px.iter().map(|p| p[3]))) {
+        let soft = (blur * 1.5).min(1.0) * 255.0;
+        p[3] = soft.max(orig as f32).round() as u8;
+    }
+    out
+}
+
+/// One box blur pass of radius `r` along rows or columns (edges clamp).
+fn box_pass(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64, horizontal: bool) {
+    let (len, lines) = if horizontal { (w, h) } else { (h, w) };
+    let at = |line: usize, i: usize| if horizontal { line * w + i } else { i * w + line };
+    let n = (2 * r + 1) as f32;
+    for line in 0..lines {
+        let get = |i: i64| src[at(line, i.clamp(0, len as i64 - 1) as usize)];
+        let mut sum: f32 = (-r..=r).map(get).sum();
+        for i in 0..len {
+            dst[at(line, i)] = sum / n;
+            sum += get(i as i64 + r + 1) - get(i as i64 - r);
+        }
+    }
+}
+
 /// Sets every texel opaque.
 pub fn opaque(map: &mut AlbedoMap) {
     for px in map.rgba.as_chunks_mut::<4>().0 {
@@ -394,4 +512,37 @@ pub fn emblem_texture(c: &actors_generator::CostumeLook) -> AlbedoMap {
     }
     list.push((key, map.clone()));
     map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_dyed_print_keeps_only_a_trace_of_its_pattern() {
+        // A print: dark and light texels around a mid mean.
+        let rgba: Vec<u8> = [[40u8, 40, 40, 255], [230, 230, 230, 255]].iter().cycle().take(64).flatten().copied().collect();
+        let map = AlbedoMap { width: 8, height: 8, rgba: rgba.into() };
+        let mean = 0.5 * (byte_to_linear(40) + byte_to_linear(230));
+        let red = [0.6, 0.05, 0.04];
+        let spread = |m: &AlbedoMap| {
+            let px = m.rgba.as_chunks::<4>().0;
+            byte_to_linear(px[1][0]) - byte_to_linear(px[0][0])
+        };
+        let full = spread(&tint(&map, red, mean));
+        let flat = spread(&tint_flat(&map, red, mean, 0.2));
+        assert!(flat > 0.0 && flat < full * 0.3, "pattern {flat} of {full}");
+    }
+
+    #[test]
+    fn lashes_are_strands_not_a_solid_band() {
+        let m = lash_map();
+        let a: Vec<u8> = m.rgba.as_chunks::<4>().0.iter().map(|p| p[3]).collect();
+        let (w, h) = (m.width as usize, m.height as usize);
+        // The lid margin is solid, the tips sparse, the gap between the strips empty.
+        assert!(a[..w].iter().all(|&x| x == 255));
+        let row = |y: usize| a[y * w..(y + 1) * w].iter().filter(|&&x| x > 127).count() as f32 / w as f32;
+        assert!(row(30) > 0.05 && row(30) < 0.7, "strands at the tips: {}", row(30));
+        assert!(row(h / 2) == 0.0, "nothing between the strips");
+    }
 }
