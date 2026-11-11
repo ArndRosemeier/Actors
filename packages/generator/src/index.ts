@@ -1,6 +1,7 @@
 export * from "./catalog";
 export * from "./future-outfits";
 export * from "./medieval-outfits";
+export * from "./golden-age-outfits";
 export * from "./themes";
 export * from "./allow";
 export * from "./character";

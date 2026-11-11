@@ -22,7 +22,7 @@ export interface GarmentContext {
 export type Point = { x: number; y: number; z: number; bone: string };
 
 /** Pattern hint for the fabric shader (normal map; mail and plate are drawn as metal). */
-export type Fabric = "knit" | "denim" | "lace" | "smooth" | "screen" | "weave" | "quilted" | "leather" | "mail" | "plate";
+export type Fabric = "knit" | "denim" | "lace" | "smooth" | "screen" | "weave" | "quilted" | "leather" | "mail" | "plate" | "fur" | "feather" | "pearl" | "gem";
 
 export interface GarmentSpec {
   name: string;

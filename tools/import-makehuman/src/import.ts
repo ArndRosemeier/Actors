@@ -40,6 +40,7 @@ import type { GarmentInfo, SkinTextureDef } from "@actors/human";
 import { SHOE_SNUG, WARDROBE } from "./wardrobe";
 import { snugMoves } from "./snug";
 import { buildMedieval } from "./medieval";
+import { buildGoldenAge } from "./golden-age";
 import { type Vec3, closestOnTriangle, packTriangles, rayHitsAny } from "./geometry";
 import { HAIRSTYLES, PACK_LICENCE } from "./hairstyles";
 import { GARMENT_LODS, HAIR_LODS, type LodSteps, SMALL_LODS, humanLods, ready as meshoptReady, simplifyLevels } from "./lod";
@@ -54,7 +55,7 @@ const MH_RAW = "https://raw.githubusercontent.com/makehumancommunity/makehuman/m
 /** MakeHuman's CC0 asset packs; only the files used are fetched (HTTP range requests). */
 const MH_PACKS = "https://files.makehumancommunity.org/asset_packs";
 /** CC-BY packs whose zip is named `<pack>_ccby.zip` (the others use `<pack>_cc-by.zip`). */
-const CCBY_UNDASHED = new Set(["shirts02", "shirts03", "shoes02", "shoes03", "masks02"]);
+const CCBY_UNDASHED = new Set(["shirts02", "shirts03", "shoes02", "shoes03", "masks02", "pants02"]);
 const SYSTEM_ASSETS = `${MH_PACKS}/makehuman_system_assets/makehuman_system_assets_cc0.zip`;
 
 function arg(name: string): string | undefined {
@@ -689,6 +690,15 @@ async function main() {
   Object.assign(garmentLabels, medieval.labels);
   Object.assign(garmentInfo, medieval.info);
   console.log(`Medieval: ${medieval.meshes.length} garments, ${(medieval.files.reduce((s, f) => s + f.data.byteLength, 0) / 1e6).toFixed(1)} MB`);
+
+  // Golden age of Hollywood (1920s-50s): coat, suspenders, furs, feathers and jewellery (generated).
+  const golden = buildGoldenAge({ ...garmentCtx, obj, facesOf, coveredBody, skirtBlend: SKIRT_BLEND! }, out);
+  proxies.push(...golden.proxies);
+  meshes.push(...golden.meshes);
+  for (const { file, data } of golden.files) writeFileSync(join(out, file), data);
+  Object.assign(garmentLabels, golden.labels);
+  Object.assign(garmentInfo, golden.info);
+  console.log(`Golden age: ${golden.meshes.length} garments, ${(golden.files.reduce((s, f) => s + f.data.byteLength, 0) / 1e6).toFixed(1)} MB`);
 
   // --- Wardrobe: CC0 and CC-BY garments from MakeHuman asset packs, each in its own file, loaded when worn ---
   mkdirSync(join(out, "garments"), { recursive: true });

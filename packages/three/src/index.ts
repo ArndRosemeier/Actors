@@ -981,7 +981,8 @@ export class ThreeActor {
    */
   private liftOf(data: MeshData, shape: ActorShape): Float32Array | null {
     const src = data.def.source;
-    if (data.def.role !== "garment" || src.kind !== "proxy" || data.def.tags?.includes("tucked")) return null;
+    // Solid pieces (beads, plumes; tag "solid") keep their shape: a lift along each vertex normal would swell them.
+    if (data.def.role !== "garment" || src.kind !== "proxy" || data.def.tags?.includes("tucked") || data.def.tags?.includes("solid")) return null;
     let lift = this.lifts.get(data.def.name);
     if (lift !== undefined) return lift;
     this.lifts.set(data.def.name, null); // no cycles (inner garments never reach back out)

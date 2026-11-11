@@ -788,6 +788,298 @@
    ]
   },
   {
+   "id": "ga-flapper",
+   "label": "Golden age · Flapper",
+   "description": "1920s: a fringed drop-waist dress, a feathered headband, long pearls and Mary Janes.",
+   "garments": [
+    "briefs",
+    "flapper-dress",
+    "ga-headband",
+    "ga-pearls",
+    "mary-janes"
+   ],
+   "gender": "female",
+   "colors": {
+    "flapper-dress": "#1c1c22",
+    "ga-headband": "#f2efe8",
+    "mary-janes": "#1c1c1f"
+   }
+  },
+  {
+   "id": "ga-screen-siren",
+   "label": "Golden age · Screen siren",
+   "description": "A satin gown, opera gloves, a diamond collar and drop earrings, with a fox stole for the premiere.",
+   "garments": [
+    "briefs",
+    "evening-gown",
+    "gloves-long",
+    "ga-diamond-collar",
+    "ga-earrings",
+    "ga-fur-stole",
+    "ballet-flats"
+   ],
+   "gender": "female",
+   "colors": {
+    "gloves-long": "#f4f1ea",
+    "ga-fur-stole": "#f6f4ef",
+    "ballet-flats": "#d8c7a3"
+   }
+  },
+  {
+   "id": "ga-showgirl",
+   "label": "Golden age · Showgirl",
+   "description": "Over the top, as a revue should be: a towering plumed headdress, a feather boa, a sequinned bodysuit and fishnets.",
+   "garments": [
+    "strapless-bodysuit",
+    "ga-showgirl-headdress",
+    "ga-feather-boa",
+    "ga-earrings",
+    "fishnet-stockings",
+    "gloves-long",
+    "t-bar-shoes"
+   ],
+   "gender": "female",
+   "colors": {
+    "strapless-bodysuit": "#b9933e",
+    "ga-showgirl-headdress": "#f7f2e8",
+    "ga-feather-boa": "#f3c7d6",
+    "gloves-long": "#b9933e",
+    "t-bar-shoes": "#b9933e"
+   }
+  },
+  {
+   "id": "ga-starlet",
+   "label": "Golden age · Starlet",
+   "description": "The little black dress with pearls, white gloves and a handbag.",
+   "garments": [
+    "briefs",
+    "cocktail-dress",
+    "ga-pearls",
+    "ga-earrings",
+    "gloves-medium",
+    "handbag",
+    "mary-janes"
+   ],
+   "gender": "female",
+   "colors": {
+    "gloves-medium": "#f4f1ea",
+    "mary-janes": "#1c1c1f"
+   }
+  },
+  {
+   "id": "ga-dame-in-furs",
+   "label": "Golden age · Dame in furs",
+   "description": "A long winter coat with a fox stole over it, a cloche hat, earrings and gloves.",
+   "garments": [
+    "briefs",
+    "winter-coat",
+    "ga-fur-stole",
+    "ga-earrings",
+    "cloche-hat",
+    "gloves-short",
+    "oxfords-female"
+   ],
+   "gender": "female",
+   "colors": {
+    "winter-coat": "#5a2230",
+    "ga-fur-stole": "#b4642e",
+    "cloche-hat": "#2a1d22",
+    "gloves-short": "#1c1c1f",
+    "oxfords-female": "#2a1d14"
+   }
+  },
+  {
+   "id": "ga-secretary",
+   "label": "Golden age · Secretary",
+   "description": "1940s office: blouse and pencil skirt, oxfords and a string of pearls.",
+   "garments": [
+    "briefs",
+    "blouse-pencil-skirt",
+    "ga-pearls",
+    "oxfords-female"
+   ],
+   "female": [
+    "bra"
+   ],
+   "gender": "female",
+   "colors": {
+    "oxfords-female": "#3a2416"
+   }
+  },
+  {
+   "id": "ga-sock-hop",
+   "label": "Golden age · Sock hop",
+   "description": "1950s: a polka-dot circle skirt, a retro top, ankle socks and saddle shoes.",
+   "garments": [
+    "briefs",
+    "retro-top",
+    "polka-dot-skirt",
+    "low-socks",
+    "saddle-shoes"
+   ],
+   "female": [
+    "bra"
+   ],
+   "gender": "female",
+   "colors": {
+    "low-socks": "#f4f1ea"
+   }
+  },
+  {
+   "id": "ga-pin-up",
+   "label": "Golden age · Pin-up",
+   "description": "A strapless 1950s swimsuit, drop earrings and flats: for the beach.",
+   "garments": [
+    "vintage-swimsuit",
+    "ga-earrings",
+    "ballet-flats"
+   ],
+   "gender": "female",
+   "colors": {
+    "vintage-swimsuit": "#b3202c",
+    "ballet-flats": "#b3202c"
+   }
+  },
+  {
+   "id": "ga-gala",
+   "label": "Golden age · Gala",
+   "description": "A long halter gown, opera gloves, a feather boa and diamonds: nothing in moderation.",
+   "garments": [
+    "briefs",
+    "halter-gown-long",
+    "gloves-long",
+    "ga-feather-boa",
+    "ga-diamond-collar",
+    "ga-earrings",
+    "ballet-flats"
+   ],
+   "gender": "female",
+   "colors": {
+    "halter-gown-long": "#6b0f1a",
+    "gloves-long": "#1c1c1f",
+    "ga-feather-boa": "#1c1c1f",
+    "ballet-flats": "#1c1c1f"
+   }
+  },
+  {
+   "id": "ga-gangster",
+   "label": "Golden age · Gangster",
+   "description": "Prohibition: a double-breasted chalk-stripe suit, a fedora and two-tone shoes.",
+   "garments": [
+    "briefs",
+    "suit-double",
+    "fedora-tilted",
+    "socks",
+    "saddle-shoes"
+   ],
+   "gender": "male",
+   "colors": {
+    "suit-double": "#2b2d33",
+    "fedora-tilted": "#3a3a3e",
+    "socks": "#1c1c1f"
+   }
+  },
+  {
+   "id": "ga-detective",
+   "label": "Golden age · Detective",
+   "description": "Film noir: a belted trench coat over a suit and tie, and a trilby pulled low.",
+   "garments": [
+    "briefs",
+    "suit-tie",
+    "ga-trench-coat",
+    "trilby",
+    "socks",
+    "oxfords"
+   ],
+   "gender": "male",
+   "colors": {
+    "suit-tie": "#3b3a37",
+    "trilby": "#4a3f33",
+    "socks": "#1c1c1f",
+    "oxfords": "#2a1d14"
+   }
+  },
+  {
+   "id": "ga-leading-man",
+   "label": "Golden age · Leading man",
+   "description": "A three-piece suit, a fedora and polished oxfords.",
+   "garments": [
+    "briefs",
+    "suit-3",
+    "fedora",
+    "socks",
+    "oxfords"
+   ],
+   "gender": "male",
+   "colors": {
+    "suit-3": "#34405a",
+    "fedora": "#3a3530",
+    "socks": "#1c1c1f",
+    "oxfords": "#1c1c1f"
+   }
+  },
+  {
+   "id": "ga-top-hat",
+   "label": "Golden age · Top hat and tails",
+   "description": "White tie for the ballroom: dinner suit, top hat and white gloves.",
+   "garments": [
+    "briefs",
+    "suit-dinner",
+    "top-hat",
+    "gloves-short",
+    "socks",
+    "monk-straps"
+   ],
+   "gender": "male",
+   "colors": {
+    "top-hat": "#141416",
+    "gloves-short": "#f4f1ea",
+    "socks": "#1c1c1f",
+    "monk-straps": "#141416"
+   }
+  },
+  {
+   "id": "ga-newsboy",
+   "label": "Golden age · Newsboy",
+   "description": "Depression-era street wear: a plain shirt, suspenders, dress trousers, a flat cap and boots.",
+   "garments": [
+    "briefs",
+    "longsleeve",
+    "dress-trousers",
+    "ga-suspenders",
+    "flat-cap",
+    "socks",
+    "work-boots"
+   ],
+   "gender": "male",
+   "colors": {
+    "longsleeve": "#d9d2c3",
+    "dress-trousers": "#4a4038",
+    "ga-suspenders": "#3a2a20",
+    "socks": "#3b3a33"
+   }
+  },
+  {
+   "id": "ga-city-gent",
+   "label": "Golden age · City gent",
+   "description": "A dark suit, a bowler hat and a trench coat for the rain.",
+   "garments": [
+    "briefs",
+    "elegant-male",
+    "ga-trench-coat",
+    "bowler-hat",
+    "socks",
+    "oxfords"
+   ],
+   "gender": "male",
+   "colors": {
+    "ga-trench-coat": "#4a4a44",
+    "bowler-hat": "#141416",
+    "socks": "#1c1c1f",
+    "oxfords": "#1c1c1f"
+   }
+  },
+  {
    "id": "med-peasant",
    "label": "Medieval · Peasant",
    "description": "Undyed linen tunic, wool hose and a plain belt: everyday wear for field and workshop.",
@@ -1464,7 +1756,7 @@
   {
    "id": "vintage",
    "label": "Vintage",
-   "description": "The 1900s to 1950s: flapper dresses, fedoras, cloche hats."
+   "description": "The 1900s to 1950s: flapper dresses, evening gowns, furs, pearls, fedoras, top hats, trench coats."
   },
   {
    "id": "future",
@@ -1509,7 +1801,8 @@
    "modern"
   ],
   "longsleeve": [
-   "modern"
+   "modern",
+   "vintage"
   ],
   "shorts": [
    "modern"
@@ -1539,7 +1832,8 @@
    "modern"
   ],
   "fishnet-stockings": [
-   "modern"
+   "modern",
+   "vintage"
   ],
   "leg-warmers": [
    "modern"
@@ -1611,7 +1905,8 @@
    "modern"
   ],
   "blouse-pencil-skirt": [
-   "modern"
+   "modern",
+   "vintage"
   ],
   "sportsuit": [
    "modern"
@@ -1620,13 +1915,16 @@
    "modern"
   ],
   "suit-tie": [
-   "modern"
+   "modern",
+   "vintage"
   ],
   "suit-double": [
-   "modern"
+   "modern",
+   "vintage"
   ],
   "suit-dinner": [
-   "modern"
+   "modern",
+   "vintage"
   ],
   "suit-female": [
    "modern"
@@ -1638,7 +1936,8 @@
    "modern"
   ],
   "elegant-male": [
-   "modern"
+   "modern",
+   "vintage"
   ],
   "sneakers": [
    "modern"
@@ -1656,7 +1955,8 @@
    "modern"
   ],
   "work-boots": [
-   "modern"
+   "modern",
+   "vintage"
   ],
   "ankle-boots": [
    "modern"
@@ -1776,6 +2076,106 @@
    "vintage"
   ],
   "newsboy-cap": [
+   "vintage"
+  ],
+  "ga-trench-coat": [
+   "vintage"
+  ],
+  "ga-suspenders": [
+   "vintage"
+  ],
+  "ga-pearls": [
+   "vintage"
+  ],
+  "ga-diamond-collar": [
+   "vintage"
+  ],
+  "ga-earrings": [
+   "vintage"
+  ],
+  "ga-feather-boa": [
+   "vintage"
+  ],
+  "ga-fur-stole": [
+   "vintage"
+  ],
+  "ga-headband": [
+   "vintage"
+  ],
+  "ga-showgirl-headdress": [
+   "vintage"
+  ],
+  "evening-gown": [
+   "vintage"
+  ],
+  "halter-gown-long": [
+   "vintage"
+  ],
+  "winter-coat": [
+   "vintage"
+  ],
+  "polka-dot-skirt": [
+   "vintage"
+  ],
+  "retro-top": [
+   "vintage"
+  ],
+  "saddle-shoes": [
+   "vintage"
+  ],
+  "mary-janes": [
+   "vintage"
+  ],
+  "bowler-hat": [
+   "vintage"
+  ],
+  "top-hat": [
+   "vintage"
+  ],
+  "vintage-swimsuit": [
+   "vintage"
+  ],
+  "strapless-bodysuit": [
+   "vintage"
+  ],
+  "cocktail-dress": [
+   "modern",
+   "vintage"
+  ],
+  "pencil-skirt": [
+   "modern",
+   "vintage"
+  ],
+  "shirt-tie": [
+   "modern",
+   "vintage"
+  ],
+  "dress-trousers": [
+   "modern",
+   "vintage"
+  ],
+  "oxfords": [
+   "modern",
+   "vintage"
+  ],
+  "oxfords-female": [
+   "modern",
+   "vintage"
+  ],
+  "monk-straps": [
+   "modern",
+   "vintage"
+  ],
+  "trilby": [
+   "modern",
+   "vintage"
+  ],
+  "flat-cap": [
+   "modern",
+   "vintage"
+  ],
+  "handbag": [
+   "modern",
    "vintage"
   ],
   "ruffle-dress": [

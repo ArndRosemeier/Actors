@@ -7,7 +7,7 @@ import type { CharacterCatalog, Choice } from "./catalog";
  */
 export const THEMES: (Choice & { description: string })[] = [
   { id: "modern", label: "Modern", description: "Today's clothes: jeans, T-shirts, suits, sneakers, glasses." },
-  { id: "vintage", label: "Vintage", description: "The 1900s to 1950s: flapper dresses, fedoras, cloche hats." },
+  { id: "vintage", label: "Vintage", description: "The 1900s to 1950s: flapper dresses, evening gowns, furs, pearls, fedoras, top hats, trench coats." },
   { id: "future", label: "Future", description: "Clothes of 3026 and robots." },
   { id: "antique", label: "Antique", description: "Classical antiquity: draped gowns, tunics, crested helmets." },
   { id: "medieval", label: "Medieval", description: "Tunics, hose, gowns, mail and plate, hoods and boots." },
@@ -43,7 +43,12 @@ export const GARMENT_THEMES: Record<string, string[]> = {
   ...tag("modern medieval fantasy", "skirt leather-boots"),
   ...tag("modern vintage medieval", "riding-boots"),
   // Vintage
-  ...tag("vintage", "flapper-dress cloche-hat fedora fedora-tilted newsboy-cap"),
+  ...tag("vintage", `flapper-dress cloche-hat fedora fedora-tilted newsboy-cap ga-trench-coat ga-suspenders ga-pearls
+    ga-diamond-collar ga-earrings ga-feather-boa ga-fur-stole ga-headband ga-showgirl-headdress evening-gown halter-gown-long winter-coat
+    polka-dot-skirt retro-top saddle-shoes mary-janes bowler-hat top-hat vintage-swimsuit strapless-bodysuit`),
+  // Period cuts that also fit the 1920s-50s (overrides the plain "modern" tag above).
+  ...tag("modern vintage", "suit-tie suit-double suit-dinner elegant-male blouse-pencil-skirt fishnet-stockings work-boots longsleeve"),
+  ...tag("modern vintage", "cocktail-dress pencil-skirt shirt-tie dress-trousers oxfords oxfords-female monk-straps trilby flat-cap handbag"),
   ...tag("vintage fantasy", "ruffle-dress"),
   ...tag("vintage medieval", "buckled-shoes"),
   ...tag("vintage medieval fantasy", "wide-brim-hat"),

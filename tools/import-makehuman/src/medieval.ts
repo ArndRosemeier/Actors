@@ -171,7 +171,7 @@ export interface MedievalContext extends GarmentContext {
 
 type Offset = (c: Point) => Vec3;
 
-interface Piece {
+export interface Piece {
   /** Base-mesh face group the piece is cut from. */
   group: "helper-tights" | "helper-skirt" | "body";
   cut: (c: Point, ctx: GarmentContext) => number;
@@ -189,7 +189,7 @@ interface Piece {
 export interface MedievalSpec {
   name: string;
   label: string;
-  category: "Medieval clothing" | "Medieval armour";
+  category: string;
   occupies: string[];
   color: [number, number, number];
   roughness: number;
@@ -208,7 +208,7 @@ export interface MedievalSpec {
 }
 
 /** Body measurements the cuts and envelopes are built from (base mesh, meters). */
-interface Landmarks {
+export interface Landmarks {
   ctx: GarmentContext;
   pelvis: number;
   waist: number;
@@ -225,7 +225,7 @@ interface Landmarks {
   hem: (t: number) => number;
 }
 
-const skirtTop = (m: Landmarks, c: Point, gap: number, flare: number): Vec3 => {
+export const skirtTop = (m: Landmarks, c: Point, gap: number, flare: number): Vec3 => {
   // Hanging parts: out over the bodice at the waist, then flaring towards the hem.
   const t = clamp01((m.waist - c.y) / (m.waist - m.ankle));
   const dx = c.x, dz = c.z - m.torso.center[1];
@@ -235,13 +235,13 @@ const skirtTop = (m: Landmarks, c: Point, gap: number, flare: number): Vec3 => {
 };
 
 /** Draped over the chest and clear of the mail on the back and shoulders: the larger of the two push-outs. */
-const over = (m: Landmarks, c: Point, gap: number): Vec3 => {
+export const over = (m: Landmarks, c: Point, gap: number): Vec3 => {
   const a = m.drape.pushOut(c, gap, 1), b = m.torso.pushOut(c, gap - 0.004, 1);
   return Math.hypot(...a) >= Math.hypot(...b) ? a : b;
 };
 
 /** Skirt hem at `t` (hip to ankle), with optional slits at the front and back up to `slit`. */
-const skirtCut = (m: Landmarks, t: number, slit = 0, slitWidth = 0.03) => (c: Point) => {
+export const skirtCut = (m: Landmarks, t: number, slit = 0, slitWidth = 0.03) => (c: Point) => {
   // Starts just under the belt line, over the bodice's hem.
   const hem = min(c.y - m.hem(t), m.pelvis + 0.02 - c.y);
   if (!slit) return hem;
@@ -249,10 +249,10 @@ const skirtCut = (m: Landmarks, t: number, slit = 0, slitWidth = 0.03) => (c: Po
   return min(hem, -min(slitWidth - Math.abs(c.x), m.hem(slit) - c.y));
 };
 
-const torsoBelow = (m: Landmarks, c: Point, y: number) => (isLeg(c.bone) ? OUT : c.y - y);
+export const torsoBelow = (m: Landmarks, c: Point, y: number) => (isLeg(c.bone) ? OUT : c.y - y);
 
 /** Bodice with sleeves to `arm` (0 = shoulder, 1 = wrist) and a hem at `hemY`. */
-const bodice = (m: Landmarks, arm: number, hemY: number, neck: number) => (c: Point, ctx: GarmentContext) =>
+export const bodice = (m: Landmarks, arm: number, hemY: number, neck: number) => (c: Point, ctx: GarmentContext) =>
   min(torsoBelow(m, c, hemY), neckline(c, ctx, neck), sleeve(c, ctx, arm));
 
 export const MEDIEVAL: MedievalSpec[] = [
@@ -469,6 +469,14 @@ export interface MedievalOutput {
 }
 
 export function buildMedieval(mc: MedievalContext): MedievalOutput {
+  return buildSpecs(mc, MEDIEVAL);
+}
+
+const landmarkCache = new WeakMap<MedievalContext, Landmarks & { eyes: Vec3 }>();
+/** Body landmarks and envelopes of the base mesh (built once per import). */
+export function landmarks(mc: MedievalContext): Landmarks & { eyes: Vec3 } {
+  const cached = landmarkCache.get(mc);
+  if (cached) return cached;
   const P = mc.positions;
   const bodyFaces = mc.facesOf("body");
   const bodyVerts = [...new Set(bodyFaces.flatMap((f) => f.v))];
@@ -507,9 +515,15 @@ export function buildMedieval(mc: MedievalContext): MedievalOutput {
     eyes[1] + 0.2,
     { dilate: 2, blur: 2 },
   );
+  landmarkCache.set(mc, m);
+  return m;
+}
 
+/** Builds garments cut from base-mesh helpers, each in its own data file (`garments/<name>.bin`). */
+export function buildSpecs(mc: MedievalContext, specs: MedievalSpec[]): MedievalOutput {
+  const m = landmarks(mc);
   const out: MedievalOutput = { proxies: [], meshes: [], files: [], labels: {}, info: {} };
-  for (const spec of MEDIEVAL) {
+  for (const spec of specs) {
     const g = fromPieces(mc, spec, spec.pieces(m));
     const writer = new BlobWriter();
     const file = `garments/${spec.name}.bin`;
@@ -565,7 +579,7 @@ interface Built {
 }
 
 /** Each axis' extreme vertices among `vertices`, as proxy scale references. */
-function scaleRefsOf(P: number[], vertices: number[]): ProxyDef["scaleRefs"] {
+export function scaleRefsOf(P: number[], vertices: number[]): ProxyDef["scaleRefs"] {
   return [0, 1, 2].map((axis) => {
     let lo = vertices[0], hi = lo;
     for (const v of vertices) {
@@ -604,7 +618,7 @@ const isTorso = (mc: MedievalContext, v: number) => {
 };
 const torsoSampleCache = new WeakMap<MedievalContext, Map<number, number[]>>();
 /** Coarse samples of the torso (from the body suit), shared by every garment with the same spacing. */
-function torsoSamples(mc: MedievalContext, spacing: number): number[] {
+export function torsoSamples(mc: MedievalContext, spacing: number): number[] {
   const cache = torsoSampleCache.get(mc) ?? new Map<number, number[]>();
   torsoSampleCache.set(mc, cache);
   if (!cache.has(spacing)) {
@@ -614,7 +628,7 @@ function torsoSamples(mc: MedievalContext, spacing: number): number[] {
   return cache.get(spacing)!;
 }
 
-function fromPieces(mc: MedievalContext, spec: MedievalSpec, pieces: Piece[]): Built {
+export function fromPieces(mc: MedievalContext, spec: MedievalSpec, pieces: Piece[]): Built {
   const P = mc.positions;
   const verts: number[] = [];
   const local = new Map<number, number>();
@@ -634,7 +648,7 @@ function fromPieces(mc: MedievalContext, spec: MedievalSpec, pieces: Piece[]): B
       const own = [...new Set(sel.flatMap((f) => f.v))];
       coarse.set(piece.smoothBind, [...(coarse.get(piece.smoothBind) ?? []), ...coarseSample(P, own.filter((v) => !isTorso(mc, v)), piece.smoothBind)]);
       // Sleeves stay bound to their own vertices: layered sleeves must bend alike.
-      for (const f of sel) for (const v of f.v) if (!isArm(mc.dominantBone(v)) || has(mc.dominantBone(v), "clavicle") || spec.category === "Medieval armour" && !spec.hangs) smoothOf.set(v, piece.smoothBind);
+      for (const f of sel) for (const v of f.v) if (!isArm(mc.dominantBone(v)) || has(mc.dominantBone(v), "clavicle") || spec.category.endsWith("armour") && !spec.hangs) smoothOf.set(v, piece.smoothBind);
     }
     const rm = buildRenderMesh(mc.obj, sel);
     const uv = groupUV(mc, piece.group)(rm.uv);
@@ -675,7 +689,7 @@ function fromPieces(mc: MedievalContext, spec: MedievalSpec, pieces: Piece[]): B
 }
 
 /** One vertex per grid cell (the closest to the cell centre). */
-function coarseSample(P: number[], vertices: number[], spacing: number): number[] {
+export function coarseSample(P: number[], vertices: number[], spacing: number): number[] {
   const cells = new Map<string, [number, number]>();
   for (const v of vertices) {
     const k = [0, 1, 2].map((c) => Math.floor(P[v * 3 + c] / spacing));
@@ -690,7 +704,7 @@ function coarseSample(P: number[], vertices: number[], spacing: number): number[
  * Proxy binding of point p to the 3 nearest of `samples`: Shepard weights minus the 4th nearest's,
  * so the weights (and the offset) change continuously from point to point.
  */
-function shepard(P: number[], samples: number[], p: Vec3): { refs: number[]; weights: number[]; offset: Vec3 } {
+export function shepard(P: number[], samples: number[], p: Vec3): { refs: number[]; weights: number[]; offset: Vec3 } {
   const near = samples.map((c) => [Math.hypot(P[c * 3] - p[0], P[c * 3 + 1] - p[1], P[c * 3 + 2] - p[2]), c]).sort((x, y) => x[0] - y[0]).slice(0, 4);
   const cut = 1 / max(1e-6, near[3]?.[0] ?? 1e3) ** 2;
   const w = near.slice(0, 3).map(([d]) => max(1e-9, 1 / max(1e-6, d) ** 2 - cut));

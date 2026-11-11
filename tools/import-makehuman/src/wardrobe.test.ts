@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { OUTFITS } from "../../../packages/generator/src/catalog";
 import { GARMENTS } from "./garments";
+import { GOLDEN_CUT, GOLDEN_GENERATED } from "./golden-age";
 import { MEDIEVAL } from "./medieval";
 import { WARDROBE } from "./wardrobe";
 
 describe("wardrobe", () => {
   const names = WARDROBE.map((w) => w.name);
-  const all = new Set([...names, ...GARMENTS.map((g) => g.name), ...MEDIEVAL.map((g) => g.name), "future-halo", "tights", "socks", "skirt", "skirt-mini"]);
+  const all = new Set([...names, ...GARMENTS.map((g) => g.name), ...MEDIEVAL.map((g) => g.name), ...GOLDEN_CUT.map((g) => g.name), ...GOLDEN_GENERATED.map((g) => g.name), "future-halo", "tights", "socks", "skirt", "skirt-mini"]);
 
   it("has unique, file-safe names and one entry per source asset", () => {
     expect(new Set(names).size).toBe(names.length);
