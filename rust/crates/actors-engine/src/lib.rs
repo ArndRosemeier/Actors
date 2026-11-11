@@ -47,7 +47,7 @@ pub mod cape;
 pub mod pattern;
 pub mod texture;
 
-pub use cape::{swing_cape, CapeRig, CapeWind};
+pub use cape::{cape_sink, swing_cape, CapeRig, CapeSink, CapeWind};
 
 use actors_core::format::{MaterialKind, MeshRole};
 use actors_core::parts::{PartBone, PartKind, PartMesh};

@@ -841,9 +841,10 @@ fn cape_grid(bd: &Body, style: &str) -> CapeGrid {
     g
 }
 
-/// Bone rows (grid rows of each link's head) and chain columns (normalized).
-const CHAIN_S: [f64; 3] = [-0.64, 0.0, 0.64];
-const LINK_V: [f64; 5] = [0.1, 0.28, 0.46, 0.64, 0.82];
+/// Bone rows (grid rows of each link's head, `v` 0 at the top .. 1 at the hem) and chain columns
+/// (normalized width `s`, -1 .. 1; the cape's uv is `((s + 1) / 2, v)`).
+pub const CHAIN_S: [f64; 3] = [-0.64, 0.0, 0.64];
+pub const LINK_V: [f64; 5] = [0.1, 0.28, 0.46, 0.64, 0.82];
 
 fn cape_weights(bd: &Body, s: f64, v: f64, bone_base: usize) -> Weights {
     // Columns: between the two nearest chains.
