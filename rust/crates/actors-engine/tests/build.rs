@@ -281,3 +281,86 @@ fn robots_are_built_and_stand_on_their_soles() {
     let human = b.random(7, &RandomOptions::default());
     assert!(!human.robot);
 }
+
+/// A pose like a flier's, as games add it: the leading arm up past the head, the other along the
+/// body, legs straight and together (the game pitches the whole body forward).
+fn flying_pose(model: &engine::anim::AnimatedModel) -> engine::anim::AnimationClip {
+    use glam::{Quat, Vec3};
+    let sk = &model.skeleton;
+    let n = sk.joint_names.len();
+    let find = |name: &str| sk.joint_names.iter().position(|x| x == name).unwrap();
+    let mut local: Vec<Quat> = model.bind_local.iter().map(|b| b.1).collect();
+    let globals = |local: &[Quat]| {
+        let mut g = vec![glam::Mat4::IDENTITY; n];
+        for j in 0..n {
+            let (t, _, s) = model.bind_local[j];
+            let m = glam::Mat4::from_scale_rotation_translation(s, local[j], t);
+            g[j] = sk.parents[j].map_or(m, |p| g[p] * m);
+        }
+        g
+    };
+    for (a, b, dir) in [
+        ("upperarm_r", "lowerarm_r", Vec3::new(-0.12, 1.0, 0.16)),
+        ("lowerarm_r", "hand_r", Vec3::new(-0.08, 1.0, 0.12)),
+        ("upperarm_l", "lowerarm_l", Vec3::new(0.22, -1.0, -0.12)),
+        ("lowerarm_l", "hand_l", Vec3::new(0.12, -1.0, 0.18)),
+        ("thigh_l", "calf_l", Vec3::new(0.05, -1.0, -0.04)),
+        ("calf_l", "foot_l", Vec3::new(0.04, -1.0, -0.18)),
+        ("thigh_r", "calf_r", Vec3::new(-0.04, -1.0, 0.1)),
+        ("calf_r", "foot_r", Vec3::new(-0.03, -1.0, -0.55)),
+    ] {
+        let (a, b) = (find(a), find(b));
+        let g = globals(&local);
+        let now = (g[b].w_axis - g[a].w_axis).truncate().normalize();
+        let (_, rot, _) = g[a].to_scale_rotation_translation();
+        let turned = Quat::from_rotation_arc(now, dir.normalize()) * rot;
+        let parent = sk.parents[a].map_or(Quat::IDENTITY, |p| g[p].to_scale_rotation_translation().1);
+        local[a] = (parent.inverse() * turned).normalize();
+    }
+    let duration = 2.4;
+    let channels = local
+        .iter()
+        .map(|&q| engine::anim::JointChannels {
+            rotation: Some(engine::anim::QuatTrack { times: vec![0.0, duration], values: vec![q, q] }),
+            ..Default::default()
+        })
+        .collect();
+    engine::anim::AnimationClip { name: "fly".into(), duration, channels }
+}
+
+/// The cape never passes through its wearer (arms, back, legs): standing, walking, fighting and
+/// flying in a game's own pose, for several cape styles and bodies.
+#[test]
+fn capes_stay_off_the_body() {
+    let Some(packs) = packs() else { return };
+    let mut b = CharacterBuilder::load(&packs).unwrap();
+    let names = ["idle", "walk", "jog", "sprint", "fight stance", "punch jab", "crouch", "spell cast", "jump"];
+    let opts = BuildOptions { clips: names.iter().map(|s| s.to_string()).collect(), ..Default::default() };
+    let mut bad = Vec::new();
+    for (seed, style) in [(0, "classic"), (7, "long"), (11, "short"), (5, "scalloped")] {
+        let mut config = if seed == 0 { b.default_config() } else { b.random(seed, &RandomOptions::default()) };
+        config.costume.cape = style.into();
+        let mut hero = b.build(&config, &opts).unwrap();
+        let rig = hero.cape.clone().expect("cape rig");
+        // A game's own pose and wind: level flight (the air streams from the head to the feet).
+        let fly = flying_pose(&hero.model);
+        hero.model.clips.push(fly);
+        let i = hero.model.clips.len() - 1;
+        let wind = actors_engine::CapeWind { travel: glam::Vec3::new(0.0, 0.99, 0.14) * 14.0, root_motion: false };
+        actors_engine::swing_cape(&mut hero.model, &rig, i, wind);
+        for (ci, clip) in hero.model.clips.iter().enumerate() {
+            let worst = (0..12)
+                .map(|k| actors_engine::cape_sink(&hero.model, &rig, ci, clip.duration * k as f32 / 12.0))
+                .fold(actors_engine::CapeSink::default(), |a, s| if s.depth > a.depth { s } else { a });
+            let joint = worst.joint.map_or("-", |j| hero.model.skeleton.joint_names[j].as_str());
+            eprintln!("{style} {}: {:.3} m into {joint} at uv {:.2} {:.2}", clip.name, worst.depth, worst.uv[0], worst.uv[1]);
+            // Standing, walking and flying stay clear; clips that swing the arms or legs hard
+            // (running, punching, casting, crouching) get a little give at the cape's edge.
+            let limit = if ["idle", "walk", "fly"].contains(&clip.name.as_str()) { 0.015 } else { 0.045 };
+            if worst.depth >= limit {
+                bad.push(format!("the {style} cape passes {:.3} m into {joint} in {}", worst.depth, clip.name));
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}

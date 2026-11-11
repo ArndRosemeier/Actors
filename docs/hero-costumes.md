@@ -38,4 +38,9 @@ Where it lives:
   and arms, and streams back in the wind of walking, running and sprinting. A game's own clips
   (flying, hovering) get their swing with `swing_cape(&mut model, rig, clip, CapeWind { travel,
   root_motion: false })`, where `travel` is the character's velocity through the air in model
-  space (+Z forward) and `rig` is `CharacterModel::cape`.
+  space (+Z forward) and `rig` is `CharacterModel::cape`. The cloth is a grid of points with
+  stretch, shear and bend limits; it is kept off capsules fitted to the body's own skin (torso in
+  strips, upper and lower arms, hands, thighs, calves, neck, head), and the threads between points
+  are tested too, so a forearm cannot slip between two of them. `cape_sink(&model, rig, clip,
+  time)` measures how deep the drawn cape passes into the drawn body; the `capes_stay_off_the_body`
+  test keeps standing, walking and flying clean for several cape styles.
