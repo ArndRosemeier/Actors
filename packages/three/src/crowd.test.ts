@@ -126,6 +126,25 @@ describe("crowd level", () => {
   });
 });
 
+describe("garments drawn beside the crowd mesh", () => {
+  it("drop their layer's polygon offset there, so the merged garments over them still show", async () => {
+    const { rt, actor } = await dressed();
+    // A skirt-skinned cap (leg colliders) stays its own mesh at the crowd level.
+    rt.manifest.proxies.find((p) => p.name === "cap")!.legBlend = { remap: {}, pairs: [], hip: "root", hipShare: 0.5 };
+    actor.setVisible("cap", true);
+    actor.applyShape(rt.evaluateLoaded(new Map(), undefined, undefined, actor.neededMeshes()));
+    actor.update(0);
+    const cap = actor.meshes.get("cap")!.material as THREE.Material;
+    expect(cap.polygonOffsetUnits).toBeLessThan(0);
+    actor.setLod(1);
+    actor.update(0);
+    expect(drawn(actor)).toEqual(["cap", "crowd", "eyes"]);
+    expect(cap.polygonOffsetUnits).toBe(0);
+    actor.setLod(0);
+    expect(cap.polygonOffsetUnits).toBeLessThan(0);
+  });
+});
+
 describe("shadows of small parts", () => {
   it("lets eyes and teeth cast none unless asked", async () => {
     const { actor } = await dressed();

@@ -96,10 +96,10 @@ export const GOLDEN_CUT: MedievalSpec[] = [
 // ---------------------------------------------------------------------------------------------
 // Generated pieces: geometry plus a binding per vertex.
 
-type Bind = { refs: number[]; weights: number[]; at: Vec3 };
+export type Bind = { refs: number[]; weights: number[]; at: Vec3 };
 
 /** Geometry under construction; each vertex keeps the body binding it moves with. */
-class Shape {
+export class Shape {
   readonly pos: number[] = [];
   readonly uv: number[] = [];
   readonly idx: number[] = [];
@@ -158,17 +158,17 @@ class Shape {
   }
 }
 
-const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const scale = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s];
-const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const len = (a: Vec3) => Math.hypot(a[0], a[1], a[2]);
-const norm = (a: Vec3): Vec3 => scale(a, 1 / (len(a) || 1));
-const lerp = (a: Vec3, b: Vec3, t: number): Vec3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+export const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+export const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+export const scale = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s];
+export const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+export const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+export const len = (a: Vec3) => Math.hypot(a[0], a[1], a[2]);
+export const norm = (a: Vec3): Vec3 => scale(a, 1 / (len(a) || 1));
+export const lerp = (a: Vec3, b: Vec3, t: number): Vec3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
 /** Tangent, normal and binormal along a path (parallel transport, no twisting). */
-function pathFrames(path: Vec3[], closed: boolean): [Vec3, Vec3, Vec3][] {
+export function pathFrames(path: Vec3[], closed: boolean): [Vec3, Vec3, Vec3][] {
   const n = path.length;
   const tangent = (i: number) => {
     const a = closed ? path[(i - 1 + n) % n] : path[max(0, i - 1)];
@@ -188,7 +188,7 @@ function pathFrames(path: Vec3[], closed: boolean): [Vec3, Vec3, Vec3][] {
 }
 
 /** Points every `step` meters along a polyline. */
-function resample(path: Vec3[], step: number, closed = false): Vec3[] {
+export function resample(path: Vec3[], step: number, closed = false): Vec3[] {
   const pts = closed ? [...path, path[0]] : path;
   const out: Vec3[] = [pts[0]];
   let carry = 0;
@@ -206,7 +206,7 @@ function resample(path: Vec3[], step: number, closed = false): Vec3[] {
 }
 
 /** The body surface (skin vertices and normals) near a set of bones, for draping. */
-class Surface {
+export class Surface {
   private readonly grid = new Map<string, number[]>();
   private static readonly CELL = 0.03;
   constructor(private readonly P: number[], private readonly N: Float32Array, private readonly verts: number[]) {
@@ -264,7 +264,7 @@ class Surface {
   }
 }
 
-function vertexNormals(P: number[], faces: { v: number[] }[]): Float32Array {
+export function vertexNormals(P: number[], faces: { v: number[] }[]): Float32Array {
   const N = new Float32Array(P.length);
   for (const f of faces)
     for (let i = 1; i + 1 < f.v.length; i++) {
@@ -281,7 +281,7 @@ function vertexNormals(P: number[], faces: { v: number[] }[]): Float32Array {
 }
 
 /** Laplacian smoothing of a path (ends stay put on open paths). */
-function smoothPath(path: Vec3[], passes: number, closed: boolean): Vec3[] {
+export function smoothPath(path: Vec3[], passes: number, closed: boolean): Vec3[] {
   let p = path;
   for (let k = 0; k < passes; k++)
     p = p.map((x, i) => {
@@ -292,7 +292,7 @@ function smoothPath(path: Vec3[], passes: number, closed: boolean): Vec3[] {
   return p;
 }
 
-interface Kit {
+export interface Kit {
   mc: MedievalContext;
   m: Landmarks & { eyes: Vec3 };
   torso: Surface;
@@ -306,13 +306,15 @@ interface Kit {
   headTop: number;
   headCenter: Vec3;
   ears: [number, number];
+  /** Every skin vertex of the body. */
+  bodyVerts: number[];
 }
 
 /**
  * Lets a chain of beads hang on the body: gravity, fixed bead spacing, `pinned` beads held in place, and the skin and the chest's convex
  * outline pushing it out to `gap`.
  */
-function hang(k: Kit, init: Vec3[], pinned: boolean[], closed: boolean, gap: number, step: number): Vec3[] {
+export function hang(k: Kit, init: Vec3[], pinned: boolean[], closed: boolean, gap: number, step: number): Vec3[] {
   const { m } = k;
   const n = init.length;
   // Free beads sit `step` apart, whatever the starting shape's spacing.
@@ -348,7 +350,7 @@ function hang(k: Kit, init: Vec3[], pinned: boolean[], closed: boolean, gap: num
 }
 
 /** Points round the back of the neck (from angle a0 to a1, 0 = front), `gap` above the skin at height `y`, coming in from radius `r0` (inside the shoulders). */
-function backArc(k: Kit, a0: number, a1: number, y: number, gap: number, step: number, r0: number): Vec3[] {
+export function backArc(k: Kit, a0: number, a1: number, y: number, gap: number, step: number, r0: number): Vec3[] {
   const [, , z] = k.neck;
   const pts: Vec3[] = [];
   for (let i = 0; i <= 48; i++) {
@@ -360,7 +362,7 @@ function backArc(k: Kit, a0: number, a1: number, y: number, gap: number, step: n
 }
 
 /** A hanging part of `count` beads: from `start` forward and down through `via` (in front of the body). */
-function hangingEnd(start: Vec3, via: Vec3[], count: number): Vec3[] {
+export function hangingEnd(start: Vec3, via: Vec3[], count: number): Vec3[] {
   const pts = [start, ...via];
   const total = pts.slice(1).reduce((s, p, i) => s + len(sub(p, pts[i])), 0);
   return resample(pts, total / count).slice(1, count + 1);
@@ -380,7 +382,7 @@ function necklace(k: Kit, drop: number, gap: number, step: number): Vec3[] {
 }
 
 /** Rope round the back of the neck and over the shoulders, both ends hanging down the front to `endY`. */
-function rope(k: Kit, spread: number, endY: number, endX: number, gap: number, step: number, r0: number): Vec3[] {
+export function rope(k: Kit, spread: number, endY: number, endX: number, gap: number, step: number, r0: number): Vec3[] {
   const [, y] = k.neck;
   const back = backArc(k, Math.PI * (0.5 - spread), Math.PI * (1.5 + spread), y + 0.015, gap, step, r0);
   const r = back[0], l = back[back.length - 1];
@@ -433,13 +435,13 @@ function plume(shape: Shape, base: Vec3, dir: Vec3, bend: Vec3, length: number, 
 }
 
 /** Small deterministic random numbers. */
-function rng(seed: number) {
+export function rng(seed: number) {
   let s = seed >>> 0 || 1;
   return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
 }
 
 /** Head ring (band) at the brow, `gap` above the skin at the back and sides (for the hair). */
-function headRing(k: Kit, frontGap: number, backGap: number, lift = 0): { ring: Vec3[]; out: Vec3[] } {
+export function headRing(k: Kit, frontGap: number, backGap: number, lift = 0): { ring: Vec3[]; out: Vec3[] } {
   const { m } = k;
   const c = k.headCenter;
   const yFront = m.eyes[1] + 0.05 + lift, yBack = yFront - 0.02;
@@ -458,7 +460,7 @@ function headRing(k: Kit, frontGap: number, backGap: number, lift = 0): { ring: 
 }
 
 /** A flat band (ribbon) round a closed ring, `h` tall and `t` thick. */
-function band(shape: Shape, ring: Vec3[], outward: Vec3[], h: number, t: number, bind: Bind) {
+export function band(shape: Shape, ring: Vec3[], outward: Vec3[], h: number, t: number, bind: Bind) {
   const corners: [number, number][] = [[-0.5, 0], [0.5, 0], [0.5, 1], [-0.5, 1], [-0.5, 0]];
   const start = shape.binds.length;
   ring.forEach((p, i) => {
@@ -472,6 +474,15 @@ function band(shape: Shape, ring: Vec3[], outward: Vec3[], h: number, t: number,
     }
 }
 
+/** A texture drawn at import, written once to `textures/<name>.png`. */
+export interface GeneratedTexture {
+  name: string;
+  png: () => Buffer;
+}
+
+const FEATHER: GeneratedTexture = { name: "ga-feather", png: () => featherPng() };
+const FUR: GeneratedTexture = { name: "ga-fur", png: () => furPng() };
+
 export interface GeneratedSpec {
   name: string;
   label: string;
@@ -481,8 +492,12 @@ export interface GeneratedSpec {
   roughness: number;
   fabric: string;
   layer: number;
-  /** Texture drawn by this module (alpha-cut cards). */
-  texture?: "feather" | "fur";
+  /** Hides the hair while worn (caps pulled down over it). */
+  hidesHair?: boolean;
+  /** Gallery category (default: golden age accessories). */
+  category?: string;
+  /** Texture drawn at import (white for tinted cards, or a print); the garment stores its mean colour. */
+  texture?: GeneratedTexture;
   build: (shape: Shape, k: Kit) => void;
 }
 
@@ -532,7 +547,7 @@ export const GOLDEN_GENERATED: GeneratedSpec[] = [
   },
   {
     name: "ga-feather-boa", label: "Feather boa", occupies: ["boa"], gender: "female",
-    color: [0.95, 0.95, 0.95], roughness: 0.9, fabric: "feather", layer: 4.2, texture: "feather",
+    color: [0.95, 0.95, 0.95], roughness: 0.9, fabric: "feather", layer: 4.2, texture: FEATHER,
     build: (shape, k) => {
       const path = rope(k, 0.05, k.m.pelvis + 0.02, 0.1, 0.028, 0.012, 0.13);
       fluffyRope(shape, k, path, 0.012, 0.075, 7, 7);
@@ -540,7 +555,7 @@ export const GOLDEN_GENERATED: GeneratedSpec[] = [
   },
   {
     name: "ga-fur-stole", label: "Fox fur stole", occupies: ["boa"], gender: "female",
-    color: [0.9, 0.88, 0.84], roughness: 1, fabric: "fur", layer: 4.2, texture: "fur",
+    color: [0.9, 0.88, 0.84], roughness: 1, fabric: "fur", layer: 4.2, texture: FUR,
     build: (shape, k) => {
       const path = rope(k, 0.15, k.m.chest - 0.1, 0.075, 0.04, 0.01, 0.15);
       fluffyRope(shape, k, path, 0.022, 0.03, 14, 11, 0.35);
@@ -548,7 +563,7 @@ export const GOLDEN_GENERATED: GeneratedSpec[] = [
   },
   {
     name: "ga-headband", label: "Flapper headband", occupies: ["headband"], gender: "female",
-    color: [0.92, 0.92, 0.92], roughness: 0.5, fabric: "feather", layer: 4, texture: "feather",
+    color: [0.92, 0.92, 0.92], roughness: 0.5, fabric: "feather", layer: 4, texture: FEATHER,
     build: (shape, k) => {
       const { ring, out } = headRing(k, 0.011, 0.03);
       band(shape, ring, out, 0.016, 0.003, k.skull);
@@ -562,7 +577,7 @@ export const GOLDEN_GENERATED: GeneratedSpec[] = [
   },
   {
     name: "ga-showgirl-headdress", label: "Showgirl headdress", occupies: ["headband"], gender: "female",
-    color: [0.95, 0.95, 0.95], roughness: 0.5, fabric: "feather", layer: 4, texture: "feather",
+    color: [0.95, 0.95, 0.95], roughness: 0.5, fabric: "feather", layer: 4, texture: FEATHER,
     build: (shape, k) => {
       const { ring, out } = headRing(k, 0.012, 0.032, 0.01);
       band(shape, ring, out, 0.032, 0.004, k.skull);
@@ -585,6 +600,15 @@ export const GOLDEN_GENERATED: GeneratedSpec[] = [
 /** Builds the golden age pieces: helper cuts plus generated jewellery, ropes and headwear. */
 export function buildGoldenAge(mc: MedievalContext, out: string): MedievalOutput {
   const result = buildSpecs(mc, GOLDEN_CUT);
+  addGenerated(result, makeKit(mc), GOLDEN_GENERATED, ACCESSORIES, out);
+  return result;
+}
+
+const kitCache = new WeakMap<MedievalContext, Kit>();
+/** The body surfaces, skull anchors and landmarks generated pieces are built on (once per import). */
+export function makeKit(mc: MedievalContext): Kit {
+  const cached = kitCache.get(mc);
+  if (cached) return cached;
   const P = mc.positions;
   const m = landmarks(mc);
   const bodyFaces = mc.facesOf("body");
@@ -624,9 +648,17 @@ export function buildGoldenAge(mc: MedievalContext, out: string): MedievalOutput
     headTop: P[anchors[0] * 3 + 1],
     headCenter: [0, (m.eyes[1] + P[anchors[0] * 3 + 1]) / 2, (Math.min(...headZ) + Math.max(...headZ)) / 2],
     ears,
+    bodyVerts,
   };
+  kitCache.set(mc, kit);
+  return kit;
+}
+
+/** Builds generated pieces into `result`, each in its own data file; textures go to `<out>/textures`. */
+export function addGenerated(result: MedievalOutput, kit: Kit, specs: GeneratedSpec[], category: string, out: string) {
+  const P = kit.mc.positions;
   const textures = new Set<string>();
-  for (const spec of GOLDEN_GENERATED) {
+  for (const spec of specs) {
     const shape = new Shape();
     spec.build(shape, kit);
     const writer = new BlobWriter();
@@ -645,12 +677,12 @@ export function buildGoldenAge(mc: MedievalContext, out: string): MedievalOutput
       refs: writer.add("u32", refs),
       weights: writer.add("f32", weights),
       offsets: writer.add("f32", offsets),
-      scaleRefs: scaleRefsOf(P, used.length >= 2 ? used : bodyVerts),
+      scaleRefs: scaleRefsOf(P, used.length >= 2 ? used : kit.bodyVerts),
       blob: file,
     };
-    const texture = spec.texture ? `textures/ga-${spec.texture}.png` : undefined;
+    const texture = spec.texture ? `textures/${spec.texture.name}.png` : undefined;
     if (texture && !textures.has(texture)) {
-      writeFileSync(join(out, texture), spec.texture === "feather" ? featherPng() : furPng());
+      writeFileSync(join(out, texture), spec.texture!.png());
       textures.add(texture);
     }
     const mesh: MeshDef = {
@@ -662,7 +694,7 @@ export function buildGoldenAge(mc: MedievalContext, out: string): MedievalOutput
       material: { kind: "cloth", color: spec.color, roughness: spec.roughness },
       ...(texture ? { textures: { color: texture } } : {}),
       // Draped clear of the clothes at import; "solid" keeps the renderer from lifting (swelling) them.
-      tags: [`fabric:${spec.fabric}`, `layer:${spec.layer}`, "solid"],
+      tags: [`fabric:${spec.fabric}`, `layer:${spec.layer}`, "solid", ...(spec.hidesHair ? ["covers:hair"] : [])],
       baseIndex: writer.add("u32", Array.from({ length: n }, (_, i) => i)),
       uv: writer.add("f32", shape.uv),
       indices: writer.add("u32", shape.idx),
@@ -671,9 +703,8 @@ export function buildGoldenAge(mc: MedievalContext, out: string): MedievalOutput
     result.meshes.push(mesh);
     result.files.push({ file, data: writer.toBuffer() });
     result.labels[spec.name] = spec.label;
-    result.info[spec.name] = { label: spec.label, category: ACCESSORIES, occupies: spec.occupies, ...(spec.gender ? { gender: spec.gender } : {}), credit: "Actors procedural garment (MIT)" };
+    result.info[spec.name] = { label: spec.label, category: spec.category ?? category, occupies: spec.occupies, ...(spec.gender ? { gender: spec.gender } : {}), credit: "Actors procedural garment (MIT)" };
   }
-  return result;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -725,7 +756,7 @@ export function furPng(): Buffer {
   return rgbaPng(w, h, alpha, shade);
 }
 
-function rgbaPng(w: number, h: number, alpha: Float32Array, shade: Float32Array): Buffer {
+export function rgbaPng(w: number, h: number, alpha: Float32Array, shade: Float32Array): Buffer {
   const png = new PNG({ width: w, height: h });
   // Drawn with v = 0 in row 0; images are stored top row first and v = 0 is the bottom row.
   for (let y = 0; y < h; y++)

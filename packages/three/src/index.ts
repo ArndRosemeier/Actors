@@ -397,11 +397,15 @@ export class ThreeActor {
    */
   setGarmentOrder(names: readonly string[]): void {
     this.garmentOrder = [...names];
+    this.orderLayers();
+    this.updateLifts(); // which fitted garment sits on which
+  }
+
+  private orderLayers(): void {
     for (const [name, mesh] of this.meshes) {
       const data = this.data.get(name);
       if (data) this.orderLayer(mesh, data);
     }
-    this.updateLifts(); // which fitted garment sits on which
   }
 
   /** A garment's polygon offset for its layer and its place among the worn garments on that layer. */
@@ -417,7 +421,10 @@ export class ThreeActor {
       if (other?.def.material.kind === "cloth" && garmentLayer(other.def) === layer) rank++;
     }
     // Negative pulls toward the camera; a reversed depth buffer has the other sign (see reverseOffsets).
-    const out = (layer + rank * 0.25) * (this.reversedDepth ? 1 : -1);
+    // Beside a merged crowd mesh (one material, no offsets) a garment drawn on its own sits at its true
+    // depth: its layer's pull would put it in front of everything merged over it (lapels on a skirted coat).
+    const merged = !!this.lods[this.level]?.merge;
+    const out = merged ? 0 : (layer + rank * 0.25) * (this.reversedDepth ? 1 : -1);
     if (mat.polygonOffsetFactor === 2 * out && mat.polygonOffsetUnits === 4 * out) return;
     mat.polygonOffsetFactor = 2 * out;
     mat.polygonOffsetUnits = 4 * out;
@@ -797,8 +804,11 @@ export class ThreeActor {
     this.flushVisibility();
     if (level === this.level) return;
     const bonesBefore = this.lods[this.level].bones;
+    const mergedBefore = !!this.lods[this.level].merge;
     this.level = level;
     this.wake();
+    // Garments drawn beside a crowd mesh drop their layer offsets (see orderLayer).
+    if (!!this.lods[level].merge !== mergedBefore) this.orderLayers();
     this.updateVisibility();
     if (this.crowdDirty) this.buildCrowd();
     if (this.lods[level].bones !== bonesBefore && this.clip) this.play(this.clip);
