@@ -92,7 +92,7 @@ export const legHole = (c: Point, ctx: GarmentContext, t: number) => {
 };
 
 /** Expand around each leg separately, leaving the crotch and waist fitted. */
-function legVolume(profile: (t: number) => number): NonNullable<GarmentSpec["offset"]> {
+export function legVolume(profile: (t: number) => number): NonNullable<GarmentSpec["offset"]> {
   return (c, ctx) => {
     if (!has(c.bone, "thigh", "calf")) return [0, 0, 0];
     const side = c.x >= 0 ? "l" : "r";

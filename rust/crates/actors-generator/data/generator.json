@@ -1331,6 +1331,380 @@
    }
   },
   {
+   "id": "navy-rn-captain",
+   "label": "Navy · British captain",
+   "description": "Royal Navy post captain, about 1800: blue tailcoat with white lapels and cuffs, gold epaulettes and buttons, white waistcoat and breeches, a laced bicorne worn athwartships.",
+   "garments": [
+    "briefs",
+    "high-socks",
+    "buckled-shoes",
+    "navy-breeches",
+    "navy-waistcoat",
+    "navy-tailcoat",
+    "navy-lapels",
+    "navy-collar",
+    "navy-cuffs",
+    "navy-buttons-officer",
+    "navy-stock",
+    "navy-bicorne",
+    "navy-cockade",
+    "navy-epaulettes",
+    "navy-bicorne-lace"
+   ],
+   "gender": "male",
+   "colors": {
+    "navy-tailcoat": "#1c2340",
+    "navy-collar": "#1c2340",
+    "navy-lapels": "#e9e4d6",
+    "navy-cuffs": "#e9e4d6",
+    "navy-waistcoat": "#e9e4d6",
+    "navy-breeches": "#e9e4d6",
+    "high-socks": "#e9e4d6",
+    "buckled-shoes": "#18181b",
+    "navy-stock": "#e9e4d6",
+    "navy-bicorne": "#18181b",
+    "navy-cockade": "#18181b"
+   }
+  },
+  {
+   "id": "navy-rn-lieutenant",
+   "label": "Navy · British lieutenant",
+   "description": "Royal Navy lieutenant: the blue coat with white lapels and cuffs, no epaulettes, a plain bicorne.",
+   "garments": [
+    "briefs",
+    "high-socks",
+    "buckled-shoes",
+    "navy-breeches",
+    "navy-waistcoat",
+    "navy-tailcoat",
+    "navy-lapels",
+    "navy-collar",
+    "navy-cuffs",
+    "navy-buttons-officer",
+    "navy-stock",
+    "navy-bicorne",
+    "navy-cockade"
+   ],
+   "gender": "male",
+   "colors": {
+    "navy-tailcoat": "#1c2340",
+    "navy-collar": "#1c2340",
+    "navy-lapels": "#e9e4d6",
+    "navy-cuffs": "#1c2340",
+    "navy-waistcoat": "#e9e4d6",
+    "navy-breeches": "#e9e4d6",
+    "high-socks": "#e9e4d6",
+    "buckled-shoes": "#18181b",
+    "navy-stock": "#e9e4d6"
+   }
+  },
+  {
+   "id": "navy-rn-midshipman",
+   "label": "Navy · British midshipman",
+   "description": "A young gentleman: blue coat with the white collar patches of his rank, round hat.",
+   "garments": [
+    "briefs",
+    "high-socks",
+    "buckled-shoes",
+    "navy-breeches",
+    "navy-waistcoat",
+    "navy-tailcoat",
+    "navy-collar",
+    "navy-buttons-single",
+    "navy-stock",
+    "navy-round-hat"
+   ],
+   "gender": "male",
+   "colors": {
+    "navy-tailcoat": "#1c2340",
+    "navy-collar": "#e9e4d6",
+    "navy-waistcoat": "#e9e4d6",
+    "navy-breeches": "#e9e4d6",
+    "high-socks": "#e9e4d6",
+    "buckled-shoes": "#18181b",
+    "navy-stock": "#18181b"
+   }
+  },
+  {
+   "id": "navy-rn-boatswain",
+   "label": "Navy · British boatswain",
+   "description": "A warrant officer in his own good clothes: blue jacket over a red waistcoat, white trousers, shoes, round hat.",
+   "garments": [
+    "briefs",
+    "navy-shirt",
+    "navy-waistcoat",
+    "navy-jacket",
+    "navy-buttons-jacket",
+    "navy-slops",
+    "navy-neckerchief",
+    "socks",
+    "buckled-shoes",
+    "navy-round-hat"
+   ],
+   "gender": "male",
+   "colors": {
+    "navy-jacket": "#26305a",
+    "navy-waistcoat": "#a8232b",
+    "navy-slops": "#ddd6c3",
+    "socks": "#e9e4d6",
+    "buckled-shoes": "#18181b"
+   }
+  },
+  {
+   "id": "navy-rn-seaman",
+   "label": "Navy · British seaman",
+   "description": "Slops from the purser: linen shirt, short blue jacket, wide duck trousers, black neckerchief, tarred round hat; barefoot on deck.",
+   "garments": [
+    "briefs",
+    "navy-shirt",
+    "navy-jacket",
+    "navy-buttons-jacket",
+    "navy-slops",
+    "navy-neckerchief",
+    "navy-round-hat"
+   ],
+   "gender": "male",
+   "colors": {
+    "navy-jacket": "#26305a",
+    "navy-slops": "#ddd6c3",
+    "navy-round-hat": "#18181b"
+   }
+  },
+  {
+   "id": "navy-rn-hand",
+   "label": "Navy · British seaman at work",
+   "description": "Stripped for work at the guns or aloft: shirt, trousers and neckerchief, barefoot and bareheaded.",
+   "garments": [
+    "briefs",
+    "navy-shirt",
+    "navy-slops",
+    "navy-neckerchief"
+   ],
+   "gender": "male",
+   "colors": {
+    "navy-slops": "#ddd6c3"
+   }
+  },
+  {
+   "id": "navy-rn-marine",
+   "label": "Navy · Royal Marine",
+   "description": "Red coatee with the blue facings of the Royal Marines (1802), white cross belts and breeches, black gaiters and stock, round hat.",
+   "garments": [
+    "briefs",
+    "high-socks",
+    "buckled-shoes",
+    "navy-breeches",
+    "navy-gaiters",
+    "navy-coatee",
+    "navy-collar",
+    "navy-cuffs",
+    "navy-buttons-single",
+    "navy-crossbelts",
+    "navy-stock",
+    "navy-round-hat"
+   ],
+   "gender": "male",
+   "colors": {
+    "navy-coatee": "#a8232b",
+    "navy-collar": "#1d2a5a",
+    "navy-cuffs": "#1d2a5a",
+    "navy-crossbelts": "#e9e4d6",
+    "navy-breeches": "#e9e4d6",
+    "navy-gaiters": "#18181b",
+    "high-socks": "#e9e4d6",
+    "buckled-shoes": "#18181b",
+    "navy-stock": "#18181b"
+   }
+  },
+  {
+   "id": "navy-fr-captain",
+   "label": "Navy · French captain",
+   "description": "Capitaine de vaisseau, about 1800: blue coat with scarlet cuffs and waistcoat, gold epaulettes, a laced bicorne with the tricolour cockade.",
+   "garments": [
+    "briefs",
+    "high-socks",
+    "buckled-shoes",
+    "navy-breeches",
+    "navy-waistcoat",
+    "navy-tailcoat",
+    "navy-lapels",
+    "navy-collar",
+    "navy-cuffs",
+    "navy-buttons-officer",
+    "navy-stock",
+    "navy-bicorne",
+    "navy-cockade-tricolour",
+    "navy-epaulettes",
+    "navy-bicorne-lace"
+   ],
+   "gender": "male",
+   "colors": {
+    "navy-tailcoat": "#1d2547",
+    "navy-collar": "#1d2547",
+    "navy-lapels": "#1d2547",
+    "navy-cuffs": "#b02a2a",
+    "navy-waistcoat": "#b02a2a",
+    "navy-breeches": "#1d2547",
+    "high-socks": "#e9e4d6",
+    "buckled-shoes": "#18181b",
+    "navy-stock": "#18181b"
+   }
+  },
+  {
+   "id": "navy-fr-officer",
+   "label": "Navy · French officer",
+   "description": "Lieutenant de vaisseau: the blue coat with scarlet cuffs and waistcoat, one epaulette on the right shoulder.",
+   "garments": [
+    "briefs",
+    "high-socks",
+    "buckled-shoes",
+    "navy-breeches",
+    "navy-waistcoat",
+    "navy-tailcoat",
+    "navy-lapels",
+    "navy-collar",
+    "navy-cuffs",
+    "navy-buttons-officer",
+    "navy-stock",
+    "navy-bicorne",
+    "navy-cockade-tricolour",
+    "navy-epaulette"
+   ],
+   "gender": "male",
+   "colors": {
+    "navy-tailcoat": "#1d2547",
+    "navy-collar": "#1d2547",
+    "navy-lapels": "#1d2547",
+    "navy-cuffs": "#b02a2a",
+    "navy-waistcoat": "#b02a2a",
+    "navy-breeches": "#1d2547",
+    "high-socks": "#e9e4d6",
+    "buckled-shoes": "#18181b",
+    "navy-stock": "#18181b"
+   }
+  },
+  {
+   "id": "navy-fr-aspirant",
+   "label": "Navy · French aspirant",
+   "description": "A midshipman of the French Marine: blue coat with scarlet collar and cuffs, round hat.",
+   "garments": [
+    "briefs",
+    "high-socks",
+    "buckled-shoes",
+    "navy-breeches",
+    "navy-waistcoat",
+    "navy-tailcoat",
+    "navy-collar",
+    "navy-cuffs",
+    "navy-buttons-single",
+    "navy-stock",
+    "navy-round-hat"
+   ],
+   "gender": "male",
+   "colors": {
+    "navy-tailcoat": "#1d2547",
+    "navy-collar": "#b02a2a",
+    "navy-cuffs": "#b02a2a",
+    "navy-waistcoat": "#e9e4d6",
+    "navy-breeches": "#1d2547",
+    "high-socks": "#e9e4d6",
+    "buckled-shoes": "#18181b",
+    "navy-stock": "#18181b"
+   }
+  },
+  {
+   "id": "navy-fr-boatswain",
+   "label": "Navy · French boatswain",
+   "description": "Maître d'équipage: blue jacket, red waistcoat, striped trousers, shoes and a round hat.",
+   "garments": [
+    "briefs",
+    "navy-shirt",
+    "navy-waistcoat",
+    "navy-jacket",
+    "navy-buttons-jacket",
+    "navy-slops-striped",
+    "navy-neckerchief",
+    "socks",
+    "buckled-shoes",
+    "navy-round-hat"
+   ],
+   "gender": "male",
+   "colors": {
+    "navy-jacket": "#2a3566",
+    "navy-waistcoat": "#b02a2a",
+    "socks": "#e9e4d6",
+    "buckled-shoes": "#18181b"
+   }
+  },
+  {
+   "id": "navy-fr-seaman",
+   "label": "Navy · French seaman",
+   "description": "Matelot: shirt, short blue jacket, red-and-white striped trousers, neckerchief and the red knitted bonnet; barefoot on deck.",
+   "garments": [
+    "briefs",
+    "navy-shirt",
+    "navy-jacket",
+    "navy-buttons-jacket",
+    "navy-slops-striped",
+    "navy-neckerchief",
+    "navy-knit-cap"
+   ],
+   "gender": "male",
+   "colors": {
+    "navy-jacket": "#2a3566",
+    "navy-knit-cap": "#a52a2a"
+   }
+  },
+  {
+   "id": "navy-fr-hand",
+   "label": "Navy · French seaman at work",
+   "description": "Stripped for work: shirt, striped trousers, neckerchief and bonnet, barefoot.",
+   "garments": [
+    "briefs",
+    "navy-shirt",
+    "navy-slops-striped",
+    "navy-neckerchief",
+    "navy-knit-cap"
+   ],
+   "gender": "male",
+   "colors": {
+    "navy-knit-cap": "#a52a2a"
+   }
+  },
+  {
+   "id": "navy-fr-marine",
+   "label": "Navy · French marine",
+   "description": "Soldat of the marine infantry: blue coatee with scarlet collar and cuffs, white cross belts and breeches, black gaiters, a bicorne with the tricolour cockade.",
+   "garments": [
+    "briefs",
+    "high-socks",
+    "buckled-shoes",
+    "navy-breeches",
+    "navy-gaiters",
+    "navy-coatee",
+    "navy-collar",
+    "navy-cuffs",
+    "navy-buttons-single",
+    "navy-crossbelts",
+    "navy-stock",
+    "navy-bicorne",
+    "navy-cockade-tricolour"
+   ],
+   "gender": "male",
+   "colors": {
+    "navy-coatee": "#1d2547",
+    "navy-collar": "#b02a2a",
+    "navy-cuffs": "#b02a2a",
+    "navy-crossbelts": "#e9e4d6",
+    "navy-breeches": "#e9e4d6",
+    "navy-gaiters": "#18181b",
+    "high-socks": "#e9e4d6",
+    "buckled-shoes": "#18181b",
+    "navy-stock": "#18181b",
+    "navy-bicorne": "#18181b"
+   }
+  },
+  {
    "id": "warlord",
    "label": "Dark warlord",
    "garments": [
@@ -1769,6 +2143,11 @@
    "description": "Classical antiquity: draped gowns, tunics, crested helmets."
   },
   {
+   "id": "age-of-sail",
+   "label": "Age of sail",
+   "description": "Navies around 1800: seamen's slops, marines, officers' tailcoats, epaulettes, bicornes."
+  },
+  {
    "id": "medieval",
    "label": "Medieval",
    "description": "Tunics, hose, gowns, mail and plate, hoods and boots."
@@ -2182,10 +2561,6 @@
    "vintage",
    "fantasy"
   ],
-  "buckled-shoes": [
-   "vintage",
-   "medieval"
-  ],
   "wide-brim-hat": [
    "vintage",
    "medieval",
@@ -2410,6 +2785,89 @@
    "eastern",
    "antique",
    "fantasy"
+  ],
+  "navy-shirt": [
+   "age-of-sail"
+  ],
+  "navy-slops": [
+   "age-of-sail"
+  ],
+  "navy-slops-striped": [
+   "age-of-sail"
+  ],
+  "navy-jacket": [
+   "age-of-sail"
+  ],
+  "navy-waistcoat": [
+   "age-of-sail"
+  ],
+  "navy-breeches": [
+   "age-of-sail"
+  ],
+  "navy-gaiters": [
+   "age-of-sail"
+  ],
+  "navy-tailcoat": [
+   "age-of-sail"
+  ],
+  "navy-coatee": [
+   "age-of-sail"
+  ],
+  "navy-lapels": [
+   "age-of-sail"
+  ],
+  "navy-collar": [
+   "age-of-sail"
+  ],
+  "navy-cuffs": [
+   "age-of-sail"
+  ],
+  "navy-stock": [
+   "age-of-sail"
+  ],
+  "navy-crossbelts": [
+   "age-of-sail"
+  ],
+  "navy-round-hat": [
+   "age-of-sail"
+  ],
+  "navy-knit-cap": [
+   "age-of-sail"
+  ],
+  "navy-bicorne": [
+   "age-of-sail"
+  ],
+  "navy-bicorne-lace": [
+   "age-of-sail"
+  ],
+  "navy-cockade": [
+   "age-of-sail"
+  ],
+  "navy-cockade-tricolour": [
+   "age-of-sail"
+  ],
+  "navy-neckerchief": [
+   "age-of-sail"
+  ],
+  "navy-buttons-officer": [
+   "age-of-sail"
+  ],
+  "navy-buttons-single": [
+   "age-of-sail"
+  ],
+  "navy-buttons-jacket": [
+   "age-of-sail"
+  ],
+  "navy-epaulettes": [
+   "age-of-sail"
+  ],
+  "navy-epaulette": [
+   "age-of-sail"
+  ],
+  "buckled-shoes": [
+   "vintage",
+   "medieval",
+   "age-of-sail"
   ],
   "viking-tunic": [
    "nordic",

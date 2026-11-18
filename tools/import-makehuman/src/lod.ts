@@ -74,10 +74,19 @@ export function simplifyLevels(
     }
     // Only worth storing when it saves a good share over the previous level.
     if (indices.length > last * 0.85 || !indices.length) continue;
+    // A narrow cut piece (a cuff) can come out with only the corners outside its cut left: drawn, it would vanish.
+    if (clip && inside(indices, clip) < inside(source, clip) / 2) continue;
     out.push({ level, indices: writer.add("u32", indices) });
     last = indices.length;
   }
   return out.length ? out : undefined;
+}
+
+/** The share of a triangle list's corners inside the hem cut (clip >= 0). */
+function inside(indices: ArrayLike<number>, clip: ArrayLike<number>): number {
+  let n = 0;
+  for (let i = 0; i < indices.length; i++) if (clip[indices[i]] >= 0) n++;
+  return n / Math.max(1, indices.length);
 }
 
 /**

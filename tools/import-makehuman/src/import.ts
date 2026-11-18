@@ -41,6 +41,7 @@ import { SHOE_SNUG, WARDROBE } from "./wardrobe";
 import { snugMoves } from "./snug";
 import { buildMedieval } from "./medieval";
 import { buildGoldenAge } from "./golden-age";
+import { buildNavy } from "./navy";
 import { type Vec3, closestOnTriangle, packTriangles, rayHitsAny } from "./geometry";
 import { HAIRSTYLES, PACK_LICENCE } from "./hairstyles";
 import { GARMENT_LODS, HAIR_LODS, type LodSteps, SMALL_LODS, humanLods, ready as meshoptReady, simplifyLevels } from "./lod";
@@ -108,8 +109,10 @@ async function main() {
   const src = mpfbDir();
   const data = join(src, "src/mpfb/data");
   const out = resolve(arg("out") ?? join(ROOT, "apps/viewer/public/packs/human"));
+  // `--kit navy`: rebuild only the navy kit into an existing pack (a quick loop while shaping it).
+  const kitOnly = arg("kit");
   // Clear generated subfolders but keep the folder itself (a running dev server keeps watching it).
-  for (const d of ["targets", "textures", "clips", "garments"]) {
+  if (!kitOnly) for (const d of ["targets", "textures", "clips", "garments"]) {
     rmSync(join(out, d), { recursive: true, force: true });
     mkdirSync(join(out, d), { recursive: true });
   }
@@ -699,6 +702,28 @@ async function main() {
   Object.assign(garmentLabels, golden.labels);
   Object.assign(garmentInfo, golden.info);
   console.log(`Golden age: ${golden.meshes.length} garments, ${(golden.files.reduce((s, f) => s + f.data.byteLength, 0) / 1e6).toFixed(1)} MB`);
+
+  // Age-of-sail navies (about 1800): seamen, marines and officers (generated).
+  const navy = buildNavy({ ...garmentCtx, obj, facesOf, coveredBody, skirtBlend: SKIRT_BLEND! }, out);
+  proxies.push(...navy.proxies);
+  meshes.push(...navy.meshes);
+  for (const { file, data } of navy.files) writeFileSync(join(out, file), data);
+  Object.assign(garmentLabels, navy.labels);
+  Object.assign(garmentInfo, navy.info);
+  console.log(`Navy: ${navy.meshes.length} garments, ${(navy.files.reduce((s, f) => s + f.data.byteLength, 0) / 1e6).toFixed(1)} MB`);
+  if (kitOnly === "navy") {
+    const path = join(out, "manifest.json");
+    const old = JSON.parse(readFileSync(path, "utf8")) as ActorPackManifest;
+    const mine = (n: string) => n.startsWith("navy-");
+    old.meshes = [...old.meshes.filter((m) => !mine(m.name)), ...navy.meshes];
+    old.proxies = [...old.proxies.filter((p) => !mine(p.name)), ...navy.proxies];
+    const human = (old.extra as { human: { garmentLabels: Record<string, string>; garments: Record<string, GarmentInfo> } }).human;
+    Object.assign(human.garmentLabels, navy.labels);
+    Object.assign(human.garments, navy.info);
+    writeFileSync(path, JSON.stringify(old));
+    console.log(`Updated the navy kit in ${path}`);
+    return;
+  }
 
   // --- Wardrobe: CC0 and CC-BY garments from MakeHuman asset packs, each in its own file, loaded when worn ---
   mkdirSync(join(out, "garments"), { recursive: true });
