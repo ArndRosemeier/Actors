@@ -36,7 +36,7 @@ import {
   sleeve,
 } from "./garments";
 import type { Vec3 } from "./geometry";
-import { GARMENT_LODS, simplifyLevels } from "./lod";
+import { GARMENT_LODS, simplifyLevels, type LodSteps } from "./lod";
 import { type ObjData, type ObjFace, buildRenderMesh } from "./obj";
 
 const min = Math.min, max = Math.max;
@@ -184,6 +184,8 @@ export interface Piece {
   /** Hide the skin under the piece's fully covered faces. */
   hideSkin?: boolean;
   minIsland?: number;
+  /** Own texture coordinates from the base position (for prints that must run a set way, like stripes); default: the helper's UVs. */
+  uv?: (c: Point) => [number, number];
 }
 
 export interface MedievalSpec {
@@ -205,6 +207,10 @@ export interface MedievalSpec {
   hidesHair?: boolean;
   /** Pieces cut from base-mesh helpers. */
   pieces: (m: Landmarks) => Piece[];
+  /** A print drawn at import (`textures/<name>.png`); `color` is then the print's mean colour (sRGB). */
+  texture?: { name: string; png: () => Buffer };
+  /** How far the distant levels reduce it (default `GARMENT_LODS`): gentler for pieces whose cut edges must read at a distance. */
+  lods?: LodSteps;
 }
 
 /** Body measurements the cuts and envelopes are built from (base mesh, meters). */
@@ -547,16 +553,18 @@ export function buildSpecs(mc: MedievalContext, specs: MedievalSpec[]): Medieval
       blob: file,
       inflate: spec.inflate,
       material: { kind: "cloth", color: spec.color, roughness: spec.roughness },
+      ...(spec.texture ? { textures: { color: `textures/${spec.texture.name}.png` } } : {}),
       tags: [`fabric:${spec.fabric}`, `layer:${spec.layer}`, ...(covers ? ["covers:anatomy"] : []), ...(spec.hidesHair ? ["covers:hair"] : [])],
       baseIndex: writer.add("u32", g.map),
       uv: writer.add("f32", g.uv),
       indices: writer.add("u32", g.indices),
       ...(g.clip ? { clip: writer.add("f32", g.clip) } : {}),
-      simplified: simplifyLevels(writer, g.positions, g, GARMENT_LODS, g.clip),
+      simplified: simplifyLevels(writer, g.positions, g, spec.lods ?? GARMENT_LODS, g.clip),
       ...(g.hides.length ? { hidesBaseVertices: writer.add("u32", g.hides) } : {}),
     });
     out.proxies.push(proxy);
     out.files.push({ file, data: writer.toBuffer() });
+    if (spec.texture) out.files.push({ file: `textures/${spec.texture.name}.png`, data: spec.texture.png() });
     out.labels[spec.name] = spec.label;
     out.info[spec.name] = { label: spec.label, category: spec.category, occupies: spec.occupies, credit: "Actors procedural garment (MIT)" };
   }
@@ -651,7 +659,8 @@ export function fromPieces(mc: MedievalContext, spec: MedievalSpec, pieces: Piec
       for (const f of sel) for (const v of f.v) if (!isArm(mc.dominantBone(v)) || has(mc.dominantBone(v), "clavicle") || spec.category.endsWith("armour") && !spec.hangs) smoothOf.set(v, piece.smoothBind);
     }
     const rm = buildRenderMesh(mc.obj, sel);
-    const uv = groupUV(mc, piece.group)(rm.uv);
+    const own = piece.uv;
+    const uv = own ? rm.map.flatMap((v) => own({ x: P[v * 3], y: P[v * 3 + 1], z: P[v * 3 + 2], bone: mc.dominantBone(v) })) : groupUV(mc, piece.group)(rm.uv);
     const start = b.map.length;
     rm.map.forEach((v, i) => {
       if (!local.has(v)) {

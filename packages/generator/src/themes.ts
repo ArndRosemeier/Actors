@@ -10,6 +10,7 @@ export const THEMES: (Choice & { description: string })[] = [
   { id: "vintage", label: "Vintage", description: "The 1900s to 1950s: flapper dresses, evening gowns, furs, pearls, fedoras, top hats, trench coats." },
   { id: "future", label: "Future", description: "Clothes of 3026 and robots." },
   { id: "antique", label: "Antique", description: "Classical antiquity: draped gowns, tunics, crested helmets." },
+  { id: "age-of-sail", label: "Age of sail", description: "Navies around 1800: seamen's slops, marines, officers' tailcoats, epaulettes, bicornes." },
   { id: "medieval", label: "Medieval", description: "Tunics, hose, gowns, mail and plate, hoods and boots." },
   { id: "nordic", label: "Nordic", description: "Norse tunics, trousers, fur boots and horned caps." },
   { id: "eastern", label: "Eastern", description: "Kimono, harem trousers and the like." },
@@ -50,7 +51,6 @@ export const GARMENT_THEMES: Record<string, string[]> = {
   ...tag("modern vintage", "suit-tie suit-double suit-dinner elegant-male blouse-pencil-skirt fishnet-stockings work-boots longsleeve"),
   ...tag("modern vintage", "cocktail-dress pencil-skirt shirt-tie dress-trousers oxfords oxfords-female monk-straps trilby flat-cap handbag"),
   ...tag("vintage fantasy", "ruffle-dress"),
-  ...tag("vintage medieval", "buckled-shoes"),
   ...tag("vintage medieval fantasy", "wide-brim-hat"),
   // Future
   ...tag("future", `future-wrap future-trousers future-flares future-cocoon future-culottes future-screen-leggings future-shorts future-vest
@@ -66,6 +66,12 @@ export const GARMENT_THEMES: Record<string, string[]> = {
   ...tag("medieval", "plague-mask"),
   ...tag("medieval real-faith", "knight-helmet"),
   ...tag("medieval eastern antique fantasy", "cloth-shoes"),
+  // Age of sail
+  ...tag("age-of-sail", `navy-shirt navy-slops navy-slops-striped navy-jacket navy-waistcoat navy-breeches navy-gaiters navy-tailcoat
+    navy-coatee navy-lapels navy-collar navy-cuffs navy-stock navy-crossbelts navy-round-hat navy-knit-cap navy-bicorne navy-bicorne-lace
+    navy-cockade navy-cockade-tricolour navy-neckerchief navy-buttons-officer navy-buttons-single navy-buttons-jacket navy-epaulettes
+    navy-epaulette`),
+  ...tag("vintage medieval age-of-sail", "buckled-shoes"),
   // Nordic
   ...tag("nordic medieval fantasy", "viking-tunic viking-pants viking-boots"),
   ...tag("nordic fantasy", "horned-cap"),

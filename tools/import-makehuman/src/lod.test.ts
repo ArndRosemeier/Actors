@@ -60,6 +60,27 @@ describe("LOD simplification", () => {
     expect(level.indices.count / 3).toBeLessThanOrEqual(150);
   });
 
+  it("skips a level that would keep only the corners outside a narrow cut", async () => {
+    await ready;
+    // A cuff: two rows of quads round a forearm-sized tube, only the middle ring inside the cut.
+    const around = 16, rows = 3;
+    const positions: number[] = [];
+    for (let r = 0; r < rows; r++)
+      for (let k = 0; k < around; k++) positions.push(0.04 * Math.cos((k / around) * 2 * Math.PI), r * 0.025, 0.04 * Math.sin((k / around) * 2 * Math.PI));
+    const map = positions.filter((_, i) => i % 3 === 0).map((_, i) => i);
+    const indices: number[] = [];
+    for (let r = 0; r + 1 < rows; r++)
+      for (let k = 0; k < around; k++) {
+        const a = r * around + k, b = r * around + ((k + 1) % around);
+        indices.push(a, a + around, b, b, a + around, b + around);
+      }
+    const clip = map.map((v) => 0.004 - Math.abs(positions[v * 3 + 1] - 0.025));
+    const writer = new BlobWriter();
+    const levels = simplifyLevels(writer, positions, { map, indices }, [[1, 0.5, 0.015], [2, 0.4, 0.02]], clip) ?? [];
+    const buf = writer.toBuffer().buffer;
+    for (const l of levels) expect([...new Uint32Array(buf, l.indices.offset, l.indices.count)].some((i) => clip[i] >= 0)).toBe(true);
+  });
+
   it("keeps fingers out of the crowd skeleton", () => {
     const [, , crowd] = humanLods(["pelvis", "hand_l", "index_01_l", "thumb_03_r"]);
     expect(crowd.bones).toEqual(["pelvis", "hand_l"]);
