@@ -49,6 +49,7 @@ import { createPartMaterial, createPartMesh } from "./parts";
 import { addMorphAttributes, clearDeltas, morphArrays, morphsChanged, setDelta } from "./morphs";
 import { BASE_SPACE, type FaceRigUniforms, createFaceRigUniforms, faceSlotsFor, releaseFaceRigTexture, setFaceRigTexture, setFaceSlots, useFaceRig } from "./faceRig";
 import { createCrowdMaterial } from "./crowd";
+import { scalpVertices } from "./scalp";
 import { garmentLayer } from "./layers";
 import { RootSkeleton, bindRoot } from "./rootSkeleton";
 import { ScreenTexturePool, setScreenTexturePool, setScreenColor, updateScreen } from "./screens";
@@ -370,7 +371,7 @@ export class ThreeActor {
   readonly levels: readonly number[];
   private level = 0;
   /** Crowd level: body and garments merged into one mesh (see LodDef.merge). */
-  private crowd?: { mesh: THREE.SkinnedMesh; merged: MergedMesh };
+  private crowd?: { mesh: THREE.SkinnedMesh; merged: MergedMesh; scalp?: Uint32Array };
   /** Meshes that should be drawn at the current level (before crowd merging). */
   private readonly shown = new Set<string>();
 
@@ -1722,6 +1723,12 @@ export class ThreeActor {
     fillMerged(this.crowd.merged, this.lastShape, pos.array as Float32Array, nor.array as Float32Array);
     pos.needsUpdate = true;
     nor.needsUpdate = true;
+    // The scalp under the hair follows the shape: which vertices it is, and its colour, are redone.
+    const { parts } = this.crowd.merged;
+    const range = (p: (typeof parts)[number]) => ({ offset: p.offset, count: p.count });
+    const hair = parts.filter((p) => p.data.def.role === "hair" && p.data.def.slot === "hair").map(range);
+    this.crowd.scalp = hair.length ? scalpVertices(pos.array, nor.array, parts.filter((p) => p.data.def.role === "body").map(range), hair) : new Uint32Array(0);
+    if (this.crowd.scalp.length) this.colorCrowd();
   }
 
   /** Crowd mesh colours: skin where the body is, each garment's tint (or its texture's mean colour). */
@@ -1730,6 +1737,7 @@ export class ThreeActor {
     const g = this.crowd.mesh.geometry;
     const color = g.getAttribute("color") as THREE.BufferAttribute, skin = g.getAttribute("crowdSkin") as THREE.InterleavedBufferAttribute;
     const c = new THREE.Color();
+    let scalp: THREE.Color | undefined;
     for (const { data, offset, count } of this.crowd.merged.parts) {
       const { def } = data;
       const isSkin = def.role === "body" ? 1 : 0;
@@ -1744,6 +1752,14 @@ export class ThreeActor {
       for (let i = offset; i < offset + count; i++) {
         color.setXYZ(i, c.r, c.g, c.b);
         skin.setX(i, isSkin);
+      }
+      if (def.role === "hair" && def.slot === "hair") scalp ??= c.clone();
+    }
+    // Skin under the hair shows through the holes of the reduced hair cards: it takes the hair's colour.
+    if (scalp && this.crowd.scalp) {
+      for (const i of this.crowd.scalp) {
+        color.setXYZ(i, scalp.r, scalp.g, scalp.b);
+        skin.setX(i, 0);
       }
     }
     color.needsUpdate = true;
