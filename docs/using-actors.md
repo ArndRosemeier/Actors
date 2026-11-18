@@ -62,6 +62,58 @@ Other bundlers: create the worker with `new Worker(new URL("@actors/human/worker
 
 Characters on the same pack URL share everything loaded for it (pack, morph targets, garments, clips, textures, shaders), so only the first `Character.load` is slow. Keep that first character (or load one behind a loading screen), pass the same `worker` to every character, and call `await character.compile(renderer, camera, scene)` before adding a new one to the scene so its first frame doesn't stall on shader compilation. Details: [packages/generator/README.md](../packages/generator/README.md#spawning-many-characters-quickly).
 
+## Crowd figures: hundreds of people (0.37.0)
+
+A full character keeps its own buffers for every mesh it shows, several MB a person even at the
+crowd level. For crowds in the hundreds, keep a small pool of full characters near the camera and
+draw everyone else as **crowd figures**: a few bodies baked once (a build in an outfit, its dress
+and colours baked in), drawn as instances and animated on the GPU from the same clips. Node
+materials (three's `WebGPURenderer`) only.
+
+```ts
+import { Character, buildCrowdFigures } from "@actors/generator";
+import { createNodeCrowdFigureMaterial, nodeMaterials } from "@actors/three/webgpu";
+
+// Any character can be the workbench; it is dressed back as it was afterwards.
+const workbench = await Character.load({ pack, renderer, materials: nodeMaterials, worker });
+const figures = await buildCrowdFigures(workbench, {
+  material: createNodeCrowdFigureMaterial,
+  builds: { lean: { gender: 1, muscle: 0.6, weight: 0.32 }, stocky: { gender: 1, muscle: 0.75, weight: 0.6, height: 0.4 } },
+  kinds: [
+    // A build in an outfit; hats and hairstyles worn or not per man; garment groups recoloured per man.
+    { id: "seaman-lean", build: "lean", look: { outfit: ["briefs", "navy-shirt", "navy-jacket", "navy-slops", "navy-neckerchief"], garmentColors: { "navy-jacket": "#1f2a44" } },
+      options: ["navy-round-hat", "hair-short02", "hair-short-curls"], tints: [["navy-slops"], ["navy-shirt"]], max: 60 },
+  ],
+  clips: ["idle", "walk", "lean on rail"],
+  fps: 30, // bake rate; the GPU interpolates between frames
+});
+ship.add(figures.object); // or put each kind's mesh (figures.kinds.get(id).mesh) into its own frame
+const man = figures.add("seaman-lean", { skin: "#a87a5a", hair: "#3b2417", tints: ["#c9c1ab", "#e8e2d4"], show: ["navy-round-hat", "hair-short02"] });
+man.matrix.compose(position, turn, new THREE.Vector3(1.03, 1.03, 1.03)); // 3 % taller than his build
+figures.play(man, "walk", { time: 0.4 });       // phase; `fade` cross-fades from what he plays now
+// every frame, after placing the men:
+figures.update(dt);
+```
+
+- One draw (and one shadow draw) per kind, whatever the number of men. Per man the CPU only
+  writes ten texels a frame.
+- Every option (hat, hairstyle) is in the kind's mesh for every man; a man who does not wear it
+  draws nothing of it, but the GPU still runs its vertices (hair cards are dense). Few options per
+  kind cost less GPU; more kinds cost more memory (about 0.7 MB a kind in the navy wardrobe).
+- `figures.pose(man, poseOrActor)` poses a man from outside (procedural motion, or a full
+  character's bones as they are) through one of `liveSlots` atlas rows.
+- **Handing over** between a crowd man and a full character: `crowdToCharacter(figures, man, character)`
+  starts the character on the man's clip at his time and fades him out; `characterToCrowd(figures, man, character)`
+  gives the man the character's clip and time (or its pose) and fades him in (hide the character
+  after the fade). Both use the same skeleton and clips, so they stand in the same pose; the fade
+  is a dither, so nothing is sorted. Place the character where the man stands (`man.matrix`).
+- **Full characters with only some levels**: `Character.load({ ..., levels: [0, 1] })` makes no
+  crowd-level meshes (and `[2]` no full-detail ones), and keeps `setLod` to those levels.
+- Shaders: compile the figures' one material behind your loading screen with the rest
+  (`renderer.compileAsync(scene, camera)` after adding `figures.object`).
+- Check: `node apps/viewer/scripts/crowd-figures.mjs "http://localhost:5173/crowd.html?compare"`
+  (two brig crews, a pool of 12, memory and frame cost).
+
 ## Application-owned screen textures
 
 Since 0.8.1, `@actors/three` exports `screenPixels(timeSeconds, data?)` and

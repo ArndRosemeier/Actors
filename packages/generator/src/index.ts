@@ -5,6 +5,7 @@ export * from "./golden-age-outfits";
 export * from "./themes";
 export * from "./allow";
 export * from "./character";
+export * from "./crowd";
 export * from "./stage";
 export * from "./editor";
 export * from "./generator";
