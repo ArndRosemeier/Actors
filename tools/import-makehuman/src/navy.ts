@@ -105,6 +105,13 @@ const tails = (m: Landmarks, hemT: number, slant: number) => (c: Point) => {
  * and eats the lapels, so these keep more.
  */
 const EDGE_LODS: LodSteps = [[1, 0.5, 0.01, 12000], [2, 0.4, 0.02, 2000]];
+/**
+ * The coats and what lies on them (cross belts, lapels): a coarse coat's flat triangles sag under a
+ * thin belt by more than any gap the belt can be given, and the belt breaks up. These keep more
+ * triangles at the crowd level, so belt and coat sag together. The cross belts (a few hundred
+ * triangles, overlapping straps) are not reduced at all: reduced, their outline bends and slivers open.
+ */
+const COAT_LODS: LodSteps = [[1, 0.5, 0.008, 12000], [2, 0.7, 0.01, 3000]];
 const COAT = { gap: 0.022, share: 0.5 };
 const coatOffset = (m: Landmarks) => (c: Point) => m.torso.pushOut(c, COAT.gap, COAT.share);
 
@@ -259,17 +266,17 @@ export const NAVY_CUT: MedievalSpec[] = [
     ],
   },
   {
-    name: "navy-tailcoat", label: "Officer's tailcoat", category: NAVY_CLOTHING, occupies: ["coat"], over: ["navy-shirt", "navy-stock", "navy-waistcoat", "navy-breeches"], lods: EDGE_LODS,
+    name: "navy-tailcoat", label: "Officer's tailcoat", category: NAVY_CLOTHING, occupies: ["coat"], over: ["navy-shirt", "navy-stock", "navy-waistcoat", "navy-breeches"], lods: COAT_LODS,
     color: linear(NAVY_COLORS.navyBlue), roughness: 0.8, fabric: "weave", inflate: 0.012, layer: 2.6, hangs: true, hipShare: 0.45,
     pieces: (m) => coat(m, m.waist - 0.02, 0.5, 0.35),
   },
   {
-    name: "navy-coatee", label: "Marine's coatee", category: NAVY_CLOTHING, occupies: ["coat"], over: ["navy-shirt", "navy-stock", "navy-waistcoat", "navy-breeches"], lods: EDGE_LODS,
+    name: "navy-coatee", label: "Marine's coatee", category: NAVY_CLOTHING, occupies: ["coat"], over: ["navy-shirt", "navy-stock", "navy-waistcoat", "navy-breeches"], lods: COAT_LODS,
     color: linear(NAVY_COLORS.marineRed), roughness: 0.8, fabric: "weave", inflate: 0.012, layer: 2.6, hangs: true, hipShare: 0.45,
     pieces: (m) => coat(m, m.waist - 0.03, 0.22, 0.6),
   },
   {
-    name: "navy-lapels", label: "Coat lapels", category: NAVY_CLOTHING, occupies: ["lapels"], over: ["navy-shirt", "navy-waistcoat", "navy-tailcoat", "navy-coatee"], clear: 0.008, lods: EDGE_LODS,
+    name: "navy-lapels", label: "Coat lapels", category: NAVY_CLOTHING, occupies: ["lapels"], over: ["navy-shirt", "navy-waistcoat", "navy-tailcoat", "navy-coatee"], clear: 0.008, lods: COAT_LODS,
     color: linear(NAVY_COLORS.white), roughness: 0.8, fabric: "weave", inflate: 0.017, layer: 2.8,
     // A few millimetres proud of the coat, so they stay on top in a merged crowd mesh too (no per-garment lift there).
     pieces: (m) => [{ group: "helper-tights", minIsland: 4, smoothBind: 0.05, cut: lapelCut(m), offset: (c) => m.torso.pushOut(c, COAT.gap + 0.008, COAT.share + 0.1) }],
@@ -296,7 +303,7 @@ export const NAVY_CUT: MedievalSpec[] = [
     ],
   },
   {
-    name: "navy-crossbelts", label: "Cross belts", category: NAVY_CLOTHING, occupies: ["belts"], over: ["navy-shirt", "navy-waistcoat", "navy-jacket", "navy-tailcoat", "navy-coatee", "navy-lapels"], clear: 0.012, lods: EDGE_LODS,
+    name: "navy-crossbelts", label: "Cross belts", category: NAVY_CLOTHING, occupies: ["belts"], over: ["navy-shirt", "navy-waistcoat", "navy-jacket", "navy-tailcoat", "navy-coatee", "navy-lapels"], clear: 0.012, lods: [],
     color: linear(NAVY_COLORS.white), roughness: 0.55, fabric: "leather", inflate: 0.012, layer: 3.2,
     pieces: (m) => [
       {
