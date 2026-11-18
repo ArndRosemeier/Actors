@@ -196,18 +196,18 @@ export const NAVY_CUT: MedievalSpec[] = [
     ],
   },
   {
-    name: "navy-slops", label: "Seaman's wide trousers", category: NAVY_CLOTHING, occupies: ["bottom"],
+    name: "navy-slops", label: "Seaman's wide trousers", category: NAVY_CLOTHING, occupies: ["bottom"], over: ["navy-shirt"],
     color: linear(NAVY_COLORS.duck), roughness: 0.85, fabric: "weave", inflate: 0.008, layer: 0.65,
     pieces: (m) => [slops(m)],
   },
   {
-    name: "navy-slops-striped", label: "Striped wide trousers", category: NAVY_CLOTHING, occupies: ["bottom"],
+    name: "navy-slops-striped", label: "Striped wide trousers", category: NAVY_CLOTHING, occupies: ["bottom"], over: ["navy-shirt"],
     color: STRIPES_MEAN, roughness: 0.85, fabric: "weave", inflate: 0.008, layer: 0.65,
     texture: { name: "navy-stripes", png: () => stripesPng() },
     pieces: (m) => [{ ...slops(m), uv: legUV(m) }],
   },
   {
-    name: "navy-jacket", label: "Seaman's short jacket", category: NAVY_CLOTHING, occupies: ["jacket"],
+    name: "navy-jacket", label: "Seaman's short jacket", category: NAVY_CLOTHING, occupies: ["jacket"], over: ["navy-shirt", "navy-stock", "navy-slops", "navy-slops-striped", "navy-breeches"],
     color: linear(NAVY_COLORS.jacketBlue), roughness: 0.85, fabric: "weave", inflate: 0.011, layer: 2.3,
     pieces: (m) => [
       {
@@ -222,7 +222,7 @@ export const NAVY_CUT: MedievalSpec[] = [
     ],
   },
   {
-    name: "navy-waistcoat", label: "Waistcoat", category: NAVY_CLOTHING, occupies: ["vest"], lods: EDGE_LODS,
+    name: "navy-waistcoat", label: "Waistcoat", category: NAVY_CLOTHING, occupies: ["vest"], over: ["navy-shirt", "navy-stock", "navy-slops", "navy-slops-striped", "navy-breeches"], lods: EDGE_LODS,
     color: linear(NAVY_COLORS.white), roughness: 0.8, fabric: "weave", inflate: 0.008, layer: 1.6,
     pieces: (m) => [
       {
@@ -233,7 +233,7 @@ export const NAVY_CUT: MedievalSpec[] = [
     ],
   },
   {
-    name: "navy-breeches", label: "Knee breeches", category: NAVY_CLOTHING, occupies: ["bottom"],
+    name: "navy-breeches", label: "Knee breeches", category: NAVY_CLOTHING, occupies: ["bottom"], over: ["navy-shirt"],
     color: linear(NAVY_COLORS.white), roughness: 0.75, fabric: "weave", inflate: 0.005, layer: 0.6,
     pieces: (m) => [
       {
@@ -244,7 +244,7 @@ export const NAVY_CUT: MedievalSpec[] = [
     ],
   },
   {
-    name: "navy-gaiters", label: "Gaiters", category: NAVY_CLOTHING, occupies: ["gaiters"],
+    name: "navy-gaiters", label: "Gaiters", category: NAVY_CLOTHING, occupies: ["gaiters"], over: ["navy-breeches"],
     color: linear(NAVY_COLORS.black), roughness: 0.6, fabric: "weave", inflate: 0.013, layer: 2.2,
     pieces: (m) => [
       {
@@ -259,28 +259,28 @@ export const NAVY_CUT: MedievalSpec[] = [
     ],
   },
   {
-    name: "navy-tailcoat", label: "Officer's tailcoat", category: NAVY_CLOTHING, occupies: ["coat"], lods: EDGE_LODS,
+    name: "navy-tailcoat", label: "Officer's tailcoat", category: NAVY_CLOTHING, occupies: ["coat"], over: ["navy-shirt", "navy-stock", "navy-waistcoat", "navy-breeches"], lods: EDGE_LODS,
     color: linear(NAVY_COLORS.navyBlue), roughness: 0.8, fabric: "weave", inflate: 0.012, layer: 2.6, hangs: true, hipShare: 0.45,
     pieces: (m) => coat(m, m.waist - 0.02, 0.5, 0.35),
   },
   {
-    name: "navy-coatee", label: "Marine's coatee", category: NAVY_CLOTHING, occupies: ["coat"], lods: EDGE_LODS,
+    name: "navy-coatee", label: "Marine's coatee", category: NAVY_CLOTHING, occupies: ["coat"], over: ["navy-shirt", "navy-stock", "navy-waistcoat", "navy-breeches"], lods: EDGE_LODS,
     color: linear(NAVY_COLORS.marineRed), roughness: 0.8, fabric: "weave", inflate: 0.012, layer: 2.6, hangs: true, hipShare: 0.45,
     pieces: (m) => coat(m, m.waist - 0.03, 0.22, 0.6),
   },
   {
-    name: "navy-lapels", label: "Coat lapels", category: NAVY_CLOTHING, occupies: ["lapels"], lods: EDGE_LODS,
+    name: "navy-lapels", label: "Coat lapels", category: NAVY_CLOTHING, occupies: ["lapels"], over: ["navy-shirt", "navy-waistcoat", "navy-tailcoat", "navy-coatee"], clear: 0.008, lods: EDGE_LODS,
     color: linear(NAVY_COLORS.white), roughness: 0.8, fabric: "weave", inflate: 0.017, layer: 2.8,
     // A few millimetres proud of the coat, so they stay on top in a merged crowd mesh too (no per-garment lift there).
     pieces: (m) => [{ group: "helper-tights", minIsland: 4, smoothBind: 0.05, cut: lapelCut(m), offset: (c) => m.torso.pushOut(c, COAT.gap + 0.008, COAT.share + 0.1) }],
   },
   {
-    name: "navy-cuffs", label: "Coat cuffs", category: NAVY_CLOTHING, occupies: ["cuffs"], lods: EDGE_LODS,
+    name: "navy-cuffs", label: "Coat cuffs", category: NAVY_CLOTHING, occupies: ["cuffs"], over: ["navy-shirt", "navy-jacket", "navy-tailcoat", "navy-coatee"], clear: 0.008, lods: EDGE_LODS,
     color: linear(NAVY_COLORS.white), roughness: 0.8, fabric: "weave", inflate: 0.02, layer: 2.8,
     pieces: (m) => [{ group: "helper-tights", minIsland: 4, cut: cuffCut(m, 0.13, 0.967), offset: armOut(m, (t) => 0.004 * t + 0.007) }],
   },
   {
-    name: "navy-stock", label: "Neck stock", category: NAVY_CLOTHING, occupies: ["neck"],
+    name: "navy-stock", label: "Neck stock", category: NAVY_CLOTHING, occupies: ["neck"], lods: EDGE_LODS,
     color: linear(NAVY_COLORS.white), roughness: 0.7, fabric: "smooth", inflate: 0.004, layer: 1.2,
     pieces: (m) => [
       {
@@ -296,7 +296,7 @@ export const NAVY_CUT: MedievalSpec[] = [
     ],
   },
   {
-    name: "navy-crossbelts", label: "Cross belts", category: NAVY_CLOTHING, occupies: ["belts"], lods: EDGE_LODS,
+    name: "navy-crossbelts", label: "Cross belts", category: NAVY_CLOTHING, occupies: ["belts"], over: ["navy-shirt", "navy-waistcoat", "navy-jacket", "navy-tailcoat", "navy-coatee", "navy-lapels"], clear: 0.012, lods: EDGE_LODS,
     color: linear(NAVY_COLORS.white), roughness: 0.55, fabric: "leather", inflate: 0.012, layer: 3.2,
     pieces: (m) => [
       {
