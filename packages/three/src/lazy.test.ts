@@ -121,8 +121,9 @@ describe("reversed depth", () => {
     const plain = await shown(false), reversed = await shown(true);
     expect(plain.polygonOffset).toBe(true);
     expect(plain.polygonOffsetUnits).toBeLessThan(0);
-    expect(reversed.polygonOffsetUnits).toBe(-plain.polygonOffsetUnits);
-    expect(reversed.polygonOffsetFactor).toBe(-plain.polygonOffsetFactor);
+    // The other sign, in units only (a slope-scaled bias on a float depth buffer is centimetres: shirts show through coats).
+    expect(reversed.polygonOffsetUnits).toBe(-100 * plain.polygonOffsetUnits);
+    expect(reversed.polygonOffsetFactor).toBe(0);
   });
 });
 
@@ -185,7 +186,7 @@ describe("garments on one layer", () => {
     expect(b.hat).toBe(a.shirt); // the inner one keeps its layer's offset
     const r = await offsets(true, ["shirt", "hat"]);
     expect(r.hat).toBeGreaterThan(r.shirt); // reversed depth: the other sign
-    expect(r.shirt).toBe(-a.shirt);
+    expect(r.shirt).toBe(-100 * a.shirt);
   });
 });
 
