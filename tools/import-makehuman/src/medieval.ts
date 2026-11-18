@@ -37,6 +37,7 @@ import {
 } from "./garments";
 import type { Vec3 } from "./geometry";
 import { GARMENT_LODS, simplifyLevels, type LodSteps } from "./lod";
+import { type Shell, nestMoves } from "./nest";
 import { type ObjData, type ObjFace, buildRenderMesh } from "./obj";
 
 const min = Math.min, max = Math.max;
@@ -205,6 +206,13 @@ export interface MedievalSpec {
   /** Share of leg motion handed to the pelvis (skirt skinning); larger = calmer hem. */
   hipShare?: number;
   hidesHair?: boolean;
+  /**
+   * Garments of this kit worn under this one. Each of its vertices is lifted until it stands clear of theirs
+   * (`nestMoves`), so a fuller shirt sleeve or a higher shoulder never shows through. Built after them.
+   */
+  over?: string[];
+  /** The gap (meters) it keeps outside them (default 4 mm). A thin trim on a coat needs more where the crowd level's coarse coat sags under it. */
+  clear?: number;
   /** Pieces cut from base-mesh helpers. */
   pieces: (m: Landmarks) => Piece[];
   /** A print drawn at import (`textures/<name>.png`); `color` is then the print's mean colour (sRGB). */
@@ -526,11 +534,37 @@ export function landmarks(mc: MedievalContext): Landmarks & { eyes: Vec3 } {
 }
 
 /** Builds garments cut from base-mesh helpers, each in its own data file (`garments/<name>.bin`). */
+/** The specs, every garment after those it goes `over` (the order they are built in). */
+function nestOrder(specs: MedievalSpec[]): MedievalSpec[] {
+  const done = new Set<string>(), order: MedievalSpec[] = [];
+  const visit = (spec: MedievalSpec, trail: string[]) => {
+    if (done.has(spec.name)) return;
+    if (trail.includes(spec.name)) throw new Error(`${spec.name}: garments are over each other in a loop`);
+    for (const under of spec.over ?? []) {
+      const other = specs.find((s) => s.name === under);
+      if (!other) throw new Error(`${spec.name}: no garment ${under} to go over`);
+      visit(other, [...trail, spec.name]);
+    }
+    done.add(spec.name);
+    order.push(spec);
+  };
+  for (const spec of specs) visit(spec, []);
+  return order;
+}
+
 export function buildSpecs(mc: MedievalContext, specs: MedievalSpec[]): MedievalOutput {
   const m = landmarks(mc);
-  const out: MedievalOutput = { proxies: [], meshes: [], files: [], labels: {}, info: {} };
-  for (const spec of specs) {
-    const g = fromPieces(mc, spec, spec.pieces(m));
+  const shells = new Map<string, Shell>();
+  const built = new Map<string, MedievalOutput>();
+  for (const spec of nestOrder(specs)) {
+    const g = fromPieces(mc, spec, spec.pieces(m), shells);
+    const out: MedievalOutput = { proxies: [], meshes: [], files: [], labels: {}, info: {} };
+    built.set(spec.name, out);
+    shells.set(spec.name, {
+      pos: g.positions,
+      tris: Array.from({ length: g.indices.length / 3 }, (_, t) => [0, 1, 2].map((k) => g.map[g.indices[t * 3 + k]]) as [number, number, number]),
+      inflate: spec.inflate,
+    });
     const writer = new BlobWriter();
     const file = `garments/${spec.name}.bin`;
     const n = g.offsets.length / 3;
@@ -568,7 +602,17 @@ export function buildSpecs(mc: MedievalContext, specs: MedievalSpec[]): Medieval
     out.labels[spec.name] = spec.label;
     out.info[spec.name] = { label: spec.label, category: spec.category, occupies: spec.occupies, credit: "Actors procedural garment (MIT)" };
   }
-  return out;
+  // Outputs in the kit's own order, whatever order the garments were built in.
+  const all: MedievalOutput = { proxies: [], meshes: [], files: [], labels: {}, info: {} };
+  for (const spec of specs) {
+    const o = built.get(spec.name)!;
+    all.proxies.push(...o.proxies);
+    all.meshes.push(...o.meshes);
+    all.files.push(...o.files);
+    Object.assign(all.labels, o.labels);
+    Object.assign(all.info, o.info);
+  }
+  return all;
 }
 
 interface Built {
@@ -636,7 +680,7 @@ export function torsoSamples(mc: MedievalContext, spacing: number): number[] {
   return cache.get(spacing)!;
 }
 
-export function fromPieces(mc: MedievalContext, spec: MedievalSpec, pieces: Piece[]): Built {
+export function fromPieces(mc: MedievalContext, spec: MedievalSpec, pieces: Piece[], shells = new Map<string, Shell>()): Built {
   const P = mc.positions;
   const verts: number[] = [];
   const local = new Map<number, number>();
@@ -678,6 +722,20 @@ export function fromPieces(mc: MedievalContext, spec: MedievalSpec, pieces: Piec
     const inside = insideFaces(sel, cut);
     if (piece.hideSkin) covered.push(...inside.map((f) => f.v));
     if (piece.group !== "body" && inside.some((f) => f.v.some((v) => Math.hypot(P[v * 3] - gc[0], P[v * 3 + 1] - gc[1], P[v * 3 + 2] - gc[2]) < 0.06))) b.coversAnatomy = true;
+  }
+  // Stand clear of the garments worn under this one (before the binding, which measures its offsets from these positions).
+  if (spec.over?.length) {
+    const tris: [number, number, number][] = [];
+    for (let t = 0; t < b.indices.length; t += 3) tris.push([0, 1, 2].map((k) => b.map[b.indices[t + k]]) as [number, number, number]);
+    const moves = nestMoves(b.positions, tris, spec.inflate, spec.over.map((name) => shells.get(name)!), spec.clear ? { margin: spec.clear } : undefined);
+    let lifted = 0, most = 0;
+    for (let i = 0; i < moves.length / 3; i++) {
+      const d = Math.hypot(moves[i * 3], moves[i * 3 + 1], moves[i * 3 + 2]);
+      if (d > 0.0005) lifted++;
+      most = Math.max(most, d);
+      for (let k = 0; k < 3; k++) { b.positions[i * 3 + k] += moves[i * 3 + k]; offsets[i * 3 + k] += moves[i * 3 + k]; }
+    }
+    console.log(`  ${spec.name}: ${lifted} of ${verts.length} vertices lifted clear of ${spec.over.join(", ")} (most ${(most * 1000).toFixed(1)} mm)`);
   }
   for (const v of verts) {
     const spacing = smoothOf.get(v);
