@@ -12,7 +12,7 @@
  */
 import * as THREE from "three";
 import { MeshStandardNodeMaterial } from "three/webgpu";
-import { Fn, If, attribute, dFdx, dFdy, dot, exp2, float, floor, fract, int, instanceIndex, ivec2, mod, normalGeometry, normalLocal, normalize, positionGeometry, positionLocal, screenCoordinate, select, sRGBTransferEOTF, texture, uniform, uv, varying, vec2, vec3, vec4 } from "./tsl";
+import { Fn, If, attribute, dFdx, dFdy, dot, faceDirection, exp2, float, floor, fract, int, instanceIndex, ivec2, mod, normalGeometry, normalLocal, normalize, positionGeometry, positionLocal, screenCoordinate, select, sRGBTransferEOTF, texture, uniform, uv, varying, vec2, vec3, vec4 } from "./tsl";
 import { CROWD_ATLAS_ROWS, CROWD_HAIR_MAPS, CROWD_ROW, CROWD_SLOT, type CrowdFigures, type CrowdKind } from "../crowdFigure";
 import type { N } from "./types";
 
@@ -109,7 +109,8 @@ export function createNodeCrowdFigureMaterial(figures: CrowdFigures): MeshStanda
   col = colour(CROWD_SLOT.skin, CROWD_ROW.skin, col);
   col = colour(CROWD_SLOT.hair, CROWD_ROW.hair, col);
   for (let t = 0; t < 3; t++) col = colour(CROWD_SLOT.tint + t, CROWD_ROW.tints + t, col);
-  const colorNode = vec4(varying(col), 1);
+  // Drawn from both sides (inward-wound pieces such as buttons and neckerchief tails show too); insides are dark.
+  const colorNode = vec4(select(faceDirection.greaterThan(0), varying(col), vec3(0.05, 0.03, 0.03)), 1);
 
   // Cuts: hems (interpolated hem value below 0), hair cards by their texture's alpha, and the fade's dither.
   const uvS = uv();
@@ -138,7 +139,7 @@ export function createNodeCrowdFigureMaterial(figures: CrowdFigures): MeshStanda
   const noise = fract(fract(dot(screenCoordinate.xy, vec2(0.06711056, 0.00583715))).mul(52.9829189));
   const mask = info.z.greaterThanEqual(0).and(alpha.greaterThanEqual(HAIR_CUT)).and(noise.lessThan(opacity));
 
-  const mat = new MeshStandardNodeMaterial({ roughness: 0.8, metalness: 0 });
+  const mat = new MeshStandardNodeMaterial({ roughness: 0.8, metalness: 0, side: THREE.DoubleSide });
   mat.colorNode = colorNode;
   (mat as unknown as { maskNode: N }).maskNode = mask;
   const main = skin(true), shadow = skin(false);
