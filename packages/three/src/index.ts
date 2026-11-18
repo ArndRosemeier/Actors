@@ -65,6 +65,7 @@ export * from "./parts";
 export * from "./morphs";
 export * from "./faceRig";
 export * from "./crowd";
+export * from "./crowdFigure";
 export * from "./fur";
 export { srgb } from "./color";
 export * from "./library";
@@ -347,6 +348,13 @@ export class ThreeActor {
   readonly reversedDepth: boolean;
   /** The pack's detail levels (see `setLod`). */
   readonly lods: LodDef[];
+  /**
+   * The levels this actor can be drawn at (constructor option `levels`; default all). Meshes drawn
+   * only at other levels are never made, so an actor kept to the near levels holds no crowd mesh,
+   * and one kept to the crowd level no subdivided body, lashes or teeth (each level's meshes are
+   * several MB a person). `setLod` and `updateLod` pick the nearest of these.
+   */
+  readonly levels: readonly number[];
   private level = 0;
   /** Crowd level: body and garments merged into one mesh (see LodDef.merge). */
   private crowd?: { mesh: THREE.SkinnedMesh; merged: MergedMesh };
@@ -357,12 +365,15 @@ export class ThreeActor {
   constructor(
     readonly runtime: ActorRuntime,
     materials: MaterialFactory | ActorMaterialKit = webglMaterials,
-    options: { screenTextures?: ScreenTexturePool | null; reversedDepth?: boolean } = {},
+    options: { screenTextures?: ScreenTexturePool | null; reversedDepth?: boolean; levels?: readonly number[] } = {},
   ) {
     this.screenPool = options.screenTextures ?? null;
     this.reversedDepth = options.reversedDepth ?? false;
     this.kit = typeof materials === "function" ? { ...webglMaterials, mesh: materials } : materials;
     this.lods = lodLevels(runtime.manifest);
+    const allowed = [...new Set((options.levels ?? this.lods.map((_, i) => i)).filter((l) => l >= 0 && l < this.lods.length))].sort((a, b) => a - b);
+    this.levels = allowed.length ? allowed : [0];
+    this.level = this.levels[0];
     this.rendered = runtime.meshes.filter((m) => !m.def.internal);
     const skel = runtime.manifest.skeleton;
     if (skel) {
@@ -446,11 +457,23 @@ export class ThreeActor {
       if (slot && visible) this.slotsSeen.add(slot);
       this.wanted.set(data.def.name, visible);
       // Scene meshes (and their buffers) are only made for what is shown: a garment or hairstyle
-      // nobody wears costs nothing (see ensureMesh).
-      if (visible) this.ensureMesh(data);
+      // nobody wears costs nothing (see ensureMesh), nor a mesh of a level this actor is never drawn at.
+      if (visible && this.drawnAtSome(data)) this.ensureMesh(data);
     }
     this.visDirty = true;
     if (this.level > 0) this.flushVisibility();
+  }
+
+  /** Whether a mesh is drawn at one of `levels` (eyes count at merging levels, see `crowdEyes`). */
+  private drawnAtSome(data: MeshData): boolean {
+    return this.levels.some((l) => drawnAt(data.def, l) || (data.def.role === "eyes" && this.eyesInCrowd && !!this.lods[l].merge));
+  }
+
+  /** The allowed level (see `levels`) nearest to `level`; of two as near, the finer. */
+  private allowedLevel(level: number): number {
+    let best = this.levels[0];
+    for (const l of this.levels) if (Math.abs(l - level) < Math.abs(best - level)) best = l;
+    return best;
   }
 
   /** Whether a shape includes the surface a mesh follows (garments are only fitted when needed, see `neededMeshes`). */
@@ -472,7 +495,8 @@ export class ThreeActor {
       for (const [m, e] of this.data) if (e.def.lodOf === n) out.add(m);
       if (d.def.lodOf) out.add(d.def.lodOf);
     }
-    return [...out];
+    // Nothing for levels this actor is never drawn at (a crowd-only actor needs no subdivided body).
+    return [...out].filter((n) => this.drawnAtSome(this.data.get(n)!));
   }
 
   /** The scene mesh of a mesh, made on first use (filled from the last shape when it includes it). */
@@ -800,7 +824,7 @@ export class ThreeActor {
    * only those; levels with `merge` draw body and garments as one mesh.
    */
   setLod(level: number): void {
-    level = Math.max(0, Math.min(this.lods.length - 1, Math.round(level)));
+    level = this.allowedLevel(Math.max(0, Math.min(this.lods.length - 1, Math.round(level))));
     this.flushVisibility();
     if (level === this.level) return;
     const bonesBefore = this.lods[this.level].bones;
@@ -1482,8 +1506,27 @@ export class ThreeActor {
   private mergeable(data: MeshData): boolean {
     const role = data.def.role;
     if (role === "hair") return this.mergeHair && !!data.def.textures?.color;
-    return (role === "body" || role === "garment") && !this.usesColliders(data);
+    return (role === "body" || role === "garment") && (this.mergeSkirts || !this.usesColliders(data));
   }
+
+  /**
+   * Whether crowd levels merge skirt-skinned garments (coat tails, skirts) into the crowd mesh too
+   * (default false: they keep their own mesh with the leg colliders, so legs never pierce them).
+   * True makes every outfit one draw; the legs may show through a skirt in a stride. Crowd figures
+   * (`crowdPieces`) bake with it on.
+   */
+  get crowdSkirts(): boolean {
+    return this.mergeSkirts;
+  }
+
+  set crowdSkirts(on: boolean) {
+    if (on === this.mergeSkirts) return;
+    this.mergeSkirts = on;
+    this.shownKey = "";
+    this.updateVisibility();
+  }
+
+  private mergeSkirts = false;
 
   /**
    * Whether crowd levels merge hair into the one crowd mesh (default true: a far person is one

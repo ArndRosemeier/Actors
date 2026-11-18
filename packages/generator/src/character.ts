@@ -54,6 +54,12 @@ export interface CharacterOptions {
    * sharing with it later use it as well: one lead per worker makes a worker pool.
    */
   shareWith?: Character;
+  /**
+   * The detail levels this character can be drawn at (indices into `lods`; default all). Meshes of
+   * other levels are never made: a character a game only shows near the camera (`[0, 1]`) holds no
+   * crowd mesh, one only shown far off no subdivided body. See `ThreeActor.levels`.
+   */
+  levels?: readonly number[];
 }
 
 /** Procedural skin tones from light to dark, as sRGB (the colours one sees; `new Color(r, g, b)` would read them as linear and turn them almost white). */
@@ -133,10 +139,11 @@ export class Character {
     screenTextures?: ScreenTexturePool | null,
     themes?: ThemeFilter,
     allow?: AllowOptions,
+    levels?: readonly number[],
   ) {
     // three's WebGPURenderer can draw with a reversed depth buffer (garment offsets then flip).
     const reversedDepth = (renderer as { reversedDepthBuffer?: boolean } | null)?.reversedDepthBuffer === true;
-    this.actor = new ThreeActor(human.runtime, materials, { screenTextures, reversedDepth });
+    this.actor = new ThreeActor(human.runtime, materials, { screenTextures, reversedDepth, levels });
     const built = buildCatalog(human, Object.keys(IRIS_PRESETS));
     const themed = themes ? filterCatalog(built, themes) : built;
     const all = allow ? allowCatalog(themed, allow) : themed;
@@ -150,14 +157,14 @@ export class Character {
       const human = Human.share(options.shareWith.human);
       // Its own worker: the lead of a worker pool (crowd members then share with one of the leads).
       if (options.worker) await human.useWorker(options.worker);
-      const c = new Character(human, options.renderer, options.materials ?? options.shareWith.actor.kit, options.catalog, options.screenTextures === undefined ? options.shareWith.actor.screenTextures : options.screenTextures, options.themes, options.allow);
+      const c = new Character(human, options.renderer, options.materials ?? options.shareWith.actor.kit, options.catalog, options.screenTextures === undefined ? options.shareWith.actor.screenTextures : options.screenTextures, options.themes, options.allow, options.levels);
       await c.set(options.config ?? {});
       return c;
     }
     const human = await Human.load(options.pack, options.fetcher);
     if (options.clipLibraries !== false) await Promise.all((human.runtime.manifest.clipLibraries ?? []).map((l) => human.runtime.loadClipLibrary(l.name)));
     if (options.worker) await human.useWorker(options.worker);
-    const c = new Character(human, options.renderer, options.materials, options.catalog, options.screenTextures, options.themes, options.allow);
+    const c = new Character(human, options.renderer, options.materials, options.catalog, options.screenTextures, options.themes, options.allow, options.levels);
     await c.set(options.config ?? {});
     return c;
   }

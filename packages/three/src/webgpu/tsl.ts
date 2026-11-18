@@ -10,4 +10,5 @@ export const {
   BRDF_Lambert, Fn, If, Loop, OnObjectUpdate, TBNViewMatrix, abs, attribute, clamp, cross, dFdx, dFdy, diffuseContribution, dot, exp, faceDirection, float, floor, fract, fwidth,
   length, materialColor, max, min, mix, morphReference, mx_hsvtorgb, mx_rgbtohsv, normalLocal, normalView, normalize, positionGeometry, positionLocal, positionView, positionViewDirection, pow, property, reference,
   referenceBuffer, select, sign, sin, skinning, smoothstep, sqrt, step, subBuild, texture, uniform, uv, varying, vec2, vec3, vec4, cos, mod, int, instanceIndex, Discard, normalGeometry, normalViewGeometry, ivec2, textureLoad, uniformArray,
+  exp2, screenCoordinate, sRGBTransferEOTF,
 } = T;
