@@ -276,11 +276,24 @@ function evenLift(lift: Float32Array, refs: Uint32Array, weights: Float32Array, 
   return out;
 }
 
+/**
+ * A polygon offset for a reversed float depth buffer, from the one meant for a forward buffer (which pulls
+ * with `factor` and `units`, negative toward the camera). The sign turns, and the slope-scaled part is
+ * dropped: on a float depth buffer a slope's share is not millimetres but whole centimetres on a tilted
+ * surface (a sleeve, a shoulder seen from the side), so a lower layer wins there and white shirts show
+ * through coats in torn patches. Units alone grow with the distance in proportion to the depth's own
+ * precision, which is what a layer's few millimetres of room need.
+ */
+export function reversedOffset(factor: number, units: number): { factor: number; units: number } {
+  return { factor: 0, units: -(units * 50 + factor * 100) };
+}
+
 export function reverseOffsets(material: THREE.Material | THREE.Material[]): void {
   for (const m of Array.isArray(material) ? material : [material]) {
     if (!m.polygonOffset || m.userData.offsetReversed) continue;
-    m.polygonOffsetFactor = -m.polygonOffsetFactor;
-    m.polygonOffsetUnits = -m.polygonOffsetUnits;
+    const { factor, units } = reversedOffset(m.polygonOffsetFactor, m.polygonOffsetUnits);
+    m.polygonOffsetFactor = factor;
+    m.polygonOffsetUnits = units;
     m.userData.offsetReversed = true;
   }
 }
@@ -343,7 +356,7 @@ export class ThreeActor {
   readonly userData: Record<string, unknown> = {};
   /**
    * The renderer uses a reversed depth buffer (WebGPURenderer `reversedDepthBuffer`): garment layers
-   * are drawn over the skin by polygon offsets toward the camera, which then have the other sign.
+   * are drawn over the skin by polygon offsets toward the camera, which then have the other sign and no slope part (see `reversedOffset`).
    */
   readonly reversedDepth: boolean;
   /** The pack's detail levels (see `setLod`). */
@@ -431,14 +444,15 @@ export class ThreeActor {
       const other = this.data.get(name);
       if (other?.def.material.kind === "cloth" && garmentLayer(other.def) === layer) rank++;
     }
-    // Negative pulls toward the camera; a reversed depth buffer has the other sign (see reverseOffsets).
+    // Negative pulls toward the camera; a reversed depth buffer has the other sign and units only (see reversedOffset).
     // Beside a merged crowd mesh (one material, no offsets) a garment drawn on its own sits at its true
     // depth: its layer's pull would put it in front of everything merged over it (lapels on a skirted coat).
     const merged = !!this.lods[this.level]?.merge;
-    const out = merged ? 0 : (layer + rank * 0.25) * (this.reversedDepth ? 1 : -1);
-    if (mat.polygonOffsetFactor === 2 * out && mat.polygonOffsetUnits === 4 * out) return;
-    mat.polygonOffsetFactor = 2 * out;
-    mat.polygonOffsetUnits = 4 * out;
+    const pull = merged ? 0 : -(layer + rank * 0.25);
+    const { factor, units } = this.reversedDepth ? reversedOffset(2 * pull, 4 * pull) : { factor: 2 * pull, units: 4 * pull };
+    if (mat.polygonOffsetFactor === factor && mat.polygonOffsetUnits === units) return;
+    mat.polygonOffsetFactor = factor;
+    mat.polygonOffsetUnits = units;
   }
 
   /** Those of `list` this actor has no mesh for yet (e.g. loaded into a shared pack by another actor). */
