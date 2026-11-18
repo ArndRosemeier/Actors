@@ -58,7 +58,7 @@ import type { MeshData, PartMesh } from "@actors/core";
 import type { ActorMaterialKit, ThreeActor } from "../index";
 import { MAX_COLLIDERS, type ColliderUniforms } from "../colliders";
 import { garmentLayer } from "../layers";
-import { WRINKLE_SLOPE, createSkinUniforms, type SkinUniforms } from "../materials";
+import { WRINKLE_SLOPE, createSkinUniforms, type ClothTintUniforms, type SkinUniforms } from "../materials";
 import { METAL_FABRICS, fabricNormalMap, lashAlphaMap, poreNormalMap } from "../procedural";
 import { type ScreenTexturePool, useScreenMaterial } from "../screens";
 import { beardTexture, leafTexture, robotMaterialParams } from "../parts";
@@ -397,18 +397,22 @@ export function createNodeEyeMaterial(map: THREE.Texture | null, actor: ThreeAct
   return useNodeDqs(mat);
 }
 
-/** Recolours the material's colour (color x map) to `tint`, keeping its brightness pattern; mix 0 = own colour. */
-function tinted(tint: N, mixNode: N, meanLum: N): N {
+/**
+ * Recolours the material's colour (color x map) to `tint`, keeping its brightness pattern; mix 0 = own colour.
+ * `pattern` below 1 keeps only that share of the print (a dyed costume piece, COSTUME_DYED_PATTERN; as uTintPattern in ../materials.ts).
+ */
+function tinted(tint: N, mixNode: N, meanLum: N, pattern?: N): N {
   const base = materialColor;
   const g = dot(base.rgb, vec3(0.2126, 0.7152, 0.0722)).div(meanLum);
   // A soft knee above 1 (as tintGain in ../materials.ts): bright patches of a dark, high-contrast texture
   // stay lighter than the tint instead of turning white (gain below 1.5).
-  const gain = select(g.greaterThan(1), g.sub(1).mul(0.5).div(g.sub(0.5)).add(1), g);
+  const knee = select(g.greaterThan(1), g.sub(1).mul(0.5).div(g.sub(0.5)).add(1), g);
+  const gain = pattern ? select(pattern.lessThan(1), g.sub(1).clamp(-1, 1).mul(pattern).add(1), knee) : knee;
   return vec4(mix(base.rgb, tint.mul(gain), mixNode), base.a);
 }
 
 /** A garment's colour, recoloured to its tint (shared graph). */
-const clothColor = once(() => tinted(input("tint.color", new THREE.Color(1, 1, 1)), input("tint.mix", 0), input("tint.meanLum", 0.2)));
+const clothColor = once(() => tinted(input("tint.color", new THREE.Color(1, 1, 1)), input("tint.mix", 0), input("tint.meanLum", 0.2), input("tint.pattern", 1)));
 
 /** A garment's cut-out: its colour texture's alpha at full resolution (shared graph). */
 const clothCutout = once(() => inputTexture("cloth.map", white, undefined, 0).a);
@@ -446,13 +450,14 @@ export function createNodeClothMaterial(
     polygonOffsetFactor: -2 * layer,
     polygonOffsetUnits: -4 * layer,
   });
-  const tint = { uTint: { value: new THREE.Color(1, 1, 1) }, uTintMix: { value: 0 }, uTintMeanLum: { value: Math.max(0.01, meanLum) } };
+  // The same uniforms as the WebGL kit's (ClothTintUniforms): ThreeActor.setGarmentPattern writes uTintPattern.
+  const tint: ClothTintUniforms = { uTint: { value: new THREE.Color(1, 1, 1) }, uTintMix: { value: 0 }, uTintMeanLum: { value: Math.max(0.01, meanLum) }, uTintPattern: { value: 1 } };
   mat.userData.tint = tint;
   mat.colorNode = clothColor();
   // Cut-outs from the texture's full-resolution alpha (see createClothMaterial: mip levels punched holes along seams).
   if (map) mat.opacityNode = clothCutout();
   if (fabric === "screen") useScreenMaterial(mat, color, screenTextures);
-  return useNodeDqs(feed(mat, { "tint.color": () => tint.uTint.value, "tint.mix": () => tint.uTintMix.value, "tint.meanLum": () => tint.uTintMeanLum.value, "cloth.map": () => map }));
+  return useNodeDqs(feed(mat, { "tint.color": () => tint.uTint.value, "tint.mix": () => tint.uTintMix.value, "tint.meanLum": () => tint.uTintMeanLum.value, "tint.pattern": () => tint.uTintPattern.value, "cloth.map": () => map }));
 }
 
 const clipMask = once(() => attribute("clipValue", "float").greaterThanEqual(0));
